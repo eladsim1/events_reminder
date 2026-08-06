@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  בנייית release של Flutter מפעילה shrinkResources. ההפניה היחידה ל-
+  ic_notification היא מחרוזת בקוד Dart ('@drawable/ic_notification'),
+  ומסיר המשאבים אינו רואה אותה – ולכן הוא מוחק את האייקון מה-APK
+  וההתראה נשארת בלי אייקון. הצהרה זו מונעת את המחיקה.
+-->
+<resources
+    xmlns:tools="http://schemas.android.com/tools"
+    tools:keep="@drawable/ic_notification" />

@@ -1,0 +1,41 @@
+# Flutter / Dart
+/build/
+.dart_tool/
+.packages
+.pub-cache/
+.pub/
+pubspec.lock.bak
+.flutter-plugins
+.flutter-plugins-dependencies
+*.dart_tool
+doc/api/
+
+# IDEs
+.idea/
+.vscode/
+*.iml
+*.ipr
+*.iws
+.history/
+
+# Android build output and machine-specific config
+android/.gradle/
+android/captures/
+android/app/debug/
+android/app/profile/
+android/app/release/
+# מכיל נתיבים מקומיים ל-SDK; נוצר אוטומטית ע"י Flutter בכל מכונה.
+android/local.properties
+android/.cxx/
+
+# חתימת release – סודות. אין להעלות לעולם.
+android/key.properties
+*.jks
+*.keystore
+
+# פלט של השוואת goldens שנכשלה (התמונות עצמן כן נשמרות ב-git)
+test/failures/
+
+# OS
+.DS_Store
+Thumbs.db

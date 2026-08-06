@@ -1,0 +1,52 @@
+name: azkarot_app
+description: "אפליקציית תזכורת אזכרות לפי התאריך העברי"
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.6.0 <4.0.0'
+  flutter: ">=3.27.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+
+  # State management
+  flutter_riverpod: ^2.5.1
+
+  # Database
+  sqflite: ^2.3.3
+  path: ^1.9.0
+
+  # Notifications
+  # 17.x מקומפל מול compileSdk 34 עם AGP 7.3 ואינו נבנה מול הטולצ'יין הנוכחי.
+  flutter_local_notifications: ^22.0.0
+  timezone: ^0.11.0
+
+  # Hebrew calendar
+  kosher_dart: ^2.0.16
+
+  # Import/Export
+  # 8.x מקומפל מול compileSdk 34 ונדחה ע"י flutter_plugin_android_lifecycle.
+  file_picker: ^11.0.0
+  url_launcher: ^6.3.2
+  path_provider: ^2.1.6
+
+  # הרשאות ההתראות מתבקשות דרך flutter_local_notifications עצמו
+  # (requestNotificationsPermission / requestExactAlarmsPermission),
+  # ולכן אין צורך ב-permission_handler.
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+  # מריץ sqflite אמיתי על ה-VM כדי שאפשר יהיה לבדוק את שכבת מסד הנתונים
+  # ללא מכשיר אנדרואיד.
+  sqflite_common_ffi: ^2.3.3
+
+flutter:
+  uses-material-design: true

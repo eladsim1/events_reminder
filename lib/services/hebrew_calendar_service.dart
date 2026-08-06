@@ -1,0 +1,460 @@
+import 'package:kosher_dart/kosher_dart.dart';
+
+import '../models/hebrew_date.dart';
+import '../models/memorial.dart';
+
+/// שירות מרכזי לכל חישובי התאריכים העבריים והלועזיים.
+///
+/// **חשוב:** כל לוגיקת התאריכים באפליקציה מרוכזת כאן בלבד.
+/// שכבת ה-UI אינה מבצעת חישובי תאריכים ישירות.
+///
+/// עוטף את kosher_dart ומספק API נקי לשאר האפליקציה.
+///
+/// הערה על מספרי חודשים: אנו משתמשים בערכים המספריים של kosher_dart/KosherJava
+/// ישירות (ולא בקבועים בעלי שם, שכן שמם משתנה בין גרסאות/forks של החבילה –
+/// NISSAN מול NISAN וכד'). המספור:
+///   ניסן=1, אייר=2, סיוון=3, תמוז=4, אב=5, אלול=6,
+///   תשרי=7, חשוון=8, כסלו=9, טבת=10, שבט=11,
+///   אדר=12, אדר ב'=13 (רק בשנה מעוברת).
+class HebrewCalendarService {
+  /// מקור הזמן הנוכחי. ברירת המחדל היא שעון המערכת; ניתן להזרקה כדי
+  /// שתצוגות התלויות ב"היום" (למשל מספר הימים עד התזכורת) יהיו ניתנות
+  /// לבדיקה דטרמיניסטית.
+  final DateTime Function() _now;
+
+  HebrewCalendarService({DateTime Function()? now}) : _now = now ?? DateTime.now;
+
+  // מספרי החודשים לפי kosher_dart (זהים ל-KosherJava).
+  static const int _nissan = 1;
+  static const int _iyar = 2;
+  static const int _sivan = 3;
+  static const int _tammuz = 4;
+  static const int _av = 5;
+  static const int _elul = 6;
+  static const int _tishrei = 7;
+  static const int _cheshvan = 8;
+  static const int _kislev = 9;
+  static const int _teves = 10;
+  static const int _shevat = 11;
+  static const int _adar = 12;
+  static const int _adarII = 13;
+
+  /// ממיר חודש שאינו אדר למספר החודש בשיטת kosher_dart.
+  int _kosherMonth(HebrewMonth month) {
+    switch (month) {
+      case HebrewMonth.tishrei:
+        return _tishrei;
+      case HebrewMonth.cheshvan:
+        return _cheshvan;
+      case HebrewMonth.kislev:
+        return _kislev;
+      case HebrewMonth.tevet:
+        return _teves;
+      case HebrewMonth.shevat:
+        return _shevat;
+      case HebrewMonth.nisan:
+        return _nissan;
+      case HebrewMonth.iyar:
+        return _iyar;
+      case HebrewMonth.sivan:
+        return _sivan;
+      case HebrewMonth.tammuz:
+        return _tammuz;
+      case HebrewMonth.av:
+        return _av;
+      case HebrewMonth.elul:
+        return _elul;
+      // חודשי אדר מטופלים דרך _resolveAdarMonth.
+      case HebrewMonth.adar:
+      case HebrewMonth.adarA:
+      case HebrewMonth.adarB:
+        return _adar;
+    }
+  }
+
+  /// מטפל בהמרת אדר לפי סוג האדר עבור שנה קונקרטית.
+  ///
+  /// כאשר אזכרה נשמרה כ"אדר" סתמי (בשנה פשוטה) והיא מחושבת לשנה מעוברת,
+  /// המנהג הרווח הוא לציין את יום השנה באדר ב'. לכן:
+  ///  - adar   -> בשנה מעוברת נבחר אדר ב' (13); בשנה פשוטה אדר (12).
+  ///  - adarA  -> אדר א' (12).
+  ///  - adarB  -> אדר ב' (13) בשנה מעוברת; אדר (12) בשנה פשוטה.
+  int _resolveAdarMonth(int hebrewYear, AdarType adarType) {
+    final leap = _isHebrewLeapYear(hebrewYear);
+    if (!leap) return _adar;
+    switch (adarType) {
+      case AdarType.adarA:
+        return _adar; // אדר א' = 12
+      case AdarType.adarB:
+      case AdarType.adar:
+        return _adarII; // אדר ב' = 13
+      case AdarType.none:
+        return _adar;
+    }
+  }
+
+  /// מחזיר את מספר החודש בשיטת kosher_dart עבור אזכרה בשנה נתונה.
+  int _monthForYear(HebrewMonth month, AdarType adarType, int hebrewYear) {
+    if (month.isAdar) return _resolveAdarMonth(hebrewYear, adarType);
+    return _kosherMonth(month);
+  }
+
+  /// אלגוריתם 19 שנים: שנים 3,6,8,11,14,17,19 במחזור הן מעוברות.
+  bool _isHebrewLeapYear(int hebrewYear) {
+    return ((7 * hebrewYear) + 1) % 19 < 7;
+  }
+
+  /// האם שנה עברית נתונה היא מעוברת.
+  bool isLeapYear(int hebrewYear) => _isHebrewLeapYear(hebrewYear);
+
+  /// מחזיר את השנה העברית שבה חל תאריך לועזי נתון.
+  int _hebrewYearOf(DateTime gregorian) {
+    final jd = JewishDate();
+    jd.setDate(gregorian);
+    return jd.getJewishYear();
+  }
+
+  /// מחזיר את השנה העברית הנוכחית.
+  int _currentHebrewYear() => _hebrewYearOf(_now());
+
+  int currentHebrewYear() => _currentHebrewYear();
+
+  /// מספר הימים בחודש עברי נתון עבור שנה נתונה (או השנה הנוכחית).
+  int daysInMonth({
+    required HebrewMonth month,
+    required AdarType adarType,
+    int? forYear,
+  }) {
+    final year = forYear ?? _currentHebrewYear();
+    try {
+      final kMonth = _monthForYear(month, adarType, year);
+      final jd = JewishDate();
+      jd.setJewishDate(year, kMonth, 1);
+      return jd.getDaysInJewishMonth();
+    } catch (_) {
+      return 29;
+    }
+  }
+
+  /// בודק אם צירוף יום/חודש/סוג-אדר הוא תאריך עברי חוקי.
+  ///
+  /// למשל: ל' באייר אינו חוקי (אייר בן 29 יום).
+  bool isValidHebrewDate({
+    required int day,
+    required HebrewMonth month,
+    required AdarType adarType,
+    int? forYear,
+  }) {
+    if (day < 1 || day > 30) return false;
+
+    final year = forYear ?? _currentHebrewYear();
+    // אם החודש הוא אדר א'/ב' – נדרשת שנה מעוברת כדי שהחודש יתקיים כפי שנבחר;
+    // אך "אדר" סתמי חוקי תמיד (נופל על האדר היחיד/אדר ב').
+    try {
+      final kMonth = _monthForYear(month, adarType, year);
+      final jd = JewishDate();
+      jd.setJewishDate(year, kMonth, 1);
+      final daysInMonth = jd.getDaysInJewishMonth();
+      return day <= daysInMonth;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// ממיר אזכרה לתאריך לועזי (DateTime, ללא שעה) בשנה עברית ספציפית,
+  /// או null אם היום/החודש אינם קיימים בשנה זו.
+  DateTime? _memorialGregorianForYear(Memorial memorial, int hebrewYear) {
+    try {
+      final kMonth = _monthForYear(
+        memorial.selectedMonth,
+        memorial.adarType,
+        hebrewYear,
+      );
+
+      final probe = JewishDate();
+      probe.setJewishDate(hebrewYear, kMonth, 1);
+      final daysInMonth = probe.getDaysInJewishMonth();
+      if (memorial.hebrewDay > daysInMonth) {
+        return null; // היום אינו קיים בחודש בשנה זו.
+      }
+
+      final jd = JewishDate();
+      jd.setJewishDate(hebrewYear, kMonth, memorial.hebrewDay);
+      final g = jd.getGregorianCalendar();
+      return DateTime(g.year, g.month, g.day);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// מחזיר את תאריך האזכרה הלועזי הקרוב ביותר (מהיום והלאה).
+  ///
+  /// אם התאריך של השנה הנוכחית כבר עבר – מחזיר את של השנה הבאה.
+  /// מדלג על שנים שבהן היום/החודש אינם קיימים (למשל אדר א'/ב' בשנה פשוטה,
+  /// או ל' בחודש חסר).
+  DateTime nextMemorialDate(Memorial memorial, {DateTime? from}) {
+    final occurrence = nextMemorialOccurrence(memorial, from: from);
+    if (occurrence != null) return occurrence.gregorian;
+
+    final now = from ?? _now();
+    return DateTime(now.year, now.month, now.day);
+  }
+
+  /// המופע הקרוב של האזכרה – התאריך הלועזי **והשנה העברית** שבה הוא חל.
+  ///
+  /// נחוץ כדי להציג תאריך עברי מלא (כולל שנה) עבור המופע הקרוב, בשונה מיום
+  /// השנה החוזר שאין לו שנה.
+  ({DateTime gregorian, int hebrewYear})? nextMemorialOccurrence(
+    Memorial memorial, {
+    DateTime? from,
+  }) {
+    final now = from ?? _now();
+    final nowDateOnly = DateTime(now.year, now.month, now.day);
+
+    // נגזר מ-[from] ולא מ-DateTime.now(), אחרת החיפוש היה מתחיל בשנה
+    // העברית של השעון האמיתי ומתעלם מנקודת הייחוס שהועברה.
+    final startHebrewYear = _hebrewYearOf(nowDateOnly);
+
+    for (int offset = 0; offset <= 4; offset++) {
+      final hebrewYear = startHebrewYear + offset;
+      final gregorian = _memorialGregorianForYear(memorial, hebrewYear);
+      if (gregorian == null) continue;
+
+      if (!gregorian.isBefore(nowDateOnly)) {
+        return (gregorian: gregorian, hebrewYear: hebrewYear);
+      }
+    }
+
+    final fallbackYear = startHebrewYear + 1;
+    final fallback = _memorialGregorianForYear(memorial, fallbackYear);
+    if (fallback == null) return null;
+    return (gregorian: fallback, hebrewYear: fallbackYear);
+  }
+
+  /// מחשב את מועד ההתראה של האזכרה **הקרובה**:
+  /// יום שלישי של השבוע שלפני השבוע שבו חלה האזכרה.
+  ///
+  /// לוגיקה:
+  ///   1. מחשבים את התאריך הלועזי של האזכרה הקרובה.
+  ///   2. מוצאים את יום ראשון של שבוע האזכרה.
+  ///   3. חוזרים שבוע אחד אחורה.
+  ///   4. מוצאים את יום שלישי של אותו שבוע.
+  ///
+  /// השעה נקבעת לפי notificationHour/notificationMinute של האזכרה.
+  ///
+  /// **שים לב:** התוצאה עשויה להיות בעבר. מועד ההתראה מקדים את האזכרה
+  /// ב-5 עד 11 יום, ולכן בכל שנה יש חלון שבו יום השלישי כבר חלף אך האזכרה
+  /// עצמה עוד לפנינו. לתזמון התראות יש להשתמש ב-[nextFutureReminderDate].
+  DateTime reminderDate(Memorial memorial, {DateTime? from}) {
+    return _reminderForMemorialDate(
+      memorial,
+      nextMemorialDate(memorial, from: from),
+    );
+  }
+
+  /// מועד ההתראה הבא שטרם עבר, או null אם לא נמצא בטווח הנסרק.
+  ///
+  /// בשונה מ-[reminderDate], אינו נעצר על האזכרה הקרובה: אם ההתראה עבורה
+  /// כבר חלפה, ממשיך לשנה העברית הבאה. זהו המקור לתזמון התראות — אחרת
+  /// אזכרה שנוספת בתוך אותו חלון לא הייתה מקבלת התראה כלל.
+  DateTime? nextFutureReminderDate(Memorial memorial, {DateTime? from}) {
+    final now = from ?? _now();
+    final startHebrewYear =
+        _hebrewYearOf(DateTime(now.year, now.month, now.day));
+
+    for (int offset = 0; offset <= 5; offset++) {
+      final memorialDate =
+          _memorialGregorianForYear(memorial, startHebrewYear + offset);
+      if (memorialDate == null) continue;
+
+      final reminder = _reminderForMemorialDate(memorial, memorialDate);
+      if (reminder.isAfter(now)) return reminder;
+    }
+    return null;
+  }
+
+  /// כמה שנים עבריות קדימה מתוזמנות התראות בכל פעם.
+  ///
+  /// אנדרואיד אינו מציע חזרה שנתית לפי הלוח העברי – התאריך העברי נודד בלוח
+  /// הלועזי, ו-matchDateTimeComponents יודע לחזור רק שבועית/חודשית/שנתית
+  /// לפי תאריך לועזי קבוע. לכן כל מופע מתוזמן בנפרד, וכל פתיחה של
+  /// האפליקציה ממלאת את החלון מחדש.
+  static const int scheduleHorizonYears = 20;
+
+  /// כל מועדי ההתראה העתידיים, מהקרוב לרחוק.
+  ///
+  /// מדלג על שנים שבהן התאריך אינו קיים (ל' בחודש חסר, אדר א' בשנה פשוטה)
+  /// ועל מועדים שכבר חלפו.
+  List<DateTime> futureReminderDates(
+    Memorial memorial, {
+    DateTime? from,
+    int years = scheduleHorizonYears,
+  }) {
+    final now = from ?? _now();
+    final startHebrewYear =
+        _hebrewYearOf(DateTime(now.year, now.month, now.day));
+
+    final reminders = <DateTime>[];
+    for (int offset = 0; offset <= years; offset++) {
+      final memorialDate =
+          _memorialGregorianForYear(memorial, startHebrewYear + offset);
+      if (memorialDate == null) continue;
+
+      final reminder = _reminderForMemorialDate(memorial, memorialDate);
+      if (reminder.isAfter(now)) reminders.add(reminder);
+    }
+    return reminders;
+  }
+
+  /// מועד תזכורת שחלף אך טרם נמסר, או null אם אין כזה.
+  ///
+  /// מחזיר ערך רק כשהתזכורת של האזכרה **הקרובה** כבר עברה בעוד האזכרה עצמה
+  /// לפנינו – החלון בן 5 עד 11 הימים שבו יום השלישי חלף. במצב כזה עדיף
+  /// להציג את התזכורת באיחור מאשר לדלג עליה.
+  ///
+  /// [lastNotifiedAt] הוא המועד האחרון שכבר הוצג; אם הוא זהה למועד שחלף,
+  /// אין מה להשלים.
+  DateTime? missedReminderDate(Memorial memorial, {DateTime? from}) {
+    final now = from ?? _now();
+
+    final occurrence = nextMemorialOccurrence(memorial, from: now);
+    if (occurrence == null) return null;
+
+    final reminder = _reminderForMemorialDate(memorial, occurrence.gregorian);
+    if (!reminder.isBefore(now)) return null; // עוד לא הגיע – יטופל בתזמון
+
+    final last = memorial.lastNotifiedAt;
+    if (last != null && !last.isBefore(reminder)) return null; // כבר נמסר
+
+    return reminder;
+  }
+
+  /// מועד ההתראה עבור [memorialDate], לפי כלל התזכורת של האזכרה.
+  DateTime _reminderForMemorialDate(Memorial memorial, DateTime memorialDate) {
+    final day = switch (memorial.reminderMode) {
+      ReminderMode.weekdayOfPreviousWeek =>
+        weekdayBeforeWeekOf(memorialDate, memorial.reminderValue),
+      ReminderMode.fixedDaysBefore => DateTime(
+          memorialDate.year,
+          memorialDate.month,
+          memorialDate.day - memorial.reminderValue,
+        ),
+    };
+
+    return DateTime(
+      day.year,
+      day.month,
+      day.day,
+      memorial.notificationHour,
+      memorial.notificationMinute,
+    );
+  }
+
+  /// יום [weekday] של השבוע שלפני שבוע [memorialDate].
+  ///
+  /// [weekday] לפי [DateTime.weekday] – שלישי = 2. עבור יום ראשון (7) נדרש
+  /// טיפול נפרד, כי יום ראשון הוא **תחילת** השבוע ולא סופו.
+  ///
+  /// גם כאן החשבון על רכיבי התאריך ולא ב-[Duration], מאותה סיבת שעון קיץ.
+  DateTime weekdayBeforeWeekOf(DateTime memorialDate, int weekday) {
+    final sunday = _sundayOfWeek(memorialDate);
+    // ראשון(7) -> 0 ימים מיום ראשון, שני(1) -> 1, ... שישי(5) -> 5.
+    final offsetFromSunday = weekday % 7;
+    return DateTime(
+      sunday.year,
+      sunday.month,
+      sunday.day - 7 + offsetFromSunday,
+    );
+  }
+
+  /// מחזיר את יום ראשון של השבוע המכיל את [date] (שבוע ראשון–שבת).
+  ///
+  /// **חשוב:** החשבון נעשה על רכיבי התאריך ולא באמצעות [Duration].
+  /// `DateTime.subtract` פועל על זמן אבסולוטי, ולכן חציית מעבר שעון קיץ
+  /// מזיזה את שעת התוצאה ועלולה להחזיר את היום הקודם.
+  DateTime _sundayOfWeek(DateTime date) {
+    // weekday: Mon=1..Sun=7. ראשון(7)->0, שני(1)->1, ... שבת(6)->6.
+    final daysFromSunday = date.weekday % 7;
+    return DateTime(date.year, date.month, date.day - daysFromSunday);
+  }
+
+  /// יום שלישי של השבוע שלפני שבוע התאריך הנתון – ברירת המחדל של האפליקציה.
+  DateTime tuesdayBeforeWeekOf(DateTime memorialDate) =>
+      weekdayBeforeWeekOf(memorialDate, DateTime.tuesday);
+
+  /// מפרמט תאריך עברי לתצוגה, למשל: י"ד בחשוון.
+  ///
+  /// זהו יום השנה החוזר – ללא שנה. לתאריך של מופע ספציפי ראה
+  /// [formatNextMemorialHebrewDate].
+  String formatHebrewDate(Memorial memorial) {
+    final dayHeb = HebrewNumerals.dayToHebrew(memorial.hebrewDay);
+    final monthName = memorial.selectedMonth.hebrewName;
+    return '$dayHeb ב$monthName';
+  }
+
+  /// מפרמט שנה עברית בגימטריה, למשל 5786 -> תשפ״ו.
+  /// (kosher_dart משמיט את אלף השנים ומשתמש בגרשיים ״.)
+  String formatHebrewYear(int hebrewYear) {
+    final formatter = HebrewDateFormatter()..hebrewFormat = true;
+    return formatter.formatHebrewNumber(hebrewYear);
+  }
+
+  /// התאריך העברי המלא של המופע הקרוב, כולל שנה.
+  /// למשל: כ"ו באב תשפ״ו.
+  ///
+  /// שים לב שהחודש הוא זה של המופע בפועל: אזכרה שנשמרה כ"אדר" סתמי מוצגת
+  /// כ"אדר ב'" בשנה מעוברת, בהתאם לחודש שאליו היא נופלת.
+  String? formatNextMemorialHebrewDate(Memorial memorial, {DateTime? from}) {
+    final occurrence = nextMemorialOccurrence(memorial, from: from);
+    if (occurrence == null) return null;
+
+    final year = occurrence.hebrewYear;
+    final dayHeb = HebrewNumerals.dayToHebrew(memorial.hebrewDay);
+
+    final month = memorial.selectedMonth;
+    final monthName = month.isAdar
+        ? (_resolveAdarMonth(year, memorial.adarType) == _adarII
+            ? "אדר ב'"
+            : (_isHebrewLeapYear(year) ? "אדר א'" : 'אדר'))
+        : month.hebrewName;
+
+    return '$dayHeb ב$monthName ${formatHebrewYear(year)}';
+  }
+
+  /// מפרמט תאריך עברי מתוך יום/חודש גולמיים (עבור ה-picker בזמן אמת).
+  String formatHebrewDayMonth(int day, HebrewMonth month) {
+    final dayHeb = HebrewNumerals.dayToHebrew(day);
+    return '$dayHeb ב${month.hebrewName}';
+  }
+
+  /// מספר הימים (שלמים) מהיום ועד האזכרה הקרובה. אינו שלילי.
+  ///
+  /// ההפרש נמדד ב-UTC מאותה סיבה כמו ב-[daysUntilReminder]: על תאריכים
+  /// מקומיים מעבר שעון קיץ מקצר את ההפרש ו-inDays מעגל כלפי מטה.
+  int daysUntilMemorial(Memorial memorial, {DateTime? from}) {
+    final now = from ?? _now();
+    final memorialDate = nextMemorialDate(memorial, from: from);
+
+    final today = DateTime.utc(now.year, now.month, now.day);
+    final target = DateTime.utc(
+        memorialDate.year, memorialDate.month, memorialDate.day);
+    return target.difference(today).inDays;
+  }
+
+  /// האם האזכרה הקרובה חלה בתוך [days] הימים הבאים (כולל היום).
+  bool isMemorialWithin(Memorial memorial, int days, {DateTime? from}) =>
+      daysUntilMemorial(memorial, from: from) <= days;
+
+  /// מספר הימים (שלמים) מהיום ועד מועד ההתראה. שלילי אם עבר.
+  int daysUntilReminder(Memorial memorial, {DateTime? from}) {
+    final now = from ?? _now();
+    final reminder = reminderDate(memorial, from: from);
+
+    // ההפרש נמדד ב-UTC: על תאריכים מקומיים מעבר שעון קיץ הופך את ההפרש
+    // האבסולוטי ל-167 או 169 שעות, ו-inDays היה מעגל כלפי מטה ומחסיר יום.
+    final today = DateTime.utc(now.year, now.month, now.day);
+    final reminderDay =
+        DateTime.utc(reminder.year, reminder.month, reminder.day);
+    return reminderDay.difference(today).inDays;
+  }
+}
