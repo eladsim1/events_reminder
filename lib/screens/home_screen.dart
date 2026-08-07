@@ -20,6 +20,11 @@ class HomeScreen extends ConsumerStatefulWidget {
 
 class _HomeScreenState extends ConsumerState<HomeScreen>
     with WidgetsBindingObserver {
+  /// מצב החיפוש שייך למסך ולא לספק: הוא ויזואלי בלבד, ואמור להתאפס
+  /// כשעוזבים את המסך. השאילתה עצמה בספק, כדי ששורת הסינון תוכל לספור לפיה.
+  bool _searching = false;
+  final _searchController = TextEditingController();
+
   @override
   void initState() {
     super.initState();
@@ -28,8 +33,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
   @override
   void dispose() {
+    _searchController.dispose();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
+  }
+
+  void _closeSearch() {
+    _searchController.clear();
+    ref.read(memorialSearchProvider.notifier).state = '';
+    setState(() => _searching = false);
   }
 
   @override
@@ -100,17 +112,52 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('תזכורת אזכרות'),
+        leading: _searching
+            ? IconButton(
+                tooltip: 'סגירת החיפוש',
+                icon: const Icon(Icons.arrow_forward),
+                onPressed: _closeSearch,
+              )
+            : null,
+        title: _searching
+            ? TextField(
+                controller: _searchController,
+                autofocus: true,
+                textInputAction: TextInputAction.search,
+                decoration: const InputDecoration(
+                  hintText: 'חיפוש לפי שם',
+                  border: InputBorder.none,
+                ),
+                onChanged: (v) =>
+                    ref.read(memorialSearchProvider.notifier).state = v,
+              )
+            : const Text('תזכורת אזכרות'),
         actions: [
-          IconButton(
-            tooltip: 'הגדרות',
-            icon: const Icon(Icons.settings_outlined),
-            onPressed: () {
-              Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const SettingsScreen()),
-              );
-            },
-          ),
+          if (_searching)
+            IconButton(
+              tooltip: 'ניקוי',
+              icon: const Icon(Icons.close),
+              onPressed: () {
+                _searchController.clear();
+                ref.read(memorialSearchProvider.notifier).state = '';
+              },
+            )
+          else ...[
+            IconButton(
+              tooltip: 'חיפוש',
+              icon: const Icon(Icons.search),
+              onPressed: () => setState(() => _searching = true),
+            ),
+            IconButton(
+              tooltip: 'הגדרות',
+              icon: const Icon(Icons.settings_outlined),
+              onPressed: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const SettingsScreen()),
+                );
+              },
+            ),
+          ],
         ],
       ),
       floatingActionButton: FloatingActionButton.extended(
@@ -140,14 +187,25 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
               ),
               data: (memorials) {
                 if (memorials.isEmpty) {
-                  return const _EmptyView(MemorialFilter.all);
+                  return const _EmptyView(filter: MemorialFilter.all);
                 }
 
                 final filter = ref.watch(memorialFilterProvider);
-                final sorted =
-                    _sorted(_filtered(memorials, filter, calendar), calendar);
+                final query = ref.watch(memorialSearchProvider);
 
-                if (sorted.isEmpty) return _EmptyView(filter);
+                final matched =
+                    [for (final m in memorials) if (m.matchesQuery(query)) m];
+                final sorted =
+                    _sorted(_filtered(matched, filter, calendar), calendar);
+
+                if (sorted.isEmpty) {
+                  // מבדיל בין "החיפוש לא מצא" לבין "אין בחלון" – אחרת
+                  // המשתמש לא יודע מה בדיוק להרפות ממנו.
+                  return _EmptyView(
+                    filter: filter,
+                    query: matched.isEmpty ? query : '',
+                  );
+                }
 
                 return RefreshIndicator(
                   onRefresh: () => ref
@@ -202,13 +260,19 @@ class _FilterBar extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final selected = ref.watch(memorialFilterProvider);
+    final query = ref.watch(memorialSearchProvider);
+
+    // המונים נספרים בתוך תוצאות החיפוש. אחרת "החודש (3)" לצד רשימה שמציגה
+    // אחת בלבד היה נראה כמו באג.
+    final visible =
+        [for (final m in memorials) if (m.matchesQuery(query)) m];
 
     // מחושב פעם אחת לכל אפשרות ולא בתוך בניית ה-chip.
     final counts = {
       for (final f in MemorialFilter.values)
         f: f.days == null
-            ? memorials.length
-            : memorials
+            ? visible.length
+            : visible
                 .where((m) => calendar.isMemorialWithin(m, f.days!))
                 .length,
     };
@@ -294,15 +358,30 @@ class _PermissionWarning extends ConsumerWidget {
 
 /// מסך ריק. מבדיל בין "אין אזכרות בכלל" לבין "אין בחלון שנבחר" – אחרת
 /// סינון פעיל נראה כאילו הנתונים נעלמו.
+/// מסך ריק. מבדיל בין שלושה מצבים שונים לגמרי – אין אזכרות בכלל, החיפוש
+/// לא מצא, או שאין בחלון שנבחר – אחרת המשתמש לא יודע מה לשנות.
 class _EmptyView extends StatelessWidget {
   final MemorialFilter filter;
 
-  const _EmptyView(this.filter);
+  /// כשאינו ריק, אף אזכרה לא התאימה לחיפוש הזה.
+  final String query;
+
+  const _EmptyView({required this.filter, this.query = ''});
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final noSearchMatch = query.trim().isNotEmpty;
     final isFiltered = filter != MemorialFilter.all;
+
+    final (title, hint) = switch ((noSearchMatch, isFiltered)) {
+      (true, _) => ('לא נמצאה אזכרה בשם "${query.trim()}"', 'נסה שם אחר'),
+      (false, true) => (filter.emptyMessage, 'בחר "הכל" כדי לראות הכל'),
+      (false, false) => (
+          filter.emptyMessage,
+          'הוסף אזכרה כדי לקבל תזכורת בשבוע שלפני',
+        ),
+    };
 
     return Center(
       child: Padding(
@@ -310,18 +389,17 @@ class _EmptyView extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Text('🕯', style: TextStyle(fontSize: 64)),
+            Text(noSearchMatch ? '🔍' : '🕯',
+                style: const TextStyle(fontSize: 64)),
             const SizedBox(height: 16),
             Text(
-              filter.emptyMessage,
+              title,
               textAlign: TextAlign.center,
               style: theme.textTheme.titleLarge,
             ),
             const SizedBox(height: 8),
             Text(
-              isFiltered
-                  ? 'בחר "הכל" כדי לראות את כל האזכרות'
-                  : 'הוסף אזכרה כדי לקבל תזכורת בשבוע שלפני',
+              hint,
               textAlign: TextAlign.center,
               style: theme.textTheme.bodyMedium?.copyWith(
                 color: theme.colorScheme.outline,

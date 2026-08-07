@@ -831,6 +831,95 @@ void main() {
     });
   });
 
+  group('search by name', () {
+    List<String> cards(WidgetTester tester) => tester
+        .widgetList<MemorialCard>(find.byType(MemorialCard))
+        .map((c) => c.memorial.name)
+        .toList();
+
+    Future<void> search(WidgetTester tester, String q) async {
+      await tester.enterText(find.byType(TextField).first, q);
+      await tester.pump(const Duration(milliseconds: 300));
+    }
+
+    test('matching is partial, trimmed, and empty matches everything', () {
+      final m = _seed(id: 1, name: 'סבא יעקב', day: 1,
+          month: HebrewMonth.tishrei);
+
+      expect(m.matchesQuery(''), isTrue, reason: 'empty must not hide rows');
+      expect(m.matchesQuery('   '), isTrue);
+      expect(m.matchesQuery('יעקב'), isTrue);
+      expect(m.matchesQuery('סבא'), isTrue);
+      expect(m.matchesQuery('  יעקב  '), isTrue, reason: 'must trim');
+      expect(m.matchesQuery('בא יע'), isTrue, reason: 'substring, not prefix');
+      expect(m.matchesQuery('רחל'), isFalse);
+    });
+
+    test('latin names ignore case', () {
+      final m = _seed(id: 1, name: 'Jacob', day: 1, month: HebrewMonth.tishrei);
+      expect(m.matchesQuery('jacob'), isTrue);
+      expect(m.matchesQuery('JAC'), isTrue);
+    });
+
+    testWidgets('the search field filters the list and clears again',
+        (tester) async {
+      _phoneViewport(tester);
+      await _pumpApp(tester, seeded: [
+        _seed(id: 1, name: 'סבא יעקב', day: 27, month: HebrewMonth.av),
+        _seed(id: 2, name: 'סבתא רחל', day: 3, month: HebrewMonth.nisan),
+        _seed(id: 3, name: 'דוד משה', day: 14, month: HebrewMonth.cheshvan),
+      ]);
+      expect(cards(tester), hasLength(3));
+
+      await tester.tap(find.byIcon(Icons.search));
+      await tester.pump(const Duration(milliseconds: 300));
+
+      await search(tester, 'סב');
+      expect(cards(tester), ['סבא יעקב', 'סבתא רחל']);
+
+      await search(tester, 'רחל');
+      expect(cards(tester), ['סבתא רחל']);
+
+      // Closing search restores the full list.
+      await tester.tap(find.byIcon(Icons.arrow_forward));
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(cards(tester), hasLength(3));
+      expect(find.byIcon(Icons.search), findsOneWidget);
+    });
+
+    testWidgets('a miss says so, and does not claim the list is empty',
+        (tester) async {
+      _phoneViewport(tester);
+      await _pumpApp(tester, seeded: [
+        _seed(id: 1, name: 'סבא יעקב', day: 27, month: HebrewMonth.av),
+      ]);
+
+      await tester.tap(find.byIcon(Icons.search));
+      await tester.pump(const Duration(milliseconds: 300));
+      await search(tester, 'זזזז');
+
+      expect(cards(tester), isEmpty);
+      expect(find.textContaining('לא נמצאה אזכרה בשם'), findsOneWidget);
+      expect(find.text('אין אזכרות עדיין'), findsNothing);
+    });
+
+    testWidgets('the chip counts follow the search', (tester) async {
+      _phoneViewport(tester);
+      await _pumpApp(tester, seeded: [
+        _seed(id: 1, name: 'סבא יעקב', day: 27, month: HebrewMonth.av),
+        _seed(id: 2, name: 'סבתא רחל', day: 3, month: HebrewMonth.nisan),
+      ]);
+      expect(find.text('הכל (2)'), findsOneWidget);
+
+      await tester.tap(find.byIcon(Icons.search));
+      await tester.pump(const Duration(milliseconds: 300));
+      await search(tester, 'רחל');
+
+      // Otherwise "הכל (2)" beside a single visible row reads as a bug.
+      expect(find.text('הכל (1)'), findsOneWidget);
+    });
+  });
+
   group('year of death', () {
     test('is optional and reports no yahrzeit number without it', () {
       final cal = HebrewCalendarService(now: () => _fixedNow);

@@ -81,6 +81,16 @@ class Memorial {
     this.deathHebrewYear,
   });
 
+  /// האם שם הנפטר מכיל את [query].
+  ///
+  /// חיפוש חלקי וללא תלות ברישיות. שאילתה ריקה מתאימה לכולם, כדי ששדה
+  /// חיפוש ריק לא יסתיר את הרשימה.
+  bool matchesQuery(String query) {
+    final q = query.trim().toLowerCase();
+    if (q.isEmpty) return true;
+    return name.toLowerCase().contains(q);
+  }
+
   /// הטקסט לניווט: בית העלמין ומיקום הקבר יחד, או null אם אין מה לנווט אליו.
   String? get burialSearchQuery {
     final parts = [cemetery, plot]

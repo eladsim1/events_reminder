@@ -40,6 +40,9 @@ final memorialFilterProvider = StateProvider<MemorialFilter>((ref) {
   return MemorialFilter.all;
 });
 
+/// שאילתת החיפוש הפעילה. ריק = ללא חיפוש.
+final memorialSearchProvider = StateProvider<String>((ref) => '');
+
 /// מצב ההרשאות שבלעדיהן ההתראות פשוט לא יעבדו.
 ///
 /// נחשף כספק נפרד כדי שהמסך הראשי יוכל להזהיר – בלעדיו סירוב הרשאה הוא
