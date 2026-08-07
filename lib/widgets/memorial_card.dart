@@ -36,6 +36,25 @@ class MemorialCard extends StatelessWidget {
     return 'התזכורת בעוד $days ימים';
   }
 
+  /// "האזכרה הראשונה" / "האזכרה ה-7". השנה הראשונה זוכה לניסוח מלא כי היא
+  /// המשמעותית ביותר.
+  String _yahrzeitLabel(int n) {
+    const words = {
+      1: 'הראשונה',
+      2: 'השנייה',
+      3: 'השלישית',
+      4: 'הרביעית',
+      5: 'החמישית',
+      6: 'השישית',
+      7: 'השביעית',
+      8: 'השמינית',
+      9: 'התשיעית',
+      10: 'העשירית',
+    };
+    final word = words[n];
+    return word != null ? 'האזכרה $word' : 'האזכרה ה-$n';
+  }
+
   String _formatGregorian(DateTime d) {
     final day = d.day.toString().padLeft(2, '0');
     final month = d.month.toString().padLeft(2, '0');
@@ -46,6 +65,7 @@ class MemorialCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final hebrewDate = calendar.formatHebrewDate(memorial);
+    final yahrzeitNumber = calendar.yahrzeitNumber(memorial);
     final nextDate = calendar.nextMemorialDate(memorial);
     final nextHebrew = calendar.formatNextMemorialHebrewDate(memorial);
     final daysUntil = calendar.daysUntilReminder(memorial);
@@ -86,11 +106,24 @@ class MemorialCard extends StatelessWidget {
                   ],
                 ),
                 const SizedBox(height: 4),
-                Text(
-                  hebrewDate,
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    color: theme.colorScheme.primary,
-                  ),
+                Row(
+                  children: [
+                    Text(
+                      hebrewDate,
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        color: theme.colorScheme.primary,
+                      ),
+                    ),
+                    if (memorial.deathHebrewYear case final year?) ...[
+                      const SizedBox(width: 8),
+                      Text(
+                        'נפטר בשנת ${calendar.formatHebrewYear(year)}',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.outline,
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
                 const SizedBox(height: 12),
                 _InfoRow(
@@ -102,6 +135,14 @@ class MemorialCard extends StatelessWidget {
                       ? _formatGregorian(nextDate)
                       : '${_formatGregorian(nextDate)} · $nextHebrew',
                 ),
+                if (yahrzeitNumber != null) ...[
+                  const SizedBox(height: 6),
+                  _InfoRow(
+                    icon: Icons.numbers_outlined,
+                    label: 'מספר האזכרה',
+                    value: _yahrzeitLabel(yahrzeitNumber),
+                  ),
+                ],
                 const SizedBox(height: 6),
                 _InfoRow(
                   icon: Icons.notifications_active_outlined,

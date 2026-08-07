@@ -260,6 +260,56 @@ void main() {
     });
   });
 
+  group('schema v4: death_hebrew_year', () {
+    test('defaults to null and round-trips', () async {
+      final id = await db.insert(_memorial(name: 'ללא שנה'));
+      expect((await db.getById(id))!.deathHebrewYear, isNull);
+
+      await db.update((await db.getById(id))!.copyWith(deathHebrewYear: 5784));
+      expect((await db.getById(id))!.deathHebrewYear, 5784);
+    });
+
+    test('clearDeathYear nulls the column', () async {
+      final id = await db.insert(_memorial(name: 'x'));
+      await db.update((await db.getById(id))!.copyWith(deathHebrewYear: 5780));
+      expect((await db.getById(id))!.deathHebrewYear, 5780);
+
+      await db.update((await db.getById(id))!.copyWith(clearDeathYear: true));
+      expect((await db.getById(id))!.deathHebrewYear, isNull);
+    });
+
+    test('a row written before v4 reads back with null', () async {
+      final database = await db.database;
+      await database.rawInsert(
+        'INSERT INTO ${DatabaseHelper.table} '
+        '(name, hebrew_day, hebrew_month, adar_type, notification_hour, '
+        'notification_minute, enabled, created_at) VALUES (?,?,?,?,?,?,?,?)',
+        ['לפני v4', 14, HebrewMonth.cheshvan.index, 'none', 9, 0, 1,
+          DateTime(2024).toIso8601String()],
+      );
+
+      final loaded = (await db.getAll()).firstWhere((m) => m.name == 'לפני v4');
+      expect(loaded.deathHebrewYear, isNull);
+      // And the v3 defaults are still intact alongside it.
+      expect(loaded.reminderValue, DateTime.tuesday);
+    });
+
+    test('a pre-v4 backup imports with no year', () {
+      final m = Memorial.fromJson({
+        'id': 1,
+        'name': 'גיבוי',
+        'hebrew_day': 14,
+        'hebrew_month': HebrewMonth.cheshvan.index,
+        'adar_type': 'none',
+        'notification_hour': 9,
+        'notification_minute': 0,
+        'enabled': 1,
+        'created_at': DateTime(2024).toIso8601String(),
+      });
+      expect(m.deathHebrewYear, isNull);
+    });
+  });
+
   // Everything above drives DatabaseHelper directly. The app never does —
   // it always goes through MemorialRepository, so exercise that seam too,
   // against the same real database.

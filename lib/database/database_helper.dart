@@ -15,7 +15,8 @@ class DatabaseHelper {
   /// להציג שוב את אותה שנה בכל פתיחה.
   /// 2 -> 3: מיקום קבר (cemetery, plot), תמונה (photo_path), ומועד התזכורת
   /// הניתן להגדרה (reminder_mode, reminder_value).
-  static const _databaseVersion = 3;
+  /// 3 -> 4: שנת הפטירה העברית (death_hebrew_year), אופציונלית.
+  static const _databaseVersion = 4;
 
   static const table = 'memorials';
 
@@ -62,6 +63,12 @@ class DatabaseHelper {
         'DEFAULT ${Memorial.defaultReminderWeekday}',
       );
     }
+    if (oldVersion < 4) {
+      // ללא DEFAULT: היעדר ידיעה הוא מצב לגיטימי, ו-null מבטא אותו.
+      await db.execute(
+        'ALTER TABLE $table ADD COLUMN death_hebrew_year INTEGER',
+      );
+    }
   }
 
   Future<void> _onCreate(Database db, int version) async {
@@ -82,6 +89,7 @@ class DatabaseHelper {
         plot TEXT,
         photo_path TEXT,
         reminder_mode TEXT NOT NULL DEFAULT '${ReminderMode.weekdayOfPreviousWeek.dbValue}',
+        death_hebrew_year INTEGER,
         reminder_value INTEGER NOT NULL DEFAULT ${Memorial.defaultReminderWeekday}
       )
     ''');

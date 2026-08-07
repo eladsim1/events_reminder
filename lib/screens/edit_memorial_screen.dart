@@ -77,6 +77,8 @@ class EditMemorialScreen extends ConsumerWidget {
             clearPhoto: result.photoPath == null,
             reminderMode: result.reminderMode,
             reminderValue: result.reminderValue,
+            deathHebrewYear: result.deathHebrewYear,
+            clearDeathYear: result.deathHebrewYear == null,
           );
 
           try {

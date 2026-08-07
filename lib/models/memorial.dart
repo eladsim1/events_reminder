@@ -52,6 +52,12 @@ class Memorial {
   /// [ReminderMode.fixedDaysBefore].
   final int reminderValue;
 
+  /// השנה העברית שבה נפטר, או null אם אינה ידועה.
+  ///
+  /// אופציונלי במכוון: אזכרות רבות נשמרות לפי יום השנה בלבד. כשהיא קיימת,
+  /// אפשר לגזור ממנה באיזו שנה האזכרה הקרובה.
+  final int? deathHebrewYear;
+
   /// ברירת המחדל של האפליקציה: יום שלישי של השבוע שלפני.
   static const int defaultReminderWeekday = DateTime.tuesday;
 
@@ -72,6 +78,7 @@ class Memorial {
     this.photoPath,
     this.reminderMode = ReminderMode.weekdayOfPreviousWeek,
     this.reminderValue = defaultReminderWeekday,
+    this.deathHebrewYear,
   });
 
   /// הטקסט לניווט: בית העלמין ומיקום הקבר יחד, או null אם אין מה לנווט אליו.
@@ -134,6 +141,8 @@ class Memorial {
     bool clearPhoto = false,
     ReminderMode? reminderMode,
     int? reminderValue,
+    int? deathHebrewYear,
+    bool clearDeathYear = false,
   }) {
     return Memorial(
       id: id ?? this.id,
@@ -152,6 +161,9 @@ class Memorial {
       photoPath: clearPhoto ? null : (photoPath ?? this.photoPath),
       reminderMode: reminderMode ?? this.reminderMode,
       reminderValue: reminderValue ?? this.reminderValue,
+      deathHebrewYear: clearDeathYear
+          ? null
+          : (deathHebrewYear ?? this.deathHebrewYear),
     );
   }
 
@@ -173,6 +185,7 @@ class Memorial {
       'photo_path': photoPath,
       'reminder_mode': reminderMode.dbValue,
       'reminder_value': reminderValue,
+      'death_hebrew_year': deathHebrewYear,
     };
   }
 
@@ -200,6 +213,7 @@ class Memorial {
       reminderMode: ReminderMode.fromDb(map['reminder_mode'] as String?),
       reminderValue:
           (map['reminder_value'] as int?) ?? defaultReminderWeekday,
+      deathHebrewYear: map['death_hebrew_year'] as int?,
     );
   }
 

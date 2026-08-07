@@ -21,6 +21,7 @@ class MemorialFormResult {
   final String? photoPath;
   final ReminderMode reminderMode;
   final int reminderValue;
+  final int? deathHebrewYear;
 
   const MemorialFormResult({
     required this.name,
@@ -35,6 +36,7 @@ class MemorialFormResult {
     required this.photoPath,
     required this.reminderMode,
     required this.reminderValue,
+    required this.deathHebrewYear,
   });
 }
 
@@ -84,6 +86,7 @@ class _MemorialFormState extends State<MemorialForm> {
   late ReminderMode _reminderMode;
   late int _reminderValue;
   String? _photoPath;
+  int? _deathYear;
 
   @override
   void initState() {
@@ -102,6 +105,7 @@ class _MemorialFormState extends State<MemorialForm> {
     _photoPath = m?.photoPath;
     _reminderMode = m?.reminderMode ?? ReminderMode.weekdayOfPreviousWeek;
     _reminderValue = m?.reminderValue ?? Memorial.defaultReminderWeekday;
+    _deathYear = m?.deathHebrewYear;
   }
 
   @override
@@ -168,6 +172,7 @@ class _MemorialFormState extends State<MemorialForm> {
         photoPath: _photoPath,
         reminderMode: _reminderMode,
         reminderValue: _reminderValue,
+        deathHebrewYear: _deathYear,
       ),
     );
   }
@@ -225,6 +230,33 @@ class _MemorialFormState extends State<MemorialForm> {
                 },
               ),
             ),
+          ),
+          const SizedBox(height: 20),
+
+          // שנת הפטירה – אופציונלית. אזכרות רבות נשמרות לפי יום השנה בלבד,
+          // ולכן "לא ידועה" חייבת להישאר אפשרות לגיטימית ולא ברירת מחדל
+          // שגויה כלשהי.
+          DropdownButtonFormField<int?>(
+            initialValue: _deathYear,
+            isExpanded: true,
+            decoration: const InputDecoration(
+              labelText: 'שנת הפטירה',
+              prefixIcon: Icon(Icons.history_outlined),
+              border: OutlineInputBorder(),
+              helperText: 'לא חובה. מאפשר לדעת באיזו שנה האזכרה',
+            ),
+            items: [
+              const DropdownMenuItem<int?>(
+                value: null,
+                child: Text('לא ידועה'),
+              ),
+              for (final y in _calendar.deathYearChoices())
+                DropdownMenuItem<int?>(
+                  value: y,
+                  child: Text(_calendar.formatHebrewYear(y)),
+                ),
+            ],
+            onChanged: (v) => setState(() => _deathYear = v),
           ),
           const SizedBox(height: 20),
 

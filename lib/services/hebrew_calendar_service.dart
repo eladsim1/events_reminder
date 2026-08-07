@@ -392,6 +392,29 @@ class HebrewCalendarService {
     return '$dayHeb ב$monthName';
   }
 
+  /// באיזו שנה האזכרה הקרובה – 1 לאזכרה הראשונה, 2 לשנייה וכן הלאה.
+  ///
+  /// null כששנת הפטירה אינה ידועה, או אם היא מאוחרת מהמופע הקרוב (נתון
+  /// שגוי – עדיף לא להציג מספר מטעה).
+  int? yahrzeitNumber(Memorial memorial, {DateTime? from}) {
+    final deathYear = memorial.deathHebrewYear;
+    if (deathYear == null) return null;
+
+    final occurrence = nextMemorialOccurrence(memorial, from: from);
+    if (occurrence == null) return null;
+
+    final n = occurrence.hebrewYear - deathYear;
+    return n >= 1 ? n : null;
+  }
+
+  /// טווח השנים העבריות להצגה בבורר שנת הפטירה, מהחדשה לישנה.
+  ///
+  /// מוגבל לעבר: אי אפשר להיפטר בעתיד.
+  List<int> deathYearChoices({int span = 120}) {
+    final current = _currentHebrewYear();
+    return [for (var y = current; y > current - span; y--) y];
+  }
+
   /// מפרמט שנה עברית בגימטריה, למשל 5786 -> תשפ״ו.
   /// (kosher_dart משמיט את אלף השנים ומשתמש בגרשיים ״.)
   String formatHebrewYear(int hebrewYear) {

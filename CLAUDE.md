@@ -242,7 +242,14 @@ is done in Dart instead.
   unchanged: `weekdayOfPreviousWeek` + Tuesday. `fixedDaysBefore` gives a
   consistent gap instead of the 5–11 day spread.
 
-Schema is now **v3**; `_onUpgrade` is incremental and the v3 columns carry SQL
+- **Year of death** (`death_hebrew_year`, v4) — **nullable on purpose**: many
+  yahrzeits are kept by the anniversary alone, so "unknown" has to stay a
+  legitimate value rather than collapse into a wrong default. Its point is
+  `HebrewCalendarService.yahrzeitNumber`, which reports whether the coming
+  occurrence is the first, third, and so on. It returns null when the death
+  year is at or after the occurrence, so a nonsensical count is never shown.
+
+Schema is now **v4**; `_onUpgrade` is incremental and the v3 columns carry SQL
 defaults so upgraded installs keep behaving identically.
 
 ### Test harness notes for the form

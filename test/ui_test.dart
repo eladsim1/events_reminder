@@ -201,6 +201,7 @@ Memorial _seed({
   String? photoPath,
   ReminderMode reminderMode = ReminderMode.weekdayOfPreviousWeek,
   int reminderValue = Memorial.defaultReminderWeekday,
+  int? deathHebrewYear,
 }) {
   final storage = month.toStorage();
   return Memorial(
@@ -218,6 +219,7 @@ Memorial _seed({
     photoPath: photoPath,
     reminderMode: reminderMode,
     reminderValue: reminderValue,
+    deathHebrewYear: deathHebrewYear,
     createdAt: DateTime(2024, 1, id),
   );
 }
@@ -826,6 +828,103 @@ void main() {
         _seed(id: 2, name: 'א', day: 14, month: HebrewMonth.cheshvan),
       ]);
       expect(cardOrder(tester), ['א', 'ב']);
+    });
+  });
+
+  group('year of death', () {
+    test('is optional and reports no yahrzeit number without it', () {
+      final cal = HebrewCalendarService(now: () => _fixedNow);
+      final m = _seed(id: 1, name: 'x', day: 27, month: HebrewMonth.av);
+
+      expect(m.deathHebrewYear, isNull);
+      expect(cal.yahrzeitNumber(m, from: _fixedNow), isNull);
+    });
+
+    test('counts from the death year to the upcoming occurrence', () {
+      final cal = HebrewCalendarService(now: () => _fixedNow);
+      // כ"ז באב falls in 5786 on _fixedNow.
+      final occurrenceYear = cal
+          .nextMemorialOccurrence(
+            _seed(id: 1, name: 'x', day: 27, month: HebrewMonth.av),
+            from: _fixedNow,
+          )!
+          .hebrewYear;
+
+      for (final n in [1, 2, 5, 20]) {
+        final m = _seed(
+          id: 1,
+          name: 'x',
+          day: 27,
+          month: HebrewMonth.av,
+          deathHebrewYear: occurrenceYear - n,
+        );
+        expect(cal.yahrzeitNumber(m, from: _fixedNow), n);
+      }
+    });
+
+    test('a death year at or after the occurrence yields nothing', () {
+      final cal = HebrewCalendarService(now: () => _fixedNow);
+      final occurrenceYear = cal
+          .nextMemorialOccurrence(
+            _seed(id: 1, name: 'x', day: 27, month: HebrewMonth.av),
+            from: _fixedNow,
+          )!
+          .hebrewYear;
+
+      for (final year in [occurrenceYear, occurrenceYear + 1]) {
+        final m = _seed(
+          id: 1,
+          name: 'x',
+          day: 27,
+          month: HebrewMonth.av,
+          deathHebrewYear: year,
+        );
+        expect(cal.yahrzeitNumber(m, from: _fixedNow), isNull,
+            reason: 'a nonsensical count must not be shown');
+      }
+    });
+
+    test('the picker offers only past years, newest first', () {
+      final cal = HebrewCalendarService(now: () => _fixedNow);
+      final years = cal.deathYearChoices(span: 10);
+
+      expect(years, hasLength(10));
+      expect(years.first, greaterThan(years.last));
+      expect(years.first, cal.currentHebrewYear());
+      // In gematria, never digits.
+      expect(cal.formatHebrewYear(years.first), isNot(matches(RegExp(r'\d'))));
+    });
+
+    testWidgets('the card shows the year and which yahrzeit it is',
+        (tester) async {
+      _phoneViewport(tester);
+      final cal = HebrewCalendarService(now: () => _fixedNow);
+      final occurrenceYear = cal
+          .nextMemorialOccurrence(
+            _seed(id: 1, name: 'x', day: 27, month: HebrewMonth.av),
+            from: _fixedNow,
+          )!
+          .hebrewYear;
+
+      await _pumpApp(tester, seeded: [
+        _seed(
+          id: 1,
+          name: 'עם שנה',
+          day: 27,
+          month: HebrewMonth.av,
+          deathHebrewYear: occurrenceYear - 3,
+        ),
+        _seed(id: 2, name: 'בלי שנה', day: 3, month: HebrewMonth.nisan),
+      ]);
+
+      expect(find.text('האזכרה השלישית'), findsOneWidget);
+      expect(
+          find.textContaining(
+              'נפטר בשנת ${cal.formatHebrewYear(occurrenceYear - 3)}'),
+          findsOneWidget);
+      // The memorial without a year must show neither.
+      expect(find.textContaining('נפטר בשנת'), findsOneWidget);
+      expect(find.text('מספר האזכרה: '), findsOneWidget);
     });
   });
 
