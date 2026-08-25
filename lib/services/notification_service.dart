@@ -219,29 +219,66 @@ class NotificationService {
     List<DateTime> reminders,
     String hebrewDate,
   ) async {
-    final body = 'בשבוע הבא תחול אזכרתו של ${memorial.name} – $hebrewDate';
-
+    // סדרה ראשית: התזכורת המוקדמת (יום בשבוע שלפני / מספר ימים לפני).
     for (var i = 0; i < reminders.length; i++) {
-      await _plugin.zonedSchedule(
+      final memorialDate = _calendar.memorialDateForReminder(
+        memorial,
+        reminders[i],
+      );
+      final detail = memorialDate == null
+          ? ''
+          : ', ${_calendar.describeMemorialForReminder(memorial, reminders[i], memorialDate)}';
+      final body = 'אזכרתו של ${memorial.name} – $hebrewDate$detail';
+
+      await _schedule(
         id: memorial.notificationIdForOccurrence(i),
-        title: 'תזכורת אזכרה',
         body: body,
-        // ה-payload נושא את הטקסט כדי שכפתור הדחייה יוכל לשחזר אותו:
-        // isolate הרקע אינו יכול לקרוא את מסד הנתונים.
-        payload: body,
-        scheduledDate: tz.TZDateTime.from(reminders[i], tz.local),
-        notificationDetails: const NotificationDetails(
-          android: _androidDetails,
-          iOS: DarwinNotificationDetails(),
-        ),
-        // מדויק, ו-allowWhileIdle כדי שיירה גם כשהמכשיר במצב Doze.
-        // אי-פספוס אינו נשען על מצב התזמון אלא על שתי שכבות נפרדות:
-        // המקלט של BOOT_COMPLETED, ו-deliverMissedReminder בפתיחה.
-        androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+        when: reminders[i],
+      );
+    }
+
+    // סדרה שנייה: יום לפני האזכרה, בבוקר. טווח מזהים נפרד, אחרת היא
+    // הייתה דורסת את הראשית.
+    final dayBefore = _calendar.dayBeforeMemorialDates(memorial);
+    for (var i = 0; i < dayBefore.length; i++) {
+      final memorialDate =
+          _calendar.memorialDateForReminder(memorial, dayBefore[i]);
+      final detail = memorialDate == null
+          ? ''
+          : ', ${_calendar.describeMemorialForReminder(memorial, dayBefore[i], memorialDate)}';
+      final body = 'מחר אזכרתו של ${memorial.name} – $hebrewDate$detail';
+
+      await _schedule(
+        id: memorial.notificationIdForDayBefore(i),
+        body: body,
+        when: dayBefore[i],
       );
     }
   }
 
+  Future<void> _schedule({
+    required int id,
+    required String body,
+    required DateTime when,
+  }) async {
+    await _plugin.zonedSchedule(
+      id: id,
+      title: 'תזכורת אזכרה',
+      body: body,
+      // ה-payload נושא את הטקסט כדי שכפתור הדחייה יוכל לשחזר אותו:
+      // isolate הרקע אינו יכול לקרוא את מסד הנתונים.
+      payload: body,
+      scheduledDate: tz.TZDateTime.from(when, tz.local),
+      notificationDetails: const NotificationDetails(
+        android: _androidDetails,
+        iOS: DarwinNotificationDetails(),
+      ),
+      // מדויק, ו-allowWhileIdle כדי שיירה גם כשהמכשיר במצב Doze.
+      // אי-פספוס אינו נשען על מצב התזמון אלא על שתי שכבות נפרדות:
+      // המקלט של BOOT_COMPLETED, ו-deliverMissedReminder בפתיחה.
+      androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+    );
+  }
   /// מאתחל אזורי זמן. בטוח לקריאה חוזרת, וגם מ-isolate הרקע.
   static void _initTimeZones() {
     tz_data.initializeTimeZones();
@@ -302,9 +339,7 @@ class NotificationService {
     final body = 'בשבוע הקרוב תחול אזכרתו של ${memorial.name} – $hebrewDate';
 
     await _plugin.show(
-      id: memorial.notificationIdForOccurrence(
-        Memorial.notificationIdsPerMemorial - 1,
-      ),
+      id: memorial.notificationIdForOccurrence(Memorial.catchUpIndex),
       title: 'תזכורת אזכרה',
       body: body,
       payload: body,
@@ -379,8 +414,12 @@ class NotificationService {
       }
 
       // ממלאים רק כשהחלון הצטמצם – כלומר מופעים נורו מאז הפעם הקודמת.
+      // נספרות **שתי** הסדרות: הראשית והתזכורת של יום לפני. בלי הסדרה
+      // השנייה בחשבון, התור היה נראה מלא והיא לא הייתה מתוזמנת לעולם.
       final upcoming = _calendar.futureReminderDates(m);
-      if (existing.length >= upcoming.length) {
+      final wanted =
+          upcoming.length + _calendar.dayBeforeMemorialDates(m).length;
+      if (existing.length >= wanted) {
         // גם כשאין מה לתזמן, רושמים שהמועד הקרוב מטופל – אחרת אחרי שההתראה
         // תיורה, הפתיחה הבאה תראה בה החמצה ותשלח כפולה.
         if (upcoming.isNotEmpty) scheduled[m.id!] = upcoming.first;

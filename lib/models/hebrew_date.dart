@@ -24,7 +24,10 @@ enum ReminderMode {
   }
 }
 
-/// שמות ימי השבוע לתצוגה, באינדקס של [DateTime.weekday] (2 = שלישי).
+/// שמות ימי השבוע לתצוגה, באינדקס של [DateTime.weekday].
+///
+/// כולל שבת: תאריך האזכרה יכול ליפול בכל יום. לבחירת יום התזכורת יש
+/// להשתמש ב-[reminderWeekdayChoices], שאינו כולל שבת.
 const Map<int, String> hebrewWeekdayNames = {
   DateTime.sunday: 'ראשון',
   DateTime.monday: 'שני',
@@ -32,7 +35,18 @@ const Map<int, String> hebrewWeekdayNames = {
   DateTime.wednesday: 'רביעי',
   DateTime.thursday: 'חמישי',
   DateTime.friday: 'שישי',
+  DateTime.saturday: 'שבת',
 };
+
+/// הימים שניתן לבחור כמועד תזכורת. שבת אינה ברשימה.
+const List<int> reminderWeekdayChoices = [
+  DateTime.sunday,
+  DateTime.monday,
+  DateTime.tuesday,
+  DateTime.wednesday,
+  DateTime.thursday,
+  DateTime.friday,
+];
 
 /// סוג האדר עבור אזכרה.
 ///

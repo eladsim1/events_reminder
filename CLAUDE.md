@@ -395,3 +395,27 @@ next. `MemorialCard` also renders the negative day count as
 TLS connection to `storage.googleapis.com` (established socket, no bytes, near
 zero CPU). The pub cache is preserved, so killing the `dart` process and
 retrying resumes and succeeds.
+
+## Two reminder series, two id ranges
+
+Each memorial now schedules **two** independent series, and the id block is
+partitioned so one cannot overwrite the other (`Memorial`):
+
+```
+0..49   main reminder (weekday-of-previous-week / fixed days before)
+50..98  day-before reminder, fixed 09:00 (dayBeforeSeriesOffset)
+99      missed-reminder catch-up (catchUpIndex)
+```
+
+`rescheduleAll` compares the pending count against **both** series. Counting
+only the main one made the queue look full, so the day-before series would
+never have been scheduled at all.
+
+The notification body carries the weekday, the Gregorian date and a countdown.
+Those are computed against the **firing** date via
+`memorialDateForReminder` + `describeMemorialForReminder`, not against "now" —
+the text is baked in at schedule time, up to 20 years ahead, so anything
+derived from the current clock would be wrong by the time it fires.
+
+`hebrewWeekdayNames` includes שבת because a memorial can fall on any day;
+`reminderWeekdayChoices` is the six-day subset offered in the reminder picker.

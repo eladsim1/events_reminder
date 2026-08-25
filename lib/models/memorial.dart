@@ -109,15 +109,27 @@ class Memorial {
   /// כמה מזהי התראה שמורים לכל אזכרה – מופע אחד לכל שנה מתוזמנת.
   static const int notificationIdsPerMemorial = 100;
 
+  /// חלוקת הטווח לסדרות. כל סדרה מקבלת מקטע משלה, אחרת מופעים של סדרה אחת
+  /// היו דורסים את השנייה.
+  ///   0..49  – התזכורת הראשית (יום בשבוע שלפני / מספר ימים לפני)
+  ///   50..98 – התזכורת של יום לפני האזכרה
+  ///   99     – השלמה של תזכורת שהוחמצה
+  static const int dayBeforeSeriesOffset = 50;
+  static const int catchUpIndex = notificationIdsPerMemorial - 1;
+
   /// מזהה יציב להתראה (int) – נגזר מ-id.
   ///
   /// לכל אזכרה שמור טווח רציף של [notificationIdsPerMemorial] מזהים, כדי
   /// שאפשר יהיה לתזמן מופע נפרד לכל שנה ולבטל את כולם יחד.
   int get notificationId => notificationIdForOccurrence(0);
 
-  /// המזהה של המופע ה-[index] (0 = הקרוב ביותר).
+  /// המזהה של המופע ה-[index] בתזכורת הראשית (0 = הקרוב ביותר).
   int notificationIdForOccurrence(int index) =>
       notificationIdBase(id ?? 0) + index;
+
+  /// המזהה של המופע ה-[index] בתזכורת של יום לפני.
+  int notificationIdForDayBefore(int index) =>
+      notificationIdBase(id ?? 0) + dayBeforeSeriesOffset + index;
 
   /// תחילת טווח המזהים השמור לאזכרה עם המזהה [memorialId].
   static int notificationIdBase(int memorialId) =>

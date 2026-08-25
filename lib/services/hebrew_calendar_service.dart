@@ -329,6 +329,96 @@ class HebrewCalendarService {
     return reminder;
   }
 
+
+
+  /// תאריך האזכרה שאליו שייך מועד תזכורת נתון, או null אם לא נמצא.
+  ///
+  /// נחוץ כדי לבנות את טקסט ההתראה בזמן התזמון: לכל מופע יש תאריך אזכרה
+  /// משלו, וההתראה נכתבת שנים מראש.
+  DateTime? memorialDateForReminder(
+    Memorial memorial,
+    DateTime reminder, {
+    int years = scheduleHorizonYears,
+  }) {
+    final startHebrewYear =
+        _hebrewYearOf(DateTime(reminder.year, reminder.month, reminder.day));
+
+    // התזכורת קודמת לאזכרה, ולכן היא עשויה ליפול בשנה העברית שלפניה.
+    for (int offset = 0; offset <= years + 1; offset++) {
+      final candidate =
+          _memorialGregorianForYear(memorial, startHebrewYear + offset);
+      if (candidate == null) continue;
+      if (!candidate.isBefore(
+          DateTime(reminder.year, reminder.month, reminder.day))) {
+        return candidate;
+      }
+    }
+    return null;
+  }
+  /// שעת התזכורת של יום-לפני. קבועה ואינה נגזרת משעת התזכורת של האזכרה,
+  /// כדי שתגיע בבוקר גם למי שהגדיר תזכורת ראשית בשעה אחרת.
+  static const int dayBeforeReminderHour = 9;
+
+  /// מועדי התזכורת של **יום לפני** האזכרה, בשעה [dayBeforeReminderHour].
+  ///
+  /// נפרד מ-[futureReminderDates]: זו סדרה שנייה ועצמאית, ולכן היא מקבלת
+  /// טווח מזהים משלה בשכבת ההתראות.
+  List<DateTime> dayBeforeMemorialDates(
+    Memorial memorial, {
+    DateTime? from,
+    int years = scheduleHorizonYears,
+  }) {
+    final now = from ?? _now();
+    final startHebrewYear =
+        _hebrewYearOf(DateTime(now.year, now.month, now.day));
+
+    final dates = <DateTime>[];
+    for (int offset = 0; offset <= years; offset++) {
+      final memorialDate =
+          _memorialGregorianForYear(memorial, startHebrewYear + offset);
+      if (memorialDate == null) continue;
+
+      // חשבון על רכיבי התאריך ולא Duration – חסין לשעון קיץ.
+      final when = DateTime(
+        memorialDate.year,
+        memorialDate.month,
+        memorialDate.day - 1,
+        dayBeforeReminderHour,
+      );
+      if (when.isAfter(now)) dates.add(when);
+    }
+    return dates;
+  }
+
+  /// תיאור האזכרה לטקסט התראה: יום בשבוע, תאריך לועזי, וכמה ימים נותרו.
+  ///
+  /// [reminderDate] הוא מועד הירי – מספר הימים נמדד ממנו ולא מ"עכשיו",
+  /// כי ההתראה מתוזמנת שנים מראש והטקסט נקבע בזמן התזמון.
+  String describeMemorialForReminder(
+    Memorial memorial,
+    DateTime reminderDate,
+    DateTime memorialDate,
+  ) {
+    final weekday = hebrewWeekdayNames[memorialDate.weekday] ?? '';
+    final d = memorialDate.day.toString().padLeft(2, '0');
+    final mo = memorialDate.month.toString().padLeft(2, '0');
+
+    // ב-UTC כדי ששעון קיץ לא יגרע יום.
+    final days = DateTime.utc(
+            memorialDate.year, memorialDate.month, memorialDate.day)
+        .difference(DateTime.utc(
+            reminderDate.year, reminderDate.month, reminderDate.day))
+        .inDays;
+
+    final countdown = switch (days) {
+      <= 0 => 'היום',
+      1 => 'מחר',
+      2 => 'בעוד יומיים',
+      _ => 'בעוד $days ימים',
+    };
+
+    return 'יום $weekday $d/$mo/${memorialDate.year}, $countdown';
+  }
   /// מועד ההתראה עבור [memorialDate], לפי כלל התזכורת של האזכרה.
   DateTime _reminderForMemorialDate(Memorial memorial, DateTime memorialDate) {
     final day = switch (memorial.reminderMode) {

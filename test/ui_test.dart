@@ -920,6 +920,105 @@ void main() {
     });
   });
 
+  group('reminder text and the day-before reminder', () {
+    test('the description names the weekday, date and countdown', () {
+      final cal = HebrewCalendarService(now: () => _fixedNow);
+      final m = _seed(id: 1, name: 'x', day: 27, month: HebrewMonth.av);
+
+      final reminder = cal.futureReminderDates(m, from: _fixedNow).first;
+      final memorialDate = cal.memorialDateForReminder(m, reminder)!;
+      final text =
+          cal.describeMemorialForReminder(m, reminder, memorialDate);
+
+      // ignore: avoid_print
+      print('  reminder $reminder -> "$text" (memorial $memorialDate)');
+      expect(text, startsWith('יום '));
+      expect(text, contains('/'));
+      expect(text, contains('בעוד'));
+    });
+
+    test('the countdown is measured from the firing date, not from today', () {
+      final cal = HebrewCalendarService(now: () => _fixedNow);
+      final m = _seed(id: 1, name: 'x', day: 27, month: HebrewMonth.av);
+
+      // A far-future occurrence: if "today" leaked in, the number would be
+      // in the hundreds instead of the 5..11 the rule produces.
+      final reminders = cal.futureReminderDates(m, from: _fixedNow);
+      final late = reminders[5];
+      final memorialDate = cal.memorialDateForReminder(m, late)!;
+      final text = cal.describeMemorialForReminder(m, late, memorialDate);
+
+      final days = int.parse(RegExp(r'(\d+) ימים').firstMatch(text)!.group(1)!);
+      expect(days, inInclusiveRange(5, 11), reason: text);
+    });
+
+    test('every weekday name resolves, including Shabbat', () {
+      // The memorial can fall on any day; only the *reminder* excludes it.
+      for (var wd = 1; wd <= 7; wd++) {
+        expect(hebrewWeekdayNames[wd], isNotNull, reason: 'weekday $wd');
+      }
+      expect(hebrewWeekdayNames[DateTime.saturday], 'שבת');
+      expect(reminderWeekdayChoices, isNot(contains(DateTime.saturday)));
+      expect(reminderWeekdayChoices, hasLength(6));
+    });
+
+    test('day-before dates are one day before, at 09:00', () {
+      final cal = HebrewCalendarService(now: () => _fixedNow);
+      final m = _seed(id: 1, name: 'x', day: 27, month: HebrewMonth.av);
+
+      final dates = cal.dayBeforeMemorialDates(m, from: _fixedNow, years: 20);
+      expect(dates, isNotEmpty);
+
+      for (final d in dates) {
+        expect(d.hour, HebrewCalendarService.dayBeforeReminderHour);
+        expect(d.minute, 0);
+        expect(d.isAfter(_fixedNow), isTrue);
+
+        final memorialDate = cal.memorialDateForReminder(m, d)!;
+        // Exactly one calendar day, measured in UTC so DST cannot shave it.
+        final gap = DateTime.utc(
+                memorialDate.year, memorialDate.month, memorialDate.day)
+            .difference(DateTime.utc(d.year, d.month, d.day))
+            .inDays;
+        expect(gap, 1, reason: 'reminder $d vs memorial $memorialDate');
+      }
+    });
+
+    test('the day-before text reads as tomorrow', () {
+      final cal = HebrewCalendarService(now: () => _fixedNow);
+      final m = _seed(id: 1, name: 'x', day: 27, month: HebrewMonth.av);
+
+      final d = cal.dayBeforeMemorialDates(m, from: _fixedNow).first;
+      final memorialDate = cal.memorialDateForReminder(m, d)!;
+      expect(cal.describeMemorialForReminder(m, d, memorialDate),
+          contains('מחר'));
+    });
+
+    test('the two series occupy separate id ranges', () {
+      final m = _seed(id: 3, name: 'x', day: 1, month: HebrewMonth.tishrei);
+
+      final main = [
+        for (var i = 0; i <= HebrewCalendarService.scheduleHorizonYears; i++)
+          m.notificationIdForOccurrence(i)
+      ];
+      final dayBefore = [
+        for (var i = 0; i <= HebrewCalendarService.scheduleHorizonYears; i++)
+          m.notificationIdForDayBefore(i)
+      ];
+
+      // No overlap — otherwise one series would silently overwrite the other.
+      expect(main.toSet().intersection(dayBefore.toSet()), isEmpty);
+      // And neither collides with the catch-up slot.
+      final catchUp = m.notificationIdForOccurrence(Memorial.catchUpIndex);
+      expect(main, isNot(contains(catchUp)));
+      expect(dayBefore, isNot(contains(catchUp)));
+      // Everything stays inside this memorial's block.
+      for (final id in [...main, ...dayBefore, catchUp]) {
+        expect(Memorial.ownsNotificationId(id, 3), isTrue);
+      }
+    });
+  });
+
   group('year of death', () {
     test('is optional and reports no yahrzeit number without it', () {
       final cal = HebrewCalendarService(now: () => _fixedNow);
@@ -1223,7 +1322,7 @@ void main() {
 
     test('every weekday choice lands on that weekday, a week earlier', () {
       final cal = HebrewCalendarService();
-      for (final weekday in hebrewWeekdayNames.keys) {
+      for (final weekday in reminderWeekdayChoices) {
         final m = _seed(
           id: 1,
           name: 'x',

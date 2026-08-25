@@ -296,8 +296,8 @@ class _MemorialFormState extends State<MemorialForm> {
                 helperText: 'בשבוע שלפני שבוע האזכרה',
               ),
               items: [
-                for (final e in hebrewWeekdayNames.entries)
-                  DropdownMenuItem(value: e.key, child: Text('יום ${e.value}')),
+                for (final wd in reminderWeekdayChoices)
+                  DropdownMenuItem(value: wd, child: Text('יום ${hebrewWeekdayNames[wd]}')),
               ],
               onChanged: (v) =>
                   setState(() => _reminderValue = v ?? _reminderValue),
