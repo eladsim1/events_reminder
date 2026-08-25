@@ -81,19 +81,39 @@ class MemorialNotifier extends AsyncNotifier<List<Memorial>> {
     state = AsyncData(await _repo.getAll());
   }
 
-  /// טוען מחדש את הרשימה, משלים תזכורות שהוחמצו, ומוודא שהכל מתוזמן.
-  /// נקרא ב-Splash / בכל חזרה לחזית.
-  Future<void> loadAndReschedule() async {
-    state = const AsyncLoading();
+  /// טוען את הרשימה בלבד. מהיר – קריאת SQLite אחת.
+  ///
+  /// מופרד מ-[syncNotifications] במכוון: עבודת התזמון עולה עשרות קריאות
+  /// פלטפורמה לכל אזכרה, והפלאגין כותב מחדש את כל רשימת ההתראות בכל
+  /// קריאה. כשהיא חסמה את מסך הפתיחה, האפליקציה נראתה תקועה בכל עלייה.
+  Future<void> load() async {
     try {
-      final all = await _repo.getAll();
-      await _deliverMissedReminders(all);
-      await _rescheduleAndRecord(all);
-      // נטען מחדש – שני השלבים לעיל עדכנו את lastNotifiedAt.
       state = AsyncData(await _repo.getAll());
     } catch (e, st) {
       state = AsyncError(e, st);
     }
+  }
+
+  /// כל עבודת ההתראות: אתחול, השלמת תזכורות שהוחמצו, ותזמון מחדש.
+  ///
+  /// אינה חוסמת את ה-UI ואינה מפילה אותו – התזמון אינו דחוף לרגע, וכשל בו
+  /// מדווח דרך באנר ההרשאות ולא דרך מסך שגיאה.
+  Future<void> syncNotifications() async {
+    try {
+      final all = await _repo.getAll();
+      await _deliverMissedReminders(all);
+      await _rescheduleAndRecord(all);
+      // הרשימה נטענת מחדש כי שני השלבים עדכנו את lastNotifiedAt.
+      state = AsyncData(await _repo.getAll());
+    } catch (_) {
+      // הרשימה כבר מוצגת; אין מה להחליף אותה במסך שגיאה.
+    }
+  }
+
+  /// טוען ומסנכרן, שניהם מוגמרים. משמש בייבוא ובבדיקות שדורשות ודאות.
+  Future<void> loadAndReschedule() async {
+    await load();
+    await syncNotifications();
   }
 
   /// מציג תזכורות שמועדן חלף ולא טופלו – למשל אזכרה שנוספה אחרי שיום השלישי

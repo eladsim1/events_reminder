@@ -1669,6 +1669,102 @@ void main() {
     });
   });
 
+  group('the card states the weekday and the countdown to the memorial', () {
+    testWidgets('both are visible without waiting for a notification',
+        (tester) async {
+      _phoneViewport(tester);
+      final cal = HebrewCalendarService(now: () => _fixedNow);
+      final m = _seed(id: 1, name: 'סבא יעקב', day: 27, month: HebrewMonth.av);
+
+      await _pumpApp(tester, seeded: [m]);
+
+      final date = cal.nextMemorialDate(m, from: _fixedNow);
+      final weekday = hebrewWeekdayNames[date.weekday]!;
+      final days = cal.daysUntilMemorial(m, from: _fixedNow);
+
+      // The weekday of the memorial itself.
+      expect(find.textContaining('יום $weekday'), findsOneWidget);
+      // And how long until the memorial — distinct from the reminder count.
+      expect(find.textContaining('האזכרה בעוד $days ימים'), findsOneWidget);
+      // The reminder countdown is still its own separate row.
+      expect(find.textContaining('התזכורת'), findsWidgets);
+    });
+
+    testWidgets('reads naturally when the memorial is imminent',
+        (tester) async {
+      _phoneViewport(tester);
+      final cal = HebrewCalendarService(now: () => _fixedNow);
+
+      // Find a memorial falling tomorrow relative to the pinned clock.
+      Memorial? tomorrow;
+      for (final month in HebrewMonth.values) {
+        for (var day = 1; day <= 29 && tomorrow == null; day++) {
+          final c = _seed(id: 1, name: 'x', day: day, month: month);
+          if (cal.daysUntilMemorial(c, from: _fixedNow) == 1) tomorrow = c;
+        }
+      }
+      expect(tomorrow, isNotNull, reason: 'no fixture falls tomorrow');
+
+      await _pumpApp(tester, seeded: [tomorrow!]);
+      expect(find.text('זמן שנותר: '), findsOneWidget);
+      expect(find.text('האזכרה מחר'), findsOneWidget);
+    });
+  });
+
+  group('the app opens without waiting on notification work', () {
+    testWidgets('the list renders before any scheduling happens',
+        (tester) async {
+      _phoneViewport(tester);
+      final repo = _InMemoryRepo()
+        ..items.add(
+            _seed(id: 1, name: 'סבא יעקב', day: 27, month: HebrewMonth.av));
+      final notif = _FakeNotifications();
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            memorialRepositoryProvider.overrideWithValue(repo),
+            notificationServiceProvider.overrideWithValue(notif),
+            hebrewCalendarServiceProvider.overrideWithValue(
+              HebrewCalendarService(now: () => _fixedNow),
+            ),
+          ],
+          child: const AzkarotApp(),
+        ),
+      );
+
+      // The splash must hand over as soon as SQLite answers. If scheduling
+      // were still awaited here, this would sit on the splash instead.
+      await _pumpUntilFound(
+          tester, find.byType(MemorialCard), 'the memorial list');
+      // The splash lingers for the length of the route transition; what
+      // matters is that the list was already built underneath it.
+      await _pumpUntilGone(tester, find.byType(SplashScreen), 'the splash');
+    });
+  });
+
+  group('the logo in the app bar', () {
+    testWidgets('sits next to the title, and yields to the search field',
+        (tester) async {
+      _phoneViewport(tester);
+      await _pumpApp(tester, seeded: [
+        _seed(id: 1, name: 'סבא יעקב', day: 27, month: HebrewMonth.av),
+      ]);
+
+      final inBar = find.descendant(
+        of: find.byType(AppBar),
+        matching: find.byType(Image),
+      );
+      expect(inBar, findsOneWidget);
+      expect(find.text('תזכורת אזכרות'), findsOneWidget);
+
+      // Searching replaces the title, logo included — the field needs the room.
+      await tester.tap(find.byIcon(Icons.search));
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(inBar, findsNothing);
+    });
+  });
+
   group('screenshots', () {
     testWidgets('splash screen', (tester) async {
       _phoneViewport(tester);

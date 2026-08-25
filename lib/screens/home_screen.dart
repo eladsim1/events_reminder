@@ -29,6 +29,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    // עבודת ההתראות מתחילה רק אחרי שהמסך מצויר, ואינה מומתנת – היא איטית
+    // ואינה דחופה לרגע.
+    WidgetsBinding.instance.addPostFrameCallback((_) => _syncInBackground());
+  }
+
+  void _syncInBackground() {
+    if (!mounted) return;
+    ref.read(memorialListProvider.notifier).syncNotifications();
+    ref.invalidate(notificationPermissionProvider);
   }
 
   @override
@@ -49,8 +58,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     // בכל חזרה לחזית – מוודאים שההתראות מתוזמנות ומרעננים.
     // גם מצב ההרשאות נבדק מחדש, כי המשתמש עשוי היה לשנות אותו בהגדרות.
     if (state == AppLifecycleState.resumed) {
-      ref.read(memorialListProvider.notifier).loadAndReschedule();
-      ref.invalidate(notificationPermissionProvider);
+      // load() בלבד נמתן; הסנכרון האיטי רץ ברקע.
+      ref.read(memorialListProvider.notifier).load();
+      _syncInBackground();
     }
   }
 
@@ -131,7 +141,18 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                 onChanged: (v) =>
                     ref.read(memorialSearchProvider.notifier).state = v,
               )
-            : const Text('תזכורת אזכרות'),
+            : Row(
+                children: [
+                  Image.asset(
+                    'assets/app_icon.png',
+                    width: 28,
+                    height: 28,
+                    errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+                  ),
+                  const SizedBox(width: 10),
+                  const Text('תזכורת אזכרות'),
+                ],
+              ),
         actions: [
           if (_searching)
             IconButton(

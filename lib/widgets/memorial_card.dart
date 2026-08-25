@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 
+import '../models/hebrew_date.dart';
 import '../models/memorial.dart';
 import '../services/hebrew_calendar_service.dart';
 
@@ -36,6 +37,20 @@ class MemorialCard extends StatelessWidget {
     return 'התזכורת בעוד $days ימים';
   }
 
+  /// "יום שני, 10/08/2026" – היום בשבוע שבו תחול האזכרה.
+  String _memorialDayLabel(DateTime d) {
+    final weekday = hebrewWeekdayNames[d.weekday] ?? '';
+    return 'יום $weekday, ${_formatGregorian(d)}';
+  }
+
+  /// כמה נותר עד האזכרה עצמה – בשונה מהספירה עד התזכורת.
+  String _untilMemorialLabel(int days) {
+    if (days <= 0) return 'האזכרה היום';
+    if (days == 1) return 'האזכרה מחר';
+    if (days == 2) return 'האזכרה בעוד יומיים';
+    return 'האזכרה בעוד $days ימים';
+  }
+
   /// "האזכרה הראשונה" / "האזכרה ה-7". השנה הראשונה זוכה לניסוח מלא כי היא
   /// המשמעותית ביותר.
   String _yahrzeitLabel(int n) {
@@ -66,6 +81,7 @@ class MemorialCard extends StatelessWidget {
     final theme = Theme.of(context);
     final hebrewDate = calendar.formatHebrewDate(memorial);
     final yahrzeitNumber = calendar.yahrzeitNumber(memorial);
+    final daysToMemorial = calendar.daysUntilMemorial(memorial);
     final nextDate = calendar.nextMemorialDate(memorial);
     final nextHebrew = calendar.formatNextMemorialHebrewDate(memorial);
     final daysUntil = calendar.daysUntilReminder(memorial);
@@ -129,12 +145,23 @@ class MemorialCard extends StatelessWidget {
                 _InfoRow(
                   icon: Icons.event,
                   label: 'האזכרה הקרובה',
-                  // התאריך העברי כאן כולל שנה – בשונה מיום השנה החוזר שמוצג
-                  // מתחת לשם, זהו המופע הקונקרטי הקרוב.
-                  value: nextHebrew == null
-                      ? _formatGregorian(nextDate)
-                      : '${_formatGregorian(nextDate)} · $nextHebrew',
+                  value: _memorialDayLabel(nextDate),
                 ),
+                const SizedBox(height: 6),
+                _InfoRow(
+                  icon: Icons.hourglass_bottom_outlined,
+                  label: 'זמן שנותר',
+                  value: _untilMemorialLabel(daysToMemorial),
+                  highlight: daysToMemorial <= 1,
+                ),
+                if (nextHebrew != null) ...[
+                  const SizedBox(height: 6),
+                  _InfoRow(
+                    icon: Icons.calendar_month_outlined,
+                    label: 'תאריך עברי',
+                    value: nextHebrew,
+                  ),
+                ],
                 if (yahrzeitNumber != null) ...[
                   const SizedBox(height: 6),
                   _InfoRow(

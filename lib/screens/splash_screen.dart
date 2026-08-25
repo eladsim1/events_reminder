@@ -30,14 +30,10 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
 
   Future<void> _bootstrap() async {
     try {
-      final notifications = ref.read(notificationServiceProvider);
-
-      setState(() => _status = 'מאתחל התראות...');
-      await notifications.init();
-      await notifications.requestPermissions();
-
-      setState(() => _status = 'טוען אזכרות...');
-      await ref.read(memorialListProvider.notifier).loadAndReschedule();
+      // רק קריאת SQLite לפני המעבר למסך הראשי. כל עבודת ההתראות – אתחול
+      // הפלאגין, בקשת הרשאות, השלמות ותזמון – עולה עשרות קריאות פלטפורמה
+      // לכל אזכרה, וכשהיא חסמה כאן האפליקציה נראתה תקועה בכל עלייה.
+      await ref.read(memorialListProvider.notifier).load();
 
       if (!mounted) return;
       Navigator.of(context).pushReplacement(
