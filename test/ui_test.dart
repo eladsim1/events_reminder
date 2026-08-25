@@ -26,6 +26,7 @@ import 'package:azkarot_app/repository/memorial_repository.dart';
 import 'package:azkarot_app/screens/edit_memorial_screen.dart';
 import 'package:azkarot_app/screens/home_screen.dart';
 import 'package:azkarot_app/screens/settings_screen.dart';
+import 'package:azkarot_app/screens/splash_screen.dart';
 import 'package:azkarot_app/services/hebrew_calendar_service.dart';
 import 'package:azkarot_app/services/notification_service.dart';
 import 'package:azkarot_app/services/photo_store.dart';
@@ -1617,7 +1618,82 @@ void main() {
     });
   });
 
+  group('the project logo on the splash screen', () {
+    testWidgets('appears alongside the candle, not instead of it',
+        (tester) async {
+      _phoneViewport(tester);
+      final repo = _InMemoryRepo();
+      final notif = _FakeNotifications();
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            memorialRepositoryProvider.overrideWithValue(repo),
+            notificationServiceProvider.overrideWithValue(notif),
+            hebrewCalendarServiceProvider.overrideWithValue(
+              HebrewCalendarService(now: () => _fixedNow),
+            ),
+          ],
+          child: const AzkarotApp(),
+        ),
+      );
+      await tester.pump();
+
+      expect(find.byType(SplashScreen), findsOneWidget);
+      expect(find.text('🕯'), findsOneWidget, reason: 'the candle must stay');
+      expect(find.text('תזכורת אזכרות'), findsOneWidget);
+
+      final logo = tester.widgetList<Image>(find.byType(Image)).where((i) {
+        final p = i.image;
+        return p is AssetImage && p.assetName == 'assets/app_icon.png';
+      });
+      expect(logo, hasLength(1), reason: 'the logo asset must render');
+      expect(logo.first.width, 48);
+
+      // Let the bootstrap finish so no timer is left pending at teardown.
+      await _pumpUntilFound(tester, find.byType(HomeScreen), 'HomeScreen');
+    });
+
+    // A plain test: reading a file inside testWidgets runs under the fake
+    // clock and deadlocks.
+    test('the notification icon is still the candle drawable', () {
+      final source =
+          File('lib/services/notification_service.dart').readAsStringSync();
+      expect(source, contains("'@drawable/ic_notification'"));
+      expect(source, isNot(contains('app_icon')),
+          reason: 'the logo must not leak into the notification icon');
+      expect(
+          File('android/app/src/main/res/drawable/ic_notification.xml')
+              .existsSync(),
+          isTrue);
+    });
+  });
+
   group('screenshots', () {
+    testWidgets('splash screen', (tester) async {
+      _phoneViewport(tester);
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            memorialRepositoryProvider.overrideWithValue(_InMemoryRepo()),
+            notificationServiceProvider.overrideWithValue(_FakeNotifications()),
+            hebrewCalendarServiceProvider.overrideWithValue(
+              HebrewCalendarService(now: () => _fixedNow),
+            ),
+          ],
+          child: const AzkarotApp(),
+        ),
+      );
+      await tester.pump();
+
+      await expectLater(
+        find.byType(AzkarotApp),
+        matchesGoldenFile('goldens/07_splash.png'),
+      );
+
+      await _pumpUntilFound(tester, find.byType(HomeScreen), 'HomeScreen');
+    });
+
     testWidgets('home with data (light)', (tester) async {
       _phoneViewport(tester);
       await _pumpApp(tester, seeded: [

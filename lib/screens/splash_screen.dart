@@ -53,24 +53,45 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Scaffold(
-      body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Text('🕯', style: TextStyle(fontSize: 72)),
-            const SizedBox(height: 16),
-            Text(
-              'תזכורת אזכרות',
-              style: theme.textTheme.headlineMedium?.copyWith(
-                fontWeight: FontWeight.bold,
+      body: Stack(
+        children: [
+          Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Text('🕯', style: TextStyle(fontSize: 72)),
+                const SizedBox(height: 16),
+                Text(
+                  'תזכורת אזכרות',
+                  style: theme.textTheme.headlineMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 32),
+                const CircularProgressIndicator(),
+                const SizedBox(height: 16),
+                Text(_status, style: theme.textTheme.bodyMedium),
+              ],
+            ),
+          ),
+          // חתימת המפתח בתחתית. ב-Stack ולא בתוך העמודה, כדי שלא תזיז את
+          // הנר והכותרת מהמרכז.
+          Align(
+            alignment: Alignment.bottomCenter,
+            child: Padding(
+              padding: EdgeInsets.only(
+                bottom: 24 + MediaQuery.paddingOf(context).bottom,
+              ),
+              child: Image.asset(
+                'assets/app_icon.png',
+                width: 48,
+                height: 48,
+                // הנכס נארז ב-APK, אך נפילה שקטה עדיפה על מסך פתיחה שבור.
+                errorBuilder: (_, __, ___) => const SizedBox.shrink(),
               ),
             ),
-            const SizedBox(height: 32),
-            const CircularProgressIndicator(),
-            const SizedBox(height: 16),
-            Text(_status, style: theme.textTheme.bodyMedium),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
