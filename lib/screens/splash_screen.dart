@@ -80,8 +80,9 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
               ),
               child: Image.asset(
                 'assets/app_icon.png',
-                width: 48,
-                height: 48,
+                // גדול מבעבר: הלוגו כולל עכשיו כיתוב, שב-48 היה מטושטש.
+                width: 88,
+                height: 88,
                 // הנכס נארז ב-APK, אך נפילה שקטה עדיפה על מסך פתיחה שבור.
                 errorBuilder: (_, __, ___) => const SizedBox.shrink(),
               ),

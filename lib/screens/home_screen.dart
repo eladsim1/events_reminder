@@ -122,13 +122,17 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
     return Scaffold(
       appBar: AppBar(
+        // RTL: leading מרונדר בצד ימין, ו-actions נערמים שמאלה. לכן הנר
+        // כאן והחתימה כפעולה האחרונה – הכי שמאלה.
         leading: _searching
             ? IconButton(
                 tooltip: 'סגירת החיפוש',
                 icon: const Icon(Icons.arrow_forward),
                 onPressed: _closeSearch,
               )
-            : null,
+            : const Center(
+                child: Text('🕯', style: TextStyle(fontSize: 26)),
+              ),
         title: _searching
             ? TextField(
                 controller: _searchController,
@@ -141,18 +145,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                 onChanged: (v) =>
                     ref.read(memorialSearchProvider.notifier).state = v,
               )
-            : Row(
-                children: [
-                  Image.asset(
-                    'assets/app_icon.png',
-                    width: 28,
-                    height: 28,
-                    errorBuilder: (_, __, ___) => const SizedBox.shrink(),
-                  ),
-                  const SizedBox(width: 10),
-                  const Text('תזכורת אזכרות'),
-                ],
-              ),
+            : const Text('תזכורת אזכרות'),
         actions: [
           if (_searching)
             IconButton(
@@ -177,6 +170,18 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                   MaterialPageRoute(builder: (_) => const SettingsScreen()),
                 );
               },
+            ),
+            // חתימת המפתח, בקצה השמאלי.
+            Padding(
+              padding: const EdgeInsetsDirectional.only(end: 12, start: 4),
+              child: Center(
+                child: Image.asset(
+                  'assets/app_icon.png',
+                  width: 30,
+                  height: 30,
+                  errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+                ),
+              ),
             ),
           ],
         ],

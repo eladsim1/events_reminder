@@ -1435,7 +1435,14 @@ void main() {
       ]);
       // Rendering must not throw on a path that no longer exists.
       expect(tester.takeException(), isNull);
-      expect(find.text('🕯'), findsOneWidget);
+      // Scoped to the card: the app bar carries a candle of its own.
+      expect(
+        find.descendant(
+          of: find.byType(MemorialCard),
+          matching: find.text('🕯'),
+        ),
+        findsOneWidget,
+      );
     });
   });
 
@@ -1648,7 +1655,9 @@ void main() {
         return p is AssetImage && p.assetName == 'assets/app_icon.png';
       });
       expect(logo, hasLength(1), reason: 'the logo asset must render');
-      expect(logo.first.width, 48);
+      // Big enough for the tagline in the logo to be legible – asserting a
+      // floor rather than an exact number, which would only be churn.
+      expect(logo.first.width, greaterThanOrEqualTo(64.0));
 
       // Let the bootstrap finish so no timer is left pending at teardown.
       await _pumpUntilFound(tester, find.byType(HomeScreen), 'HomeScreen');
@@ -1757,6 +1766,17 @@ void main() {
       );
       expect(inBar, findsOneWidget);
       expect(find.text('תזכורת אזכרות'), findsOneWidget);
+      // RTL: the candle leads (right), the signature trails (left).
+      expect(
+        find.descendant(
+          of: find.byType(AppBar),
+          matching: find.text('🕯'),
+        ),
+        findsOneWidget,
+      );
+      expect(tester.getCenter(inBar).dx,
+          lessThan(tester.getCenter(find.text('תזכורת אזכרות')).dx),
+          reason: 'the signature must sit left of the title');
 
       // Searching replaces the title, logo included — the field needs the room.
       await tester.tap(find.byIcon(Icons.search));
