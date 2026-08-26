@@ -80,7 +80,7 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
               ),
               child: Image.asset(
                 'assets/app_icon.png',
-                // גדול מבעבר: הלוגו כולל עכשיו כיתוב, שב-48 היה מטושטש.
+                // גדול מ-48: בגודל הקטן הלוגו נקרא ככתם ולא כחתימה.
                 width: 88,
                 height: 88,
                 // הנכס נארז ב-APK, אך נפילה שקטה עדיפה על מסך פתיחה שבור.

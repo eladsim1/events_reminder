@@ -1655,8 +1655,8 @@ void main() {
         return p is AssetImage && p.assetName == 'assets/app_icon.png';
       });
       expect(logo, hasLength(1), reason: 'the logo asset must render');
-      // Big enough for the tagline in the logo to be legible – asserting a
-      // floor rather than an exact number, which would only be churn.
+      // A floor rather than an exact number: the point is that the logo
+      // reads as a signature, not that it is any particular size.
       expect(logo.first.width, greaterThanOrEqualTo(64.0));
 
       // Let the bootstrap finish so no timer is left pending at teardown.
