@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/memorial.dart';
@@ -143,30 +145,37 @@ class MemorialNotifier extends AsyncNotifier<List<Memorial>> {
 
   Future<void> addMemorial(Memorial memorial) async {
     final id = await _repo.insert(memorial);
-    final saved = memorial.copyWith(id: id);
-    await _scheduleAndRecord(saved);
+    // הרשימה מתרעננת לפני התזמון, כדי שהמסך ייסגר מיד. תזמון אזכרה עולה
+    // עשרות קריאות פלטפורמה, והמתנה לו כאן הקפיאה את כפתור השמירה.
     await _refresh();
+    unawaited(_scheduleAndRecord(memorial.copyWith(id: id)));
   }
 
   Future<void> updateMemorial(Memorial memorial) async {
     await _repo.update(memorial);
-    // כל שינוי מחייב חישוב מחדש של ההתראה.
-    await _scheduleAndRecord(memorial);
     await _refresh();
+    // כל שינוי מחייב חישוב מחדש של ההתראה – ברקע, מאותה סיבה.
+    unawaited(_scheduleAndRecord(memorial));
   }
 
   /// מתזמן אזכרה בודדת ורושם את המועד הקרוב שטופל.
   Future<void> _scheduleAndRecord(Memorial memorial) async {
-    final nearest = await _notifications.scheduleForMemorial(memorial);
-    if (nearest == null || memorial.lastNotifiedAt == nearest) return;
-    await _repo.update(memorial.copyWith(lastNotifiedAt: nearest));
+    try {
+      final nearest = await _notifications.scheduleForMemorial(memorial);
+      if (nearest == null || memorial.lastNotifiedAt == nearest) return;
+      await _repo.update(memorial.copyWith(lastNotifiedAt: nearest));
+      await _refresh();
+    } catch (_) {
+      // רץ ברקע: הרשימה כבר מוצגת ואין מה להחליף אותה במסך שגיאה.
+    }
   }
 
   Future<void> deleteMemorial(Memorial memorial) async {
     if (memorial.id == null) return;
     await _repo.delete(memorial.id!);
-    await _notifications.cancelForMemorial(memorial.id!);
     await _refresh();
+    // ביטול עולה קריאה לכל התראה מתוזמנת – ברקע, כמו התזמון.
+    unawaited(_notifications.cancelForMemorial(memorial.id!));
   }
 
   /// מפעיל/מכבה התראה של אזכרה קיימת.

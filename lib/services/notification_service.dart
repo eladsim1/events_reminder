@@ -33,41 +33,54 @@ class NotificationService {
   static const String _channelDescription =
       'התראות תזכורת לאזכרות לפי התאריך העברי';
 
-  /// מזהי הפעולות שמופיעות על ההתראה.
-  static const String snooze3Days = 'snooze_3d';
-  static const String snooze7Days = 'snooze_7d';
+  /// כמה ימים אפשר לדחות. מסוננים לכל התראה כך שהדחייה לא תעבור את יום
+  /// האזכרה – "הזכר בעוד שבוע" על אזכרה שבעוד יומיים היה חסר תועלת.
+  static const List<int> snoozeChoices = [1, 3, 7];
 
-  /// כמה ימים דוחה כל פעולה.
-  static const Map<String, int> snoozeDays = {
-    snooze3Days: 3,
-    snooze7Days: 7,
-  };
+  static String snoozeActionId(int days) => 'snooze_$days';
 
-  /// הגדרות אחידות לכל ההתראות – מתוזמנות והשלמות כאחד.
-  static const AndroidNotificationDetails _androidDetails =
+  /// מספר הימים שמזהה הפעולה מייצג, או null אם אינו פעולת דחייה.
+  static int? snoozeDaysFromActionId(String? actionId) {
+    if (actionId == null || !actionId.startsWith('snooze_')) return null;
+    return int.tryParse(actionId.substring('snooze_'.length));
+  }
+
+  static String _snoozeLabel(int days) => switch (days) {
+        1 => 'הזכר מחר',
+        7 => 'הזכר בעוד שבוע',
+        _ => 'הזכר בעוד $days ימים',
+      };
+
+  /// הגדרות ההתראה. [maxSnoozeDays] הוא מספר הימים שנותרו עד האזכרה;
+  /// רק דחיות שאינן עוברות אותו מוצעות. 0 מסתיר את הכפתורים לגמרי.
+  static AndroidNotificationDetails _androidDetails({
+    int maxSnoozeDays = 0,
+  }) =>
       AndroidNotificationDetails(
-    _channelId,
-    _channelName,
-    channelDescription: _channelDescription,
-    importance: Importance.high,
-    priority: Priority.high,
-    icon: '@drawable/ic_notification',
-    actions: <AndroidNotificationAction>[
-      // showsUserInterface=false כדי שהדחייה תטופל ברקע בלי לפתוח את
-      // האפליקציה; cancelNotification=true מסלק את ההתראה הנוכחית.
-      AndroidNotificationAction(
-        snooze3Days,
-        'הזכר בעוד 3 ימים',
-        showsUserInterface: false,
-      ),
-      AndroidNotificationAction(
-        snooze7Days,
-        'הזכר בעוד שבוע',
-        showsUserInterface: false,
-      ),
-    ],
-  );
+        _channelId,
+        _channelName,
+        channelDescription: _channelDescription,
+        importance: Importance.high,
+        priority: Priority.high,
+        icon: '@drawable/ic_notification',
+        actions: [
+          // showsUserInterface=false כדי שהדחייה תטופל ברקע בלי לפתוח את
+          // האפליקציה.
+          for (final d in snoozeChoices)
+            if (d <= maxSnoozeDays)
+              AndroidNotificationAction(
+                snoozeActionId(d),
+                _snoozeLabel(d),
+                showsUserInterface: false,
+              ),
+        ],
+      );
 
+  static NotificationDetails _details({int maxSnoozeDays = 0}) =>
+      NotificationDetails(
+        android: _androidDetails(maxSnoozeDays: maxSnoozeDays),
+        iOS: const DarwinNotificationDetails(),
+      );
   NotificationService({HebrewCalendarService? calendar})
       : _calendar = calendar ?? HebrewCalendarService();
 
@@ -219,21 +232,13 @@ class NotificationService {
     List<DateTime> reminders,
     String hebrewDate,
   ) async {
-    // סדרה ראשית: התזכורת המוקדמת (יום בשבוע שלפני / מספר ימים לפני).
     for (var i = 0; i < reminders.length; i++) {
-      final memorialDate = _calendar.memorialDateForReminder(
-        memorial,
-        reminders[i],
-      );
-      final detail = memorialDate == null
-          ? ''
-          : ', ${_calendar.describeMemorialForReminder(memorial, reminders[i], memorialDate)}';
-      final body = 'אזכרתו של ${memorial.name} – $hebrewDate$detail';
-
-      await _schedule(
-        id: memorial.notificationIdForOccurrence(i),
-        body: body,
+      await _scheduleOne(
+        memorial: memorial,
+        hebrewDate: hebrewDate,
         when: reminders[i],
+        id: memorial.notificationIdForOccurrence(i),
+        prefix: 'אזכרתו של',
       );
     }
 
@@ -241,26 +246,30 @@ class NotificationService {
     // הייתה דורסת את הראשית.
     final dayBefore = _calendar.dayBeforeMemorialDates(memorial);
     for (var i = 0; i < dayBefore.length; i++) {
-      final memorialDate =
-          _calendar.memorialDateForReminder(memorial, dayBefore[i]);
-      final detail = memorialDate == null
-          ? ''
-          : ', ${_calendar.describeMemorialForReminder(memorial, dayBefore[i], memorialDate)}';
-      final body = 'מחר אזכרתו של ${memorial.name} – $hebrewDate$detail';
-
-      await _schedule(
-        id: memorial.notificationIdForDayBefore(i),
-        body: body,
+      await _scheduleOne(
+        memorial: memorial,
+        hebrewDate: hebrewDate,
         when: dayBefore[i],
+        id: memorial.notificationIdForDayBefore(i),
+        prefix: 'מחר אזכרתו של',
       );
     }
   }
 
-  Future<void> _schedule({
-    required int id,
-    required String body,
+  /// מתזמן התראה אחת, עם טקסט וכפתורי דחייה שמותאמים למופע הספציפי.
+  Future<void> _scheduleOne({
+    required Memorial memorial,
+    required String hebrewDate,
     required DateTime when,
+    required int id,
+    required String prefix,
   }) async {
+    final memorialDate = _calendar.memorialDateForReminder(memorial, when);
+    final detail = memorialDate == null
+        ? ''
+        : ', ${_calendar.describeMemorialForReminder(memorial, when, memorialDate)}';
+    final body = '$prefix ${memorial.name} – $hebrewDate$detail';
+
     await _plugin.zonedSchedule(
       id: id,
       title: 'תזכורת אזכרה',
@@ -269,15 +278,25 @@ class NotificationService {
       // isolate הרקע אינו יכול לקרוא את מסד הנתונים.
       payload: body,
       scheduledDate: tz.TZDateTime.from(when, tz.local),
-      notificationDetails: const NotificationDetails(
-        android: _androidDetails,
-        iOS: DarwinNotificationDetails(),
+      // הדחייה מוגבלת למספר הימים שנותרו עד האזכרה – דחייה מעבר לה הייתה
+      // מגיעה אחרי שהאזכרה כבר חלפה.
+      notificationDetails: _details(
+        maxSnoozeDays: _daysBetween(when, memorialDate),
       ),
       // מדויק, ו-allowWhileIdle כדי שיירה גם כשהמכשיר במצב Doze.
       // אי-פספוס אינו נשען על מצב התזמון אלא על שתי שכבות נפרדות:
       // המקלט של BOOT_COMPLETED, ו-deliverMissedReminder בפתיחה.
       androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
     );
+  }
+
+  /// ימי לוח בין שני תאריכים, ב-UTC כדי ששעון קיץ לא יגרע יום.
+  static int _daysBetween(DateTime from, DateTime? to) {
+    if (to == null) return 0;
+    final d = DateTime.utc(to.year, to.month, to.day)
+        .difference(DateTime.utc(from.year, from.month, from.day))
+        .inDays;
+    return d < 0 ? 0 : d;
   }
   /// מאתחל אזורי זמן. בטוח לקריאה חוזרת, וגם מ-isolate הרקע.
   static void _initTimeZones() {
@@ -298,7 +317,7 @@ class NotificationService {
   static Future<void> handleNotificationResponse(
     NotificationResponse response,
   ) async {
-    final days = snoozeDays[response.actionId];
+    final days = snoozeDaysFromActionId(response.actionId);
     if (days == null) return; // הקשה רגילה על ההתראה – אין מה לעשות
 
     final id = response.id;
@@ -316,10 +335,9 @@ class NotificationService {
       title: 'תזכורת אזכרה',
       body: response.payload ?? 'אזכרה מתקרבת',
       scheduledDate: when,
-      notificationDetails: const NotificationDetails(
-        android: _androidDetails,
-        iOS: DarwinNotificationDetails(),
-      ),
+      // בלי כפתורי דחייה נוספים: ה-isolate אינו יודע מתי האזכרה, ולכן אינו
+      // יכול להבטיח שדחייה נוספת לא תעבור אותה.
+      notificationDetails: _details(),
       androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
     );
   }
@@ -335,22 +353,26 @@ class NotificationService {
     final missed = _calendar.missedReminderDate(memorial);
     if (missed == null) return null;
 
+    final now = DateTime.now();
+    final memorialDate = _calendar.nextMemorialDate(memorial);
     final hebrewDate = _calendar.formatHebrewDate(memorial);
-    final body = 'בשבוע הקרוב תחול אזכרתו של ${memorial.name} – $hebrewDate';
+
+    // נמדד מ"עכשיו" ולא ממועד התזכורת שחלף: ההתראה מוצגת ברגע זה, ולכן
+    // הספירה חייבת לשקף כמה ימים באמת נותרו.
+    final detail =
+        _calendar.describeMemorialForReminder(memorial, now, memorialDate);
+    final body = 'אזכרתו של ${memorial.name} – $hebrewDate, $detail';
 
     await _plugin.show(
       id: memorial.notificationIdForOccurrence(Memorial.catchUpIndex),
       title: 'תזכורת אזכרה',
       body: body,
       payload: body,
-      notificationDetails: const NotificationDetails(
-        android: _androidDetails,
-        iOS: DarwinNotificationDetails(),
-      ),
+      notificationDetails:
+          _details(maxSnoozeDays: _daysBetween(now, memorialDate)),
     );
     return missed;
   }
-
   /// מבטל את **כל** המופעים המתוזמנים של אזכרה.
   ///
   /// לכל אזכרה שמור טווח רציף של מזהים, ולכן מבטלים את כולו – אחרת מופעים

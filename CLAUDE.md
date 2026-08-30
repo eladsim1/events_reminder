@@ -419,3 +419,30 @@ derived from the current clock would be wrong by the time it fires.
 
 `hebrewWeekdayNames` includes שבת because a memorial can fall on any day;
 `reminderWeekdayChoices` is the six-day subset offered in the reminder picker.
+
+## Snooze is capped at the memorial date
+
+Notification actions are built per notification, not shared as a const:
+`_androidDetails(maxSnoozeDays:)` filters `snoozeChoices` to options that do
+not land past the memorial. On the day-before reminder only "מחר" survives;
+on the memorial day no buttons show at all. Action ids encode the number
+(`snooze_3`) so the background isolate can parse them without a lookup table —
+it has no database and cannot re-derive the memorial date, which is also why a
+snoozed notification carries no further snooze buttons.
+
+## Nothing that touches the notification plugin may block the UI
+
+Scheduling one memorial issues ~40 `zonedSchedule` calls and the plugin
+rewrites its whole JSON blob on each, so anything awaiting it stalls for
+seconds. Every entry point is therefore fire-and-forget:
+
+| path | awaited | background |
+|---|---|---|
+| splash | `load()` (SQLite) | `syncNotifications()` |
+| resume | `load()` | `syncNotifications()` |
+| add / update | insert + `_refresh()` | `_scheduleAndRecord()` |
+| delete | delete + `_refresh()` | `cancelForMemorial()` |
+
+`ui_test.dart` proves this with a fake whose scheduling never completes: if
+any of these regained an `await`, the screen would hang and the test would
+time out rather than pass.

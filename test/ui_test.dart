@@ -8,6 +8,7 @@
 ///   flutter test test/ui_test.dart --update-goldens
 library;
 
+import 'dart:async';
 import 'dart:io';
 import 'dart:ui' as ui;
 
@@ -107,12 +108,31 @@ class _FakeNotifications extends NotificationService {
   @override
   Future<bool> requestPermissions() async => true;
 
+  /// When true, scheduling and cancellation hang until released — used to
+  /// prove the UI does not await them.
+  bool blockScheduling = false;
+  bool schedulingStarted = false;
+  Completer<void>? _gate;
+
+  Future<void> _maybeBlock() async {
+    if (!blockScheduling) return;
+    _gate ??= Completer<void>();
+    await _gate!.future;
+  }
+
+  void releaseScheduling() {
+    if (_gate != null && !_gate!.isCompleted) _gate!.complete();
+    blockScheduling = false;
+  }
+
   /// The nearest reminder the fake claims to have scheduled. Tests that care
   /// about the duplicate-notification guard set this.
   DateTime? nearestScheduled;
 
   @override
   Future<DateTime?> scheduleForMemorial(Memorial memorial) async {
+    schedulingStarted = true;
+    await _maybeBlock();
     if (memorial.id == null) return null;
     log.add('cancel:${memorial.id}');
     if (!memorial.enabled) return null;
@@ -122,6 +142,7 @@ class _FakeNotifications extends NotificationService {
 
   @override
   Future<void> cancelForMemorial(int memorialId) async {
+    await _maybeBlock();
     log.add('cancel:$memorialId');
   }
 
@@ -1536,14 +1557,170 @@ void main() {
     });
   });
 
+  group('saving never waits on notification scheduling', () {
+    testWidgets('the add screen closes before scheduling finishes',
+        (tester) async {
+      _phoneViewport(tester);
+      final (repo, notif) = await _pumpApp(tester);
+
+      // A fake whose scheduling never completes. If saving awaited it, the
+      // add screen would stay open forever — which is the 15s freeze the
+      // user hit, only unbounded.
+      notif.blockScheduling = true;
+
+      await tester.tap(find.text('הוספה'));
+      await _pumpUntilFound(
+          tester, find.byType(HebrewDatePicker), 'the add screen');
+
+      await tester.enterText(find.byType(TextFormField).first, 'סבתא מרים');
+      await tester.pump(const Duration(milliseconds: 100));
+
+      final save = find.widgetWithText(FilledButton, 'שמירה');
+      await _revealInForm(tester, save);
+      await tester.tap(save);
+
+      // The row is already persisted and the list is already showing it.
+      await _pumpUntilFound(
+          tester, find.text('סבתא מרים'), 'the saved card on the list');
+      expect((await repo.getAll()).single.name, 'סבתא מרים');
+      expect(notif.schedulingStarted, isTrue,
+          reason: 'scheduling should have been kicked off, just not awaited');
+
+      notif.releaseScheduling();
+      await tester.pump(const Duration(milliseconds: 300));
+    });
+
+    testWidgets('deleting closes before cancellation finishes',
+        (tester) async {
+      _phoneViewport(tester);
+      final (repo, notif) = await _pumpApp(tester, seeded: [
+        _seed(id: 1, name: 'סבא יעקב', day: 27, month: HebrewMonth.av),
+      ]);
+      notif.blockScheduling = true;
+
+      await tester.tap(find.text('סבא יעקב'));
+      await _pumpUntilFound(
+          tester, find.byType(EditMemorialScreen), 'EditMemorialScreen');
+      await tester.tap(find.byIcon(Icons.delete_outline));
+      await _pumpUntilFound(
+          tester, find.text('מחיקת אזכרה'), 'the delete confirmation');
+      await tester.tap(find.widgetWithText(FilledButton, 'מחיקה'));
+
+      await _pumpUntilFound(tester, find.byType(HomeScreen), 'HomeScreen');
+      expect(await repo.getAll(), isEmpty);
+
+      notif.releaseScheduling();
+      await tester.pump(const Duration(milliseconds: 300));
+    });
+  });
+
+  group('snooze never lands past the memorial', () {
+    /// Mirrors NotificationService._daysBetween, which is private.
+    int gap(DateTime from, DateTime to) => DateTime.utc(to.year, to.month, to.day)
+        .difference(DateTime.utc(from.year, from.month, from.day))
+        .inDays;
+
+    List<int> offered(int maxSnoozeDays) => [
+          for (final d in NotificationService.snoozeChoices)
+            if (d <= maxSnoozeDays) d,
+        ];
+
+    test('options are capped by the days left, and vanish on the day', () {
+      expect(offered(0), isEmpty, reason: 'nothing to postpone to');
+      expect(offered(1), [1]);
+      expect(offered(2), [1]);
+      expect(offered(3), [1, 3]);
+      expect(offered(6), [1, 3]);
+      expect(offered(7), [1, 3, 7]);
+      expect(offered(30), [1, 3, 7]);
+    });
+
+    test('no offered option ever overshoots a real reminder', () {
+      final cal = HebrewCalendarService(now: () => _fixedNow);
+
+      for (final month in HebrewMonth.values) {
+        final m = _seed(id: 1, name: 'x', day: 12, month: month);
+
+        for (final series in [
+          cal.futureReminderDates(m, from: _fixedNow, years: 3),
+          cal.dayBeforeMemorialDates(m, from: _fixedNow, years: 3),
+        ]) {
+          for (final when in series) {
+            final memorialDate = cal.memorialDateForReminder(m, when);
+            if (memorialDate == null) continue;
+            final left = gap(when, memorialDate);
+
+            for (final d in offered(left)) {
+              final landing = DateTime(when.year, when.month, when.day + d);
+              expect(gap(landing, memorialDate), greaterThanOrEqualTo(0),
+                  reason: 'snoozing $d days from $when overshoots '
+                      '$memorialDate');
+            }
+          }
+        }
+      }
+    });
+
+    test('the day-before reminder can only be pushed to the day itself', () {
+      final cal = HebrewCalendarService(now: () => _fixedNow);
+      final m = _seed(id: 1, name: 'x', day: 27, month: HebrewMonth.av);
+
+      final when = cal.dayBeforeMemorialDates(m, from: _fixedNow).first;
+      final memorialDate = cal.memorialDateForReminder(m, when)!;
+      expect(gap(when, memorialDate), 1);
+      expect(offered(1), [1], reason: 'only "tomorrow" makes sense here');
+    });
+  });
+
+  group('the reminder text counts down to the memorial', () {
+    test('never says "this week"; always days, tomorrow, or today', () {
+      final cal = HebrewCalendarService(now: () => _fixedNow);
+      final m = _seed(id: 1, name: 'x', day: 27, month: HebrewMonth.av);
+
+      for (final when in cal.futureReminderDates(m, from: _fixedNow, years: 5)) {
+        final memorialDate = cal.memorialDateForReminder(m, when)!;
+        final text =
+            cal.describeMemorialForReminder(m, when, memorialDate);
+
+        expect(text, isNot(contains('בשבוע')),
+            reason: 'vague wording replaced by a real countdown');
+        expect(
+          text.contains('בעוד') ||
+              text.contains('מחר') ||
+              text.contains('היום'),
+          isTrue,
+          reason: text,
+        );
+      }
+    });
+
+    test('reads "מחר" exactly one day out and "היום" on the day', () {
+      final cal = HebrewCalendarService(now: () => _fixedNow);
+      final m = _seed(id: 1, name: 'x', day: 27, month: HebrewMonth.av);
+      final memorialDate = cal.nextMemorialDate(m, from: _fixedNow);
+
+      final dayBefore = DateTime(
+          memorialDate.year, memorialDate.month, memorialDate.day - 1, 9);
+      expect(cal.describeMemorialForReminder(m, dayBefore, memorialDate),
+          contains('מחר'));
+
+      expect(
+          cal.describeMemorialForReminder(m, memorialDate, memorialDate),
+          contains('היום'));
+    });
+  });
+
   group('notification snooze action', () {
-    test('the actions are declared with the ids the handler understands', () {
+    test('snooze ids round-trip through the handler', () {
       // A mismatch here would make the buttons appear and do nothing.
-      expect(NotificationService.snoozeDays.keys,
-          containsAll([NotificationService.snooze3Days,
-                       NotificationService.snooze7Days]));
-      expect(NotificationService.snoozeDays[NotificationService.snooze3Days], 3);
-      expect(NotificationService.snoozeDays[NotificationService.snooze7Days], 7);
+      for (final d in NotificationService.snoozeChoices) {
+        final id = NotificationService.snoozeActionId(d);
+        expect(NotificationService.snoozeDaysFromActionId(id), d);
+      }
+      expect(NotificationService.snoozeDaysFromActionId(null), isNull);
+      expect(NotificationService.snoozeDaysFromActionId('tap'), isNull);
+      expect(NotificationService.snoozeChoices, contains(1),
+          reason: 'a one-day option is needed when the memorial is close');
     });
   });
 
