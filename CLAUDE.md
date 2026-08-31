@@ -422,20 +422,23 @@ derived from the current clock would be wrong by the time it fires.
 
 ## The reminder offers a choice of how long before the memorial
 
-One action, 'שינוי מועד', opening an  whose
- are the valid "N days before" options — filtered per notification by
-, which keeps only targets later than now and earlier than the
-memorial. The list shrinks as the date approaches and is empty on the day, at
-which point the button disappears.  is false so nothing
-outside that range can be entered.
+One action, 'שינוי מועד', opens an `AndroidNotificationActionInput` whose
+`choices` are the valid "N days before" options. `choicesBefore` filters them
+per notification, keeping only targets later than now and earlier than the
+memorial, so the list shrinks as the date approaches and the button disappears
+on the day itself. `allowFreeFormInput` is false, so nothing outside that range
+can be entered.
 
-The **payload carries the memorial date** (/,
-, split on the first separator so a body may contain one). The
-background isolate has no database and cannot re-derive it, and without it
-"three days before" has no meaning there. This is also what lets a rescheduled
-notification keep offering the choice, which the earlier fixed-days scheme
-could not.
+The **payload carries the memorial date** — `encodePayload` / `decodePayload`
+write `millis|body` and split on the *first* separator, so a body may itself
+contain one. The background isolate has no database and cannot re-derive that
+date, and without it "three days before" has no meaning there. Carrying it is
+also what lets a rescheduled notification keep offering the choice, which the
+earlier fixed-days scheme could not.
 
+Boundary worth remembering: the target hour is 09:00, so at N days out the
+"N days before" option is still offered until that hour passes. Two test
+expectations were written without accounting for it and had to be corrected.
 ## Nothing that touches the notification plugin may block the UI
 
 Scheduling one memorial issues ~40 `zonedSchedule` calls and the plugin
