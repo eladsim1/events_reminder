@@ -8,6 +8,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/memorial.dart';
 import '../providers/memorial_provider.dart';
+import '../services/notification_service.dart';
 
 /// מסך הגדרות.
 ///
@@ -207,8 +208,49 @@ class SettingsScreen extends ConsumerWidget {
             subtitle: const Text('שחזור מקובץ JSON (מחליף את הקיים)'),
             onTap: () => _import(context, ref),
           ),
+          const Divider(),
+          const _ScheduledReminders(),
         ],
       ),
+    );
+  }
+}
+
+/// מה מתוזמן בפועל, לכל אזכרה.
+///
+/// נראה למשתמש בכוונה: כשתזכורת מגיעה פעמיים אין שום דרך אחרת לדעת אם היא
+/// באמת מתוזמנת פעמיים או שהמערכת מציגה אותה שוב. בלי התצוגה הזו כל תיקון
+/// לבאג כזה הוא ניחוש.
+class _ScheduledReminders extends ConsumerWidget {
+  const _ScheduledReminders();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final memorials = ref.watch(memorialListProvider).valueOrNull ?? const [];
+    final theme = Theme.of(context);
+
+    return FutureBuilder<PendingReport>(
+      future: ref.read(notificationServiceProvider).pendingReport(memorials),
+      builder: (context, snapshot) {
+        final report = snapshot.data;
+        return ListTile(
+          leading: const Icon(Icons.pending_actions),
+          title: const Text('תזכורות מתוזמנות'),
+          isThreeLine: report != null && report.rows.isNotEmpty,
+          subtitle: report == null
+              ? const Text('נבדק...')
+              : Text(
+                  [
+                    'סה"כ ${report.total}',
+                    if (report.orphans > 0) 'ללא אזכרה: ${report.orphans}',
+                    for (final r in report.rows)
+                      '${r.name}: ראשית ${r.main}, יום לפני ${r.dayBefore}'
+                          '${r.stale > 0 ? ', ממתינות לרענון ${r.stale}' : ''}',
+                  ].join('\n'),
+                  style: theme.textTheme.bodySmall,
+                ),
+        );
+      },
     );
   }
 }

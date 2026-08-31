@@ -169,6 +169,14 @@ class _FakeNotifications extends NotificationService {
   @override
   Future<ReminderChoiceRequest?> pendingChoiceRequest() async => pendingChoice;
 
+  /// What the settings screen should display. Empty unless a test says
+  /// otherwise - the real call would reach the platform.
+  PendingReport report =
+      const PendingReport(rows: [], total: 0, orphans: 0);
+
+  @override
+  Future<PendingReport> pendingReport(List<Memorial> memorials) async => report;
+
   @override
   Future<bool> rescheduleReminder({
     required ReminderChoiceRequest request,
@@ -1883,6 +1891,83 @@ void main() {
     });
   });
 
+  group('nothing is left scheduled for a memorial that is gone', () {
+    final live = [
+      _seed(id: 1, name: 'סבא יעקב', day: 27, month: HebrewMonth.av),
+      _seed(id: 4, name: 'סבתא רחל', day: 3, month: HebrewMonth.tishrei),
+    ];
+
+    test('a block belonging to no memorial is a leftover', () {
+      // Deletion cancels in the background and is not awaited, so a kill at
+      // the wrong moment strands a whole block. Nothing else notices: it is
+      // counted neither in what is wanted nor in what a memorial already has.
+      expect(NotificationService.isOrphanId(700, live), isTrue,
+          reason: 'memorial 7 no longer exists');
+      expect(NotificationService.isOrphanId(755, live), isTrue);
+    });
+
+    test('the old id scheme is a leftover too', () {
+      // Before the blocks, the id was the raw memorial id. SQLite ids start
+      // at 1, so block 0 is never legitimately owned.
+      expect(NotificationService.isOrphanId(1, live), isTrue);
+      expect(NotificationService.isOrphanId(99, live), isTrue);
+    });
+
+    test('a living memorial keeps its whole block', () {
+      for (final slot in [0, 20, 50, 70, 99]) {
+        expect(NotificationService.isOrphanId(100 + slot, live), isFalse,
+            reason: 'slot $slot of memorial 1');
+        expect(NotificationService.isOrphanId(400 + slot, live), isFalse,
+            reason: 'slot $slot of memorial 4');
+      }
+    });
+  });
+
+  group('the settings screen shows what is actually scheduled', () {
+    testWidgets('both series showing means the memorial is announced twice',
+        (tester) async {
+      final (_, notif) = await _pumpApp(tester, seeded: [
+        _seed(id: 1, name: 'סבא יעקב', day: 27, month: HebrewMonth.av),
+      ]);
+      notif.report = const PendingReport(
+        rows: [
+          PendingRow(
+              name: 'סבא יעקב', main: 21, dayBefore: 21, other: 0, stale: 0),
+        ],
+        total: 42,
+        orphans: 0,
+      );
+
+      await tester.tap(find.byIcon(Icons.settings_outlined));
+      await _pumpUntilFound(
+          tester, find.text('תזכורות מתוזמנות'), 'the scheduled section');
+
+      expect(find.textContaining('ראשית 21, יום לפני 21'), findsOneWidget,
+          reason: 'this is the whole point - the duplicate becomes visible');
+      expect(find.textContaining('סה"כ 42'), findsOneWidget);
+    });
+
+    testWidgets('leftovers with no memorial are called out', (tester) async {
+      final (_, notif) = await _pumpApp(tester, seeded: [
+        _seed(id: 1, name: 'סבא יעקב', day: 27, month: HebrewMonth.av),
+      ]);
+      notif.report = const PendingReport(
+        rows: [
+          PendingRow(
+              name: 'סבא יעקב', main: 21, dayBefore: 0, other: 0, stale: 0),
+        ],
+        total: 63,
+        orphans: 42,
+      );
+
+      await tester.tap(find.byIcon(Icons.settings_outlined));
+      await _pumpUntilFound(
+          tester, find.text('תזכורות מתוזמנות'), 'the scheduled section');
+
+      expect(find.textContaining('ללא אזכרה: 42'), findsOneWidget);
+    });
+  });
+
   group('a queue holding more than it should is rebuilt', () {
     bool needs(int pending, int wanted, {bool stale = false}) =>
         NotificationService.needsReschedule(
@@ -2048,6 +2133,19 @@ void main() {
       expect(manifest,
           contains('flutterlocalnotifications.ActionBroadcastReceiver'),
           reason: 'without it a tap on a reminder button is silently dropped');
+    });
+
+    test('one activity instance, however the app is opened', () {
+      // The plugin replaces the action on its launch intent, so it no longer
+      // matches the task's root intent and singleTop lets another instance
+      // stack up on every notification tap.
+      expect(manifest, contains('android:launchMode="singleTask"'));
+      // And an empty affinity defeats that on its own: the launch intent
+      // carries FLAG_ACTIVITY_NEW_TASK, Android finds an existing task by
+      // affinity, and an empty one matches nothing - so a fresh task every
+      // time, singleTask or not. Flutter's template ships it; this app cannot
+      // keep it.
+      expect(manifest, isNot(contains('android:taskAffinity=""')));
     });
 
     test('the scheduled and boot receivers are declared', () {

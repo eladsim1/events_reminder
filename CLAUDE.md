@@ -398,12 +398,43 @@ retrying resumes and succeeds.
 
 ## One activity instance, or a notification opens the app again and again
 
-`launchMode` is `singleTask`, not the Flutter template's `singleTop`. The plugin
-builds its launch intent from `getLaunchIntentForPackage` and then **replaces
-the action**, so the intent no longer matches the task's root intent;
-`singleTop` only prevents a second instance when the activity happens to be on
-top, so every notification tap stacked another one. `singleTask` keeps a single
-instance and routes further intents to `onNewIntent`.
+Two attributes, and **either one alone leaves the bug in place**:
+
+- `launchMode` is `singleTask`, not the Flutter template's `singleTop`. The
+  plugin builds its launch intent from `getLaunchIntentForPackage` and then
+  **replaces the action**, so the intent no longer matches the task's root
+  intent; `singleTop` only prevents a second instance when the activity happens
+  to be on top.
+- **`android:taskAffinity=""` is removed.** The launch intent carries
+  `FLAG_ACTIVITY_NEW_TASK`, and Android locates a task to reuse by affinity — an
+  empty affinity matches nothing, so a fresh task is created every time whatever
+  the launch mode says. Shipping `singleTask` while leaving the empty affinity
+  in place changed nothing on the device, which is how this was found.
+
+The cost is the mitigation Flutter's template was buying: with the affinity back
+to the package name, a malicious app declaring the same affinity can insert
+itself into the task (StrandHogg). Against a fault that happens on every single
+tap, that is a deliberate trade, not an oversight.
+
+Note for testing a fix: **task instances already in Recents do not disappear**
+when the manifest changes. Swipe them all away once after installing, or the
+old ones look like the bug persisting.
+
+## Settings shows what is actually scheduled
+
+`pendingReport` counts the queued notifications per memorial, split by series,
+plus anything whose block belongs to no memorial at all. It is surfaced in the
+settings screen on purpose: when a reminder arrives twice there is otherwise no
+way to tell a queue holding two series from the system re-alerting one, and
+**four separate fixes were shipped blind before this existed**. Treat it as the
+first thing to read when a notification misbehaves.
+
+`rescheduleAll` also sweeps every pending id that belongs to no current
+memorial. Two things strand a whole block: the pre-block id scheme, and a
+deletion whose cancel never ran — it is fire-and-forget, so a kill at the wrong
+moment leaves it behind. Nothing else notices a leftover, since it is counted
+neither in what is wanted nor in what a memorial already holds, and it goes on
+firing the text baked into it years ago.
 
 ## Two reminder series, two id ranges
 

@@ -18,14 +18,21 @@
         <!-- singleTask ולא singleTop: הפלאגין בונה את כוונת ההפעלה מ-
              getLaunchIntentForPackage ואז מחליף לה את ה-action, כך שהיא כבר
              אינה תואמת לכוונת השורש של המשימה. עם singleTop, שמונע מופע נוסף
-             רק כשהפעילות במקרה בראש הערימה, כל הקשה על התראה פתחה מופע
-             נוסף – ובמצב הכפילות גם שתי התראות פתחו שניים. singleTask מבטיח
-             מופע יחיד ומנתב כל כוונה נוספת ל-onNewIntent שלו. -->
+             רק כשהפעילות במקרה בראש הערימה, כל הקשה על התראה פתחה מופע נוסף.
+
+             ואין כאן taskAffinity="" – התבנית של Flutter מוסיפה אותו, והוא
+             לבדו מבטל את התיקון: כוונת ההפעלה נושאת FLAG_ACTIVITY_NEW_TASK,
+             ואנדרואיד מאתר משימה קיימת לפי הזיקה. זיקה ריקה פירושה שאין למה
+             להתאים, ולכן נפתחת משימה חדשה בכל פעם – singleTask או לא.
+
+             המחיר: הזיקה חוזרת להיות שם החבילה, וזו ההגנה שהתבנית ויתרה
+             עליה – אפליקציה זדונית שמצהירה על אותה זיקה יכולה להשתחל
+             למשימה (StrandHogg). מול תקלה שקורית בפועל בכל הקשה, זו העדפה
+             מודעת ולא פספוס. -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
             android:launchMode="singleTask"
-            android:taskAffinity=""
             android:theme="@style/LaunchTheme"
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
             android:hardwareAccelerated="true"

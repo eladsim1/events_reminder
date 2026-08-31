@@ -33,6 +33,48 @@ class ReminderChoiceRequest {
   });
 }
 
+/// כמה התראות מתוזמנות לאזכרה אחת, מפולחות לפי סדרה.
+class PendingRow {
+  final String name;
+
+  /// התזכורת הראשית, והתזכורת של יום לפני.
+  ///
+  /// **שתיהן גדולות מאפס פירושו שהאזכרה תוכרז פעמיים.** זו בדיוק הבדיקה
+  /// שאי אפשר היה לעשות בלי לראות את המכשיר.
+  final int main;
+  final int dayBefore;
+
+  /// מזהים בבלוק שאינם באף אחת מהסדרות – השלמה של תזכורת שהוחמצה.
+  final int other;
+
+  /// כמה מהן נצרבו בגרסת תוכן ישנה וממתינות לתזמון מחדש.
+  final int stale;
+
+  const PendingRow({
+    required this.name,
+    required this.main,
+    required this.dayBefore,
+    required this.other,
+    required this.stale,
+  });
+}
+
+/// מה שמתוזמן בפועל, כולל מה שאינו שייך לאף אזכרה.
+class PendingReport {
+  final List<PendingRow> rows;
+  final int total;
+
+  /// התראות שהבלוק שלהן אינו של אף אזכרה קיימת – שאריות ממחיקה או מסכימה
+  /// ישנה. הן ממשיכות לירות עד שנסחפות.
+  final int orphans;
+
+  const PendingReport({
+    required this.rows,
+    required this.total,
+    required this.orphans,
+  });
+}
+
 /// שירות מרכזי לניהול כל ההתראות המקומיות.
 ///
 /// **חשוב:** כל ההתראות מנוהלות כאן בלבד.
@@ -588,6 +630,69 @@ class NotificationService {
   List<int> _idsWithin(Iterable<int> ids, int memorialId) =>
       ids.where((id) => Memorial.ownsNotificationId(id, memorialId)).toList();
 
+  /// האם [notificationId] הוא שריד: אינו שייך לאף אזכרה קיימת.
+  ///
+  /// שריד ממשיך לירות לנצח את הטקסט שנצרב בו, ואינו נספר בשום מקום אחר –
+  /// לא ב-wanted ולא ב-existing – ולכן אף בדיקה אחרת אינה מגלה אותו.
+  static bool isOrphanId(int notificationId, List<Memorial> memorials) =>
+      !_belongsToAny(notificationId, memorials);
+
+  /// האם [notificationId] שייך לאחת מהאזכרות הקיימות.
+  static bool _belongsToAny(int notificationId, List<Memorial> memorials) {
+    for (final m in memorials) {
+      final id = m.id;
+      if (id != null && Memorial.ownsNotificationId(notificationId, id)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /// תמונת מצב של מה שמתוזמן בפועל – לאבחון מתוך מסך ההגדרות.
+  ///
+  /// קיימת כי אין דרך אחרת לדעת מה יושב בתור: הפלאגין מחזיק את ההתראות
+  /// אצלו, והשאלה "כמה תזכורות באמת מתוזמנות לאזכרה הזו" הכריעה יותר מבאג
+  /// אחד שנוסה לתקן מתוך ניחוש.
+  Future<PendingReport> pendingReport(List<Memorial> memorials) async {
+    await init();
+    final requests = await _plugin.pendingNotificationRequests();
+
+    final rows = <PendingRow>[];
+    for (final m in memorials) {
+      final id = m.id;
+      if (id == null) continue;
+
+      var main = 0, dayBefore = 0, other = 0, stale = 0;
+      for (final r in requests) {
+        if (!Memorial.ownsNotificationId(r.id, id)) continue;
+        final slot = r.id - Memorial.notificationIdBase(id);
+        if (slot < Memorial.dayBeforeSeriesOffset) {
+          main++;
+        } else if (slot < Memorial.catchUpIndex) {
+          dayBefore++;
+        } else {
+          other++;
+        }
+        if (!isCurrentPayload(r.payload)) stale++;
+      }
+      rows.add(PendingRow(
+        name: m.name,
+        main: main,
+        dayBefore: dayBefore,
+        other: other,
+        stale: stale,
+      ));
+    }
+
+    return PendingReport(
+      rows: rows,
+      total: requests.length,
+      orphans: requests
+          .where((r) => !_belongsToAny(r.id, memorials))
+          .length,
+    );
+  }
+
   Future<void> _cancelIds(Iterable<int> ids) async {
     for (final id in ids) {
       await _plugin.cancel(id: id);
@@ -609,12 +714,13 @@ class NotificationService {
     final requests = await _plugin.pendingNotificationRequests();
     final pending = requests.map((p) => p.id).toList();
 
-    // ניקוי שאריות מסכימת המזהים הישנה, שבה המזהה היה ה-id הגולמי של
-    // האזכרה ולא בלוק. מזהי SQLite מתחילים ב-1, ולכן בלוק 0 לעולם אינו
-    // בשימוש וכל מזהה בתוכו הוא שריד. בלי זה תישלח התראה כפולה אחרי שדרוג.
-    await _cancelIds(
-      pending.where((id) => id < Memorial.notificationIdsPerMemorial),
-    );
+    // סחיפת כל מה שאינו שייך לאזכרה קיימת.
+    //
+    // שני מקורות לשאריות כאלה, ושניהם יורים לנצח את הטקסט שנצרב בהם פעם:
+    // סכימת המזהים הישנה, שבה המזהה היה ה-id הגולמי ולא בלוק (בלוק 0 –
+    // מזהי SQLite מתחילים ב-1, ולכן הוא לעולם אינו בשימוש); ומחיקת אזכרה
+    // שהביטול שלה לא הספיק לרוץ, כי הוא מתבצע ברקע ואינו מומתן.
+    await _cancelIds(pending.where((id) => !_belongsToAny(id, memorials)));
 
     for (final m in memorials) {
       if (m.id == null) continue;
