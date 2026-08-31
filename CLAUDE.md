@@ -446,6 +446,32 @@ Boundary worth remembering: the target hour is 09:00, so at N days out the
 "N days before" option is still offered until that hour passes. Two test
 expectations were written without accounting for it and had to be corrected.
 
+### "On the day of the memorial" is one of the choices
+
+The ladder starts at 0, and 0 means the morning of the memorial itself. Without
+it the day-before notification carries **no button at all** — every other
+option has already passed by the moment it fires — and so does anything shown
+when the memorial is today or tomorrow. The request was a reminder "up to the
+day of the memorial, and not after", and the day itself is inside that.
+
+`choicesBefore` therefore bounds the target by the memorial's *date*, not by
+the memorial instant. Do not tighten it back to a strict `isBefore(memorial)`:
+that silently empties the list exactly when a reminder matters most.
+
+### Two series can land on the same day, and then everything is announced twice
+
+`ReminderMode.fixedDaysBefore` with a value of 1 puts the main reminder one day
+before the memorial — which is precisely where the day-before series already
+is. At the default hour of 09:00 they fire in the same minute: two identical
+notifications, different ids, for one memorial. `dayBeforeMemorialDates` drops
+any date whose main reminder falls on the same **day** (not the same instant —
+two hours apart still reads as a duplicate to whoever gets it).
+
+This has to live in the calendar rather than in `_scheduleAll`, because
+`rescheduleAll` counts `dayBeforeMemorialDates(m).length` to decide whether the
+queue is full. Filtering only at schedule time would leave the count too high
+and reschedule everything on every resume.
+
 ### The plugin declares no receivers — the app must
 
 `flutter_local_notifications`' own `AndroidManifest.xml` holds two permissions

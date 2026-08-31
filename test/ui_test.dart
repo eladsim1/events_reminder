@@ -1659,7 +1659,11 @@ void main() {
               memorial.day - d, HebrewCalendarService.dayBeforeReminderHour);
           expect(when.isAfter(now), isTrue,
               reason: '$d days before is already in the past');
-          expect(when.isBefore(memorial), isTrue,
+          // "Up to the day of the memorial, and not after" - the morning of
+          // the memorial itself counts, a later day never does.
+          expect(DateTime(when.year, when.month, when.day)
+              .isAfter(DateTime(memorial.year, memorial.month, memorial.day)),
+              isFalse,
               reason: '$d days before overshoots the memorial');
         }
       }
@@ -1675,10 +1679,11 @@ void main() {
       expect(at(12).length, greaterThan(at(5).length));
       // 5 is still offered at five days out: the target is 09:00 and "now"
       // here is 08:00, so it is an hour away, not in the past.
-      expect(at(5), [1, 2, 3, 5]);
-      expect(at(2), [1, 2]);
-      // On the memorial day itself there is nothing left to move to.
-      expect(at(0), isEmpty);
+      expect(at(5), [0, 1, 2, 3, 5]);
+      expect(at(2), [0, 1, 2]);
+      // The morning of the memorial is still ahead at 08:00, so it stands as
+      // the last thing left to choose.
+      expect(at(0), [0]);
     });
 
     test('the payload carries the memorial date through the isolate', () {
@@ -1780,9 +1785,62 @@ void main() {
       // still available - otherwise only same-week reminders would be left.
       expect(at(5), [5, 3, 1]);
       expect(at(3), [3, 2, 1]);
-      expect(at(2), [2, 1]);
-      // On the day itself there is nothing left to move to, so no buttons.
-      expect(at(0), isEmpty);
+      expect(at(2), [2, 1, 0]);
+      // On the memorial day only its own morning is left.
+      expect(at(0), [0]);
+    });
+  });
+
+  group('the day-before reminder never repeats the main one', () {
+    final cal = HebrewCalendarService(now: () => _fixedNow);
+
+    List<DateTime> dayBefore(Memorial m) =>
+        cal.dayBeforeMemorialDates(m, from: _fixedNow);
+
+    test('a main reminder set to one day before leaves no second series', () {
+      // Both series then land on the same day, and at 09:00 on the same
+      // minute: two identical notifications for one memorial. That is what
+      // "every reminder arrives twice" looks like from the outside.
+      expect(
+          dayBefore(_seed(
+            id: 1,
+            name: 'סבא יעקב',
+            day: 27,
+            month: HebrewMonth.av,
+            reminderMode: ReminderMode.fixedDaysBefore,
+            reminderValue: 1,
+          )),
+          isEmpty);
+    });
+
+    test('a two-day gap still keeps the day-before reminder', () {
+      expect(
+          dayBefore(_seed(
+            id: 1,
+            name: 'סבא יעקב',
+            day: 27,
+            month: HebrewMonth.av,
+            reminderMode: ReminderMode.fixedDaysBefore,
+            reminderValue: 2,
+          )),
+          isNotEmpty);
+    });
+
+    test('the default weekday reminder shares no day with the second series',
+        () {
+      final m =
+          _seed(id: 1, name: 'סבא יעקב', day: 27, month: HebrewMonth.av);
+      final second = dayBefore(m);
+      expect(second, isNotEmpty, reason: 'the series must still exist');
+
+      final mainDays = cal
+          .futureReminderDates(m, from: _fixedNow)
+          .map((d) => DateTime(d.year, d.month, d.day))
+          .toSet();
+      for (final d in second) {
+        expect(mainDays.contains(DateTime(d.year, d.month, d.day)), isFalse,
+            reason: 'a memorial must never be announced twice in one day');
+      }
     });
   });
 

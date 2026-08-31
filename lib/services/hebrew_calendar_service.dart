@@ -385,7 +385,21 @@ class HebrewCalendarService {
         memorialDate.day - 1,
         dayBeforeReminderHour,
       );
-      if (when.isAfter(now)) dates.add(when);
+      if (!when.isAfter(now)) continue;
+
+      // אם התזכורת הראשית כבר נופלת באותו יום, הסדרה הזו רק חוזרת עליה.
+      // ב-ReminderMode.fixedDaysBefore עם ערך 1 זה קורה תמיד, ובשעה 09:00
+      // שתי ההתראות יוצאות באותה דקה בדיוק – שתי תזכורות זהות על אותה
+      // אזכרה. הן מזוהות לפי היום ולא לפי השעה, כי גם שעתיים הפרש הן
+      // כפילות מבחינת מי שמקבל אותן.
+      final main = _reminderForMemorialDate(memorial, memorialDate);
+      if (main.year == when.year &&
+          main.month == when.month &&
+          main.day == when.day) {
+        continue;
+      }
+
+      dates.add(when);
     }
     return dates;
   }
