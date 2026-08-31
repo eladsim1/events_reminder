@@ -17,7 +17,7 @@ void notificationTapBackground(NotificationResponse response) {
   NotificationService.handleNotificationResponse(response);
 }
 
-/// בקשה לבחור מחדש את מועד התזכורת, שנולדה מלחיצה על "עוד אפשרויות".
+/// בקשה לבחור מחדש את מועד התזכורת, שנולדה מלחיצה על "דחיית תזכורת".
 ///
 /// נושאת את גוף ההתראה כי היא נכתבת מחדש עם אותו טקסט, ואת תאריך האזכרה כי
 /// בלעדיו אי אפשר לחשב "כך וכך ימים לפני".
@@ -64,8 +64,8 @@ class NotificationService {
   /// אנדרואיד מרנדר שלוש פעולות לכל היותר, ולכן כפתורים מהירים יכלו להציע
   /// רק שלושה מרווחים מתוך רצף שלם – והבחירה שנשארה בחוץ היא בדיוק מה
   /// שביקשו. עדיף מעבר אחד למסך שמציג את הכול.
-  static const String moreOptionsActionId = 'reschedule:more';
-  static const String moreOptionsLabel = 'עוד אפשרויות';
+  static const String snoozeActionId = 'reschedule:more';
+  static const String snoozeActionLabel = 'דחיית תזכורת';
 
   /// קידומת מזהה הפעולה; אחריה מספר הימים שלפני האזכרה.
   static const String rescheduleActionPrefix = 'reschedule:';
@@ -114,7 +114,7 @@ class NotificationService {
   /// [rescheduleAll] מזהה לפיה התראות שתוזמנו בגרסה ישנה, ומתזמן אותן
   /// מחדש. בלעדיה שדרוג של האפליקציה לא היה מגיע לעולם למי שכבר בתור:
   /// תוכן ההתראה נצרב בזמן התזמון, והחלון המלא שלה גורם לדילוג.
-  static const int payloadVersion = 5;
+  static const int payloadVersion = 6;
 
   /// ה-payload נושא גם את תאריך האזכרה: ה-isolate שמטפל בבחירה מבודד ואינו
   /// יכול לקרוא את מסד הנתונים, ובלי התאריך אין לו מול מה לחשב "ימים לפני".
@@ -166,10 +166,10 @@ class NotificationService {
     );
   }
 
-  /// הגדרות ההתראה. [moreOptions] מוסיף את הכפתור שפותח את הרשימה במסך;
+  /// הגדרות ההתראה. [withSnoozeAction] מוסיף את הכפתור שפותח את הרשימה במסך;
   /// בלעדיו ההתראה יוצאת בלי כפתורים, וזה הנכון כשלא נותר מה לבחור.
   static AndroidNotificationDetails _androidDetails({
-    bool moreOptions = false,
+    bool withSnoozeAction = false,
   }) =>
       AndroidNotificationDetails(
         _channelId,
@@ -184,19 +184,19 @@ class NotificationService {
         // במימוש של יצרן המכשיר. במכשיר עצמו התוצאה הייתה שאין דחייה כלל.
         // פעולה רגילה, לעומת זאת, מוצגת בכל מגירה.
         actions: [
-          if (moreOptions)
+          if (withSnoozeAction)
             const AndroidNotificationAction(
-              moreOptionsActionId,
-              moreOptionsLabel,
+              snoozeActionId,
+              snoozeActionLabel,
               // כאן כן פותחים את האפליקציה: הרשימה המלאה לא נכנסת בהתראה.
               showsUserInterface: true,
             ),
         ],
       );
 
-  static NotificationDetails _details({bool moreOptions = false}) =>
+  static NotificationDetails _details({bool withSnoozeAction = false}) =>
       NotificationDetails(
-        android: _androidDetails(moreOptions: moreOptions),
+        android: _androidDetails(withSnoozeAction: withSnoozeAction),
         iOS: const DarwinNotificationDetails(),
       );
 
@@ -205,7 +205,7 @@ class NotificationService {
     DateTime? memorialDate,
     DateTime notBefore,
   ) =>
-      _details(moreOptions: choicesBefore(memorialDate, notBefore).isNotEmpty);
+      _details(withSnoozeAction: choicesBefore(memorialDate, notBefore).isNotEmpty);
 
   NotificationService({HebrewCalendarService? calendar})
       : _calendar = calendar ?? HebrewCalendarService();
@@ -438,9 +438,9 @@ class NotificationService {
     handleNotificationResponse(response);
   }
 
-  /// הבקשה שגלומה בתגובה, או null אם אין זו לחיצה על "עוד אפשרויות".
+  /// הבקשה שגלומה בתגובה, או null אם אין זו לחיצה על "דחיית תזכורת".
   static ReminderChoiceRequest? choiceRequestFrom(NotificationResponse r) {
-    if (r.actionId != moreOptionsActionId) return null;
+    if (r.actionId != snoozeActionId) return null;
     final id = r.id;
     final decoded = decodePayload(r.payload);
     final memorialDate = decoded?.memorialDate;

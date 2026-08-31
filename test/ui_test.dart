@@ -1792,7 +1792,7 @@ void main() {
         notificationResponseType:
             NotificationResponseType.selectedNotificationAction,
         id: 142,
-        actionId: NotificationService.moreOptionsActionId,
+        actionId: NotificationService.snoozeActionId,
         payload: NotificationService.encodePayload(memorial, body),
       ))!;
 

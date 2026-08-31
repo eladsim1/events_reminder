@@ -43,7 +43,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     ref.read(memorialListProvider.notifier).syncNotifications();
     ref.invalidate(notificationPermissionProvider);
 
-    // לחיצה על "עוד אפשרויות" בהתראה מגיעה לכאן בשני מסלולים: השירות
+    // לחיצה על "דחיית תזכורת" בהתראה מגיעה לכאן בשני מסלולים: השירות
     // קורא ל-onChooseReminder כשהאפליקציה כבר רצה, ובפתיחה קרה הבקשה
     // ממתינה בפרטי ההשקה. בלי המסלול השני, לחיצה על התראה כשהאפליקציה
     // סגורה הייתה פותחת את המסך ולא מציגה דבר.
