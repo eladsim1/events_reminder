@@ -454,11 +454,33 @@ before it reschedules, the memorial that hits it is left with **nothing**
 queued. The user sees a reminder that never fires and only appears on opening
 the app, which is the catch-up.
 
-`horizonYearsFor` shrinks the horizon as memorials are added so the total stays
-under `maxScheduledAlarms` (400, deliberately short of the real limit), with a
-floor of `minHorizonYears` so reminders never vanish outright for someone with
-a very large list. Anything that schedules has to pass the memorial count in;
-the provider reads it from the current list.
+**The budget is global, not per memorial.** `allocateBudget` gathers every
+candidate reminder from every memorial, sorts them by date, and takes the
+nearest `maxScheduledAlarms` (400, deliberately short of the real limit). Each
+memorial's own list is chronological, so a prefix of the sorted list is a prefix
+of each memorial's — which is what lets a plain count stand in for a set of
+occurrences.
+
+A per-memorial year count measures the wrong thing: Android caps the *total*,
+so "N years each" broke silently at about 84 memorials and left the ones that
+hit the ceiling with nothing queued at all. Measured coverage under the global
+budget, on a list of evenly spread dates:
+
+```
+1 name        2 alarms   ~2 years ahead
+10           29          ~2.6 years
+50          149          ~3 years   (the per-memorial horizon binds, not the budget)
+100         299          ~3 years
+200         400          ~2 years
+300         400          ~17 months
+1000        400          ~5.5 months
+```
+
+It degrades instead of breaking. The cost at scale is that a memorial whose
+reminder is far off is not scheduled *yet*, so the app has to be opened every
+few months rather than every few years. `scheduleForMemorial` takes either a
+precomputed `quota` (when the caller is scheduling everything at once) or the
+list to allocate `among`.
 
 And when exact scheduling is refused anyway — a missing `SCHEDULE_EXACT_ALARM`
 grant does the same thing — scheduling **retries once in
@@ -485,26 +507,30 @@ moment leaves it behind. Nothing else notices a leftover, since it is counted
 neither in what is wanted nor in what a memorial already holds, and it goes on
 firing the text baked into it years ago.
 
-## Two reminder series, two id ranges
-
-Each memorial now schedules **two** independent series, and the id block is
-partitioned so one cannot overwrite the other (`Memorial`):
+## One reminder series, one id block
 
 ```
-0..49   main reminder (weekday-of-previous-week / fixed days before)
-50..98  day-before reminder, fixed 09:00 (dayBeforeSeriesOffset)
-99      missed-reminder catch-up (catchUpIndex)
+0..98   the reminder itself, nearest occurrence first
+99      the missed-reminder catch-up (catchUpIndex)
 ```
 
-`rescheduleAll` compares the pending count against **both** series. Counting
-only the main one made the queue look full, so the day-before series would
-never have been scheduled at all.
+There used to be a second series — a fixed 09:00 reminder the day before the
+memorial — in slots 50..98. **It was removed on 2026-09-01**: the postponement
+list gives exactly the same thing on the user's own initiative, and the second
+series doubled every memorial's share of the alarm budget to pay for it. It also
+had to be de-duplicated against the main series, because
+`ReminderMode.fixedDaysBefore` with a value of 1 put both on the same day at the
+same minute.
+
+`HebrewCalendarService.rescheduledReminderHour` survives it: that is the hour a
+postponed reminder lands at, fixed rather than derived from the memorial's own
+reminder hour, so a postponement always arrives in the morning.
 
 The notification body carries the weekday, the Gregorian date and a countdown.
-Those are computed against the **firing** date via
-`memorialDateForReminder` + `describeMemorialForReminder`, not against "now" —
-the text is baked in at schedule time, up to 20 years ahead, so anything
-derived from the current clock would be wrong by the time it fires.
+Those are computed against the **firing** date via `memorialDateForReminder` +
+`describeMemorialForReminder`, not against "now" — the text is baked in at
+schedule time, years ahead, so anything derived from the current clock would be
+wrong by the time it fires.
 
 `hebrewWeekdayNames` includes שבת because a memorial can fall on any day;
 `reminderWeekdayChoices` is the six-day subset offered in the reminder picker.
@@ -516,6 +542,24 @@ actually ask for — four days, six, nine. Anything the old ladder could have
 stored has to stay inside the list: `DropdownButtonFormField` throws when its
 `initialValue` is not among its items, so narrowing the range would crash the
 edit screen for an existing memorial.
+
+## "Do not remind again" belongs in that list too
+
+The postponement dialog ends with `לא להזכיר יותר`, which switches the memorial
+off — the same state as the toggle in the list, so it is reversible, and the
+snackbar says so. No extra confirmation: choosing it from a list is already
+explicit, and a second prompt would be noise.
+
+It sits in the dialog's **actions** row rather than at the end of the option
+list. The intervals scroll, and an entry at the bottom of them was off screen —
+a widget test caught that by failing to tap it. For a related reason the list is
+a `ListBody` in a `SingleChildScrollView` rather than a lazy `ListView`: a lazy
+one builds only what is visible, so a test counting the offered options sees
+eight of thirty-one.
+
+The dialog opens even when no interval is left, since switching the reminders
+off is still meaningful then — otherwise the button would open the app only to
+report there was nothing to do.
 
 ## The reminder offers a choice of how long before the memorial
 
