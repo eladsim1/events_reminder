@@ -177,7 +177,12 @@ class MemorialNotifier extends AsyncNotifier<List<Memorial>> {
   /// מתזמן אזכרה בודדת ורושם את המועד הקרוב שטופל.
   Future<void> _scheduleAndRecord(Memorial memorial) async {
     try {
-      final nearest = await _notifications.scheduleForMemorial(memorial);
+      // מספר האזכרות קובע כמה שנים קדימה מותר לתזמן: לאנדרואיד יש תקרת
+      // אזעקות לכל אפליקציה, וחריגה ממנה מפילה את התזמון כולו.
+      final nearest = await _notifications.scheduleForMemorial(
+        memorial,
+        memorialCount: state.valueOrNull?.length ?? 1,
+      );
       if (nearest == null || memorial.lastNotifiedAt == nearest) return;
       await _repo.update(memorial.copyWith(lastNotifiedAt: nearest));
       await _refresh();

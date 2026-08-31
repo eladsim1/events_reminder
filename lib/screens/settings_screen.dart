@@ -248,8 +248,7 @@ class _ScheduledReminders extends ConsumerWidget {
                           '${r.stale > 0 ? ', ממתינות לרענון ${r.stale}' : ''}',
                     if (!report.notificationsEnabled) 'הרשאת התראות חסרה',
                     if (!report.exactAlarmsAllowed) 'הרשאת אזעקה מדויקת חסרה',
-                    if (report.lastError != null)
-                      'כשל בתזמון — ${report.lastError}',
+                    if (report.lastError != null) report.lastError!,
                   ].join('\n'),
                   style: report.lastError == null
                       ? theme.textTheme.bodySmall

@@ -166,6 +166,36 @@ class NotificationService {
     ];
   }
 
+  /// כמה אזעקות מותר להחזיק פעילות בו-זמנית.
+  ///
+  /// **אנדרואיד מגביל אפליקציה ל-500, וחריגה זורקת מתוך AlarmManager.** זה
+  /// קטלני כאן: scheduleForMemorial מבטל לפני שהוא מתזמן, ולכן אזכרה שנפלה
+  /// על התקרה נשארת בלי אף התראה. עשרים שנה כפול שתי סדרות הן 42 אזעקות
+  /// לאזכרה, כלומר התקרה נפרצת כבר סביב תריסר אזכרות.
+  static const int maxScheduledAlarms = 400;
+
+  /// לפחות כך וכך שנים קדימה, גם להרבה אזכרות. מתחת לזה התזכורות מתחילות
+  /// להיעלם למי שאינו פותח את האפליקציה.
+  static const int minHorizonYears = 2;
+
+  /// כמה שנים לתזמן קדימה, כך שסך האזעקות יישאר מתחת לתקרה.
+  static int horizonYearsFor(int memorialCount) {
+    if (memorialCount <= 0) return HebrewCalendarService.scheduleHorizonYears;
+    // שתי סדרות לכל שנה, ועוד המופע של השנה הנוכחית.
+    final years = (maxScheduledAlarms ~/ (memorialCount * 2)) - 1;
+    return years.clamp(
+        minHorizonYears, HebrewCalendarService.scheduleHorizonYears);
+  }
+
+  /// השורה הראשונה בלבד של שגיאה.
+  ///
+  /// ה-toString של חריגת פלטפורמה גורר את כל ה-stack. במסך ההגדרות זה יצא
+  /// דף שלם של מסגרות שאי אפשר לקרוא ממנו את הסיבה עצמה.
+  static String firstLineOf(Object error, {int max = 200}) {
+    final text = error.toString().split('\n').first.trim();
+    return text.length <= max ? text : '${text.substring(0, max)}…';
+  }
+
   /// גרסת ה-payload. **יש להעלות אותה בכל שינוי בתוכן שנצרב בהתראה** –
   /// בטקסט או בכפתורים.
   ///
@@ -384,7 +414,10 @@ class NotificationService {
   ///
   /// הקורא אחראי לשמור את הערך המוחזר ב-lastNotifiedAt. בלי זה, פתיחת
   /// האפליקציה אחרי שההתראה נורתה נראית כמו החמצה ומייצרת התראה כפולה.
-  Future<DateTime?> scheduleForMemorial(Memorial memorial) async {
+  Future<DateTime?> scheduleForMemorial(
+    Memorial memorial, {
+    int memorialCount = 1,
+  }) async {
     await init();
     if (memorial.id == null) return null;
 
@@ -393,10 +426,12 @@ class NotificationService {
 
     if (!memorial.enabled) return null;
 
+    final years = horizonYearsFor(memorialCount);
+
     // מתזמנים את כל המופעים העתידיים בבת אחת ולא רק את הקרוב: zonedSchedule
     // הוא חד-פעמי, ולאנדרואיד אין חזרה שנתית לפי הלוח העברי. בלי זה, אחרי
     // שההתראה נורית לא הייתה מתוזמנת שנה נוספת עד לפתיחת האפליקציה.
-    final reminders = _calendar.futureReminderDates(memorial);
+    final reminders = _calendar.futureReminderDates(memorial, years: years);
     if (reminders.isEmpty) return null;
 
     final hebrewDate = _calendar.formatHebrewDate(memorial);
@@ -410,11 +445,24 @@ class NotificationService {
     // לאפליקציה", כי רק ההשלמה נשארת. בלי הרישום אין שום דרך להבדיל בין
     // כשל תזמון לבין כשל מסירה.
     try {
-      await _scheduleAll(memorial, reminders, hebrewDate);
+      await _scheduleAll(memorial, reminders, hebrewDate, years,
+          AndroidScheduleMode.exactAllowWhileIdle);
       lastScheduleError = null;
     } on Exception catch (e) {
-      lastScheduleError = '${memorial.name}: $e';
-      return null;
+      // נסיון שני, במצב לא-מדויק. אנדרואיד דוחה תזמון מדויק כשההרשאה
+      // חסרה או כשנפרצה תקרת האזעקות, ואז ההתראה מגיעה באיחור של דקות –
+      // מה שעדיף בהרבה על לא להגיע כלל. הדיוק וההגעה הן שתי דרישות
+      // נפרדות, וכשצריך לוותר, מוותרים על הדיוק.
+      try {
+        await cancelForMemorial(memorial.id!);
+        await _scheduleAll(memorial, reminders, hebrewDate, years,
+            AndroidScheduleMode.inexactAllowWhileIdle);
+        lastScheduleError =
+            'תזמון מדויק נדחה, ההתראות תוזמנו כמשוערות — ${firstLineOf(e)}';
+      } on Exception catch (fallback) {
+        lastScheduleError = 'כשל בתזמון — ${firstLineOf(fallback)}';
+        return null;
+      }
     }
     return reminders.first;
   }
@@ -423,6 +471,8 @@ class NotificationService {
     Memorial memorial,
     List<DateTime> reminders,
     String hebrewDate,
+    int years,
+    AndroidScheduleMode mode,
   ) async {
     for (var i = 0; i < reminders.length; i++) {
       await _scheduleOne(
@@ -431,12 +481,14 @@ class NotificationService {
         when: reminders[i],
         id: memorial.notificationIdForOccurrence(i),
         prefix: 'אזכרתו של',
+        mode: mode,
       );
     }
 
     // סדרה שנייה: יום לפני האזכרה, בבוקר. טווח מזהים נפרד, אחרת היא
     // הייתה דורסת את הראשית.
-    final dayBefore = _calendar.dayBeforeMemorialDates(memorial);
+    final dayBefore =
+        _calendar.dayBeforeMemorialDates(memorial, years: years);
     for (var i = 0; i < dayBefore.length; i++) {
       await _scheduleOne(
         memorial: memorial,
@@ -444,6 +496,7 @@ class NotificationService {
         when: dayBefore[i],
         id: memorial.notificationIdForDayBefore(i),
         prefix: 'מחר אזכרתו של',
+        mode: mode,
       );
     }
   }
@@ -455,6 +508,7 @@ class NotificationService {
     required DateTime when,
     required int id,
     required String prefix,
+    required AndroidScheduleMode mode,
   }) async {
     final memorialDate = _calendar.memorialDateForReminder(memorial, when);
     final detail = memorialDate == null
@@ -472,10 +526,11 @@ class NotificationService {
       scheduledDate: tz.TZDateTime.from(when, tz.local),
       // רק אפשרויות שנוחתות לפני האזכרה ואחרי מועד ההתראה עצמו.
       notificationDetails: _detailsFor(memorialDate, when),
-      // מדויק, ו-allowWhileIdle כדי שיירה גם כשהמכשיר במצב Doze.
+      // מדויק כברירת מחדל, ו-allowWhileIdle כדי שיירה גם ב-Doze. אם
+      // אנדרואיד דוחה תזמון מדויק, הקורא חוזר לכאן במצב משוער.
       // אי-פספוס אינו נשען על מצב התזמון אלא על שתי שכבות נפרדות:
       // המקלט של BOOT_COMPLETED, ו-deliverMissedReminder בפתיחה.
-      androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+      androidScheduleMode: mode,
     );
   }
   /// מאתחל אזורי זמן. בטוח לקריאה חוזרת, וגם מ-isolate הרקע.
@@ -744,6 +799,7 @@ class NotificationService {
 
     final requests = await _plugin.pendingNotificationRequests();
     final pending = requests.map((p) => p.id).toList();
+    final years = horizonYearsFor(memorials.length);
 
     // סחיפת כל מה שאינו שייך לאזכרה קיימת.
     //
@@ -766,9 +822,9 @@ class NotificationService {
       // ממלאים רק כשהחלון הצטמצם – כלומר מופעים נורו מאז הפעם הקודמת.
       // נספרות **שתי** הסדרות: הראשית והתזכורת של יום לפני. בלי הסדרה
       // השנייה בחשבון, התור היה נראה מלא והיא לא הייתה מתוזמנת לעולם.
-      final upcoming = _calendar.futureReminderDates(m);
-      final wanted =
-          upcoming.length + _calendar.dayBeforeMemorialDates(m).length;
+      final upcoming = _calendar.futureReminderDates(m, years: years);
+      final wanted = upcoming.length +
+          _calendar.dayBeforeMemorialDates(m, years: years).length;
       // התראה שתוזמנה בגרסת payload ישנה נושאת את הטקסט והכפתורים של
       // אותה גרסה – הם נצרבים בזמן התזמון. בלי הבדיקה הזו, שדרוג שמשנה
       // את ההתראה לא היה מגיע לעולם למי שכבר תוזמן.
@@ -787,7 +843,8 @@ class NotificationService {
         continue;
       }
 
-      final nearest = await scheduleForMemorial(m);
+      final nearest =
+          await scheduleForMemorial(m, memorialCount: memorials.length);
       if (nearest != null) scheduled[m.id!] = nearest;
     }
     return scheduled;

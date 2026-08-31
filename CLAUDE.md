@@ -429,6 +429,28 @@ way to tell a queue holding two series from the system re-alerting one, and
 **four separate fixes were shipped blind before this existed**. Treat it as the
 first thing to read when a notification misbehaves.
 
+### Android caps an app at 500 concurrent alarms
+
+`AlarmManager.setExactAndAllowWhileIdle` throws once the app holds 500 alarms,
+and the failure arrives as a `Parcel.readException` out of `IAlarmManager.set`.
+Twenty years across two series is 42 alarms per memorial, so the ceiling is
+breached at about a dozen memorials — and because `scheduleForMemorial` cancels
+before it reschedules, the memorial that hits it is left with **nothing**
+queued. The user sees a reminder that never fires and only appears on opening
+the app, which is the catch-up.
+
+`horizonYearsFor` shrinks the horizon as memorials are added so the total stays
+under `maxScheduledAlarms` (400, deliberately short of the real limit), with a
+floor of `minHorizonYears` so reminders never vanish outright for someone with
+a very large list. Anything that schedules has to pass the memorial count in;
+the provider reads it from the current list.
+
+And when exact scheduling is refused anyway — a missing `SCHEDULE_EXACT_ALARM`
+grant does the same thing — scheduling **retries once in
+`inexactAllowWhileIdle`** rather than giving up. Punctuality and delivery are
+separate requirements here, and delivery is the one that matters: a reminder a
+few minutes late beats no reminder. The settings row still names what happened.
+
 **`scheduleForMemorial` cancels before it schedules**, so a throw inside
 `_scheduleAll` leaves the memorial with *nothing* queued — and the only symptom
 is "the reminder never fires, it only appears when I open the app", because all
@@ -436,6 +458,10 @@ that is left is the catch-up. The `on Exception` there used to be silent, which
 made a scheduling failure indistinguishable from a delivery failure without a
 cable. It now records `lastScheduleError`, and the settings row shows it in red
 along with the two permissions that gate delivery. Read that row first.
+
+Record the **first line only** (`firstLineOf`). A `PlatformException`'s
+`toString` drags its whole stack along, and the first attempt filled the screen
+with frames while the reason itself scrolled out of view.
 
 `rescheduleAll` also sweeps every pending id that belongs to no current
 memorial. Two things strand a whole block: the pre-block id scheme, and a

@@ -132,7 +132,10 @@ class _FakeNotifications extends NotificationService {
   DateTime? nearestScheduled;
 
   @override
-  Future<DateTime?> scheduleForMemorial(Memorial memorial) async {
+  Future<DateTime?> scheduleForMemorial(
+    Memorial memorial, {
+    int memorialCount = 1,
+  }) async {
     schedulingStarted = true;
     await _maybeBlock();
     if (memorial.id == null) return null;
@@ -1919,6 +1922,64 @@ void main() {
     });
   });
 
+  group('the alarm horizon stays under what Android allows', () {
+    int alarmsFor(int memorials) =>
+        memorials * (NotificationService.horizonYearsFor(memorials) + 1) * 2;
+
+    test('a handful of memorials still get the full twenty years', () {
+      for (final count in [1, 2, 5]) {
+        expect(NotificationService.horizonYearsFor(count),
+            HebrewCalendarService.scheduleHorizonYears,
+            reason: '$count memorials');
+      }
+    });
+
+    test('the horizon shrinks instead of breaching the ceiling', () {
+      // Twenty years across two series is 42 alarms per memorial, so a dozen
+      // memorials is already past Android's limit of 500 - and breaching it
+      // throws out of AlarmManager, leaving that memorial with nothing
+      // scheduled at all, because the cancel already ran.
+      for (final count in [10, 12, 20, 40, 60]) {
+        expect(alarmsFor(count),
+            lessThanOrEqualTo(NotificationService.maxScheduledAlarms),
+            reason: '$count memorials');
+      }
+    });
+
+    test('never drops below a couple of years, however many memorials', () {
+      for (final count in [100, 500]) {
+        expect(NotificationService.horizonYearsFor(count),
+            NotificationService.minHorizonYears,
+            reason: 'reminders must not vanish for someone with many');
+      }
+    });
+
+    test('more memorials never means a longer horizon', () {
+      var previous = NotificationService.horizonYearsFor(1);
+      for (var count = 2; count <= 60; count++) {
+        final years = NotificationService.horizonYearsFor(count);
+        expect(years, lessThanOrEqualTo(previous), reason: '$count memorials');
+        previous = years;
+      }
+    });
+
+    test('an error is reported by its first line, not its whole stack', () {
+      // The screen showed a full page of stack frames with the reason itself
+      // scrolled off. Only the first line says what went wrong.
+      const trace = 'PlatformException(error, Maximum limit of concurrent '
+          'alarms 500 reached for uid, null, null)\n'
+          '\tat android.os.Parcel.readException(Parcel.java:3165)\n'
+          '\tat android.app.AlarmManager.setImpl(AlarmManager.java:1118)';
+      final line = NotificationService.firstLineOf(trace);
+
+      expect(line, contains('Maximum limit of concurrent alarms'));
+      expect(line, isNot(contains('Parcel.java')));
+      expect(NotificationService.firstLineOf('x' * 400).length,
+          lessThanOrEqualTo(201),
+          reason: 'a single very long line must not fill the screen either');
+    });
+  });
+
   group('nothing is left scheduled for a memorial that is gone', () {
     final live = [
       _seed(id: 1, name: 'סבא יעקב', day: 27, month: HebrewMonth.av),
@@ -1990,7 +2051,7 @@ void main() {
         ],
         total: 0,
         orphans: 0,
-        lastError: 'סבא יעקב: PlatformException(exact_alarms_not_permitted)',
+        lastError: 'כשל בתזמון — PlatformException(exact_alarms_not_permitted)',
         exactAlarmsAllowed: false,
       );
 
