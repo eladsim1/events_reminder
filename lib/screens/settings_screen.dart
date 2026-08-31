@@ -244,8 +244,8 @@ class _ScheduledReminders extends ConsumerWidget {
                     'סה"כ ${report.total}',
                     if (report.orphans > 0) 'ללא אזכרה: ${report.orphans}',
                     for (final r in report.rows)
-                      '${r.name}: ראשית ${r.main}, יום לפני ${r.dayBefore}'
-                          '${r.stale > 0 ? ', ממתינות לרענון ${r.stale}' : ''}',
+                      '${r.name}: ${r.scheduled}'
+                          '${r.stale > 0 ? ' (ממתינות לרענון ${r.stale})' : ''}',
                     if (!report.notificationsEnabled) 'הרשאת התראות חסרה',
                     if (!report.exactAlarmsAllowed) 'הרשאת אזעקה מדויקת חסרה',
                     if (report.lastError != null) report.lastError!,

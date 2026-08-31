@@ -134,7 +134,8 @@ class _FakeNotifications extends NotificationService {
   @override
   Future<DateTime?> scheduleForMemorial(
     Memorial memorial, {
-    int memorialCount = 1,
+    List<Memorial> among = const [],
+    int? quota,
   }) async {
     schedulingStarted = true;
     await _maybeBlock();
@@ -1026,58 +1027,19 @@ void main() {
       expect(reminderWeekdayChoices, hasLength(6));
     });
 
-    test('day-before dates are one day before, at 09:00', () {
-      final cal = HebrewCalendarService(now: () => _fixedNow);
-      final m = _seed(id: 1, name: 'x', day: 27, month: HebrewMonth.av);
-
-      final dates = cal.dayBeforeMemorialDates(m, from: _fixedNow, years: 20);
-      expect(dates, isNotEmpty);
-
-      for (final d in dates) {
-        expect(d.hour, HebrewCalendarService.dayBeforeReminderHour);
-        expect(d.minute, 0);
-        expect(d.isAfter(_fixedNow), isTrue);
-
-        final memorialDate = cal.memorialDateForReminder(m, d)!;
-        // Exactly one calendar day, measured in UTC so DST cannot shave it.
-        final gap = DateTime.utc(
-                memorialDate.year, memorialDate.month, memorialDate.day)
-            .difference(DateTime.utc(d.year, d.month, d.day))
-            .inDays;
-        expect(gap, 1, reason: 'reminder $d vs memorial $memorialDate');
-      }
-    });
-
-    test('the day-before text reads as tomorrow', () {
-      final cal = HebrewCalendarService(now: () => _fixedNow);
-      final m = _seed(id: 1, name: 'x', day: 27, month: HebrewMonth.av);
-
-      final d = cal.dayBeforeMemorialDates(m, from: _fixedNow).first;
-      final memorialDate = cal.memorialDateForReminder(m, d)!;
-      expect(cal.describeMemorialForReminder(m, d, memorialDate),
-          contains('מחר'));
-    });
-
-    test('the two series occupy separate id ranges', () {
+    test('the occurrence ids and the catch-up slot never collide', () {
       final m = _seed(id: 3, name: 'x', day: 1, month: HebrewMonth.tishrei);
 
-      final main = [
+      final occurrences = [
         for (var i = 0; i <= HebrewCalendarService.scheduleHorizonYears; i++)
           m.notificationIdForOccurrence(i)
       ];
-      final dayBefore = [
-        for (var i = 0; i <= HebrewCalendarService.scheduleHorizonYears; i++)
-          m.notificationIdForDayBefore(i)
-      ];
-
-      // No overlap — otherwise one series would silently overwrite the other.
-      expect(main.toSet().intersection(dayBefore.toSet()), isEmpty);
-      // And neither collides with the catch-up slot.
       final catchUp = m.notificationIdForOccurrence(Memorial.catchUpIndex);
-      expect(main, isNot(contains(catchUp)));
-      expect(dayBefore, isNot(contains(catchUp)));
-      // Everything stays inside this memorial's block.
-      for (final id in [...main, ...dayBefore, catchUp]) {
+
+      expect(occurrences, isNot(contains(catchUp)));
+      // Everything stays inside this memorial's block, or cancelling one
+      // memorial would silence another.
+      for (final id in [...occurrences, catchUp]) {
         expect(Memorial.ownsNotificationId(id, 3), isTrue);
       }
     });
@@ -1690,7 +1652,7 @@ void main() {
 
         for (final d in choices) {
           final when = DateTime(memorial.year, memorial.month,
-              memorial.day - d, HebrewCalendarService.dayBeforeReminderHour);
+              memorial.day - d, HebrewCalendarService.rescheduledReminderHour);
           expect(when.isAfter(now), isTrue,
               reason: '$d days before is already in the past');
           // "Up to the day of the memorial, and not after" - the morning of
@@ -1855,13 +1817,56 @@ void main() {
       await _pumpUntilFound(
           tester, find.text('מתי להזכיר?'), 'the choice dialog');
 
-      expect(find.byType(SimpleDialogOption),
+      expect(
+          find.descendant(
+              of: find.byType(AlertDialog), matching: find.byType(ListTile)),
           findsNWidgets(NotificationService.snoozeChoiceLadder.length),
           reason: 'this is the point of the screen - the notification cannot '
               'show more than three');
       // Longest lead time first, and the memorial day itself is last.
       expect(find.text('30 ימים לפני'), findsOneWidget);
       expect(find.text('ביום האזכרה'), findsOneWidget);
+    });
+
+    testWidgets('turning reminders off from the notification', (tester) async {
+      final (repo, notif) = await _pumpApp(tester, seeded: [
+        _seed(id: 1, name: 'סבא יעקב', day: 27, month: HebrewMonth.av),
+      ]);
+
+      notif.onChooseReminder!(farOffRequest());
+      await _pumpUntilFound(
+          tester, find.text('מתי להזכיר?'), 'the choice dialog');
+      await tester.tap(find.text(NotificationService.stopRemindingLabel));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+
+      expect(repo.items.single.enabled, isFalse,
+          reason: 'the memorial the notification belongs to is switched off');
+      expect(find.textContaining('כובו'), findsOneWidget,
+          reason: 'a silent switch-off would look like the app losing data');
+    });
+
+    testWidgets('the option stands even when no date is left', (tester) async {
+      final (repo, notif) = await _pumpApp(tester, seeded: [
+        _seed(id: 1, name: 'סבא יעקב', day: 27, month: HebrewMonth.av),
+      ]);
+
+      // The memorial has passed, so every "days before" target is behind us.
+      final now = DateTime.now();
+      notif.onChooseReminder!(ReminderChoiceRequest(
+        notificationId: 142,
+        memorialDate: DateTime(now.year, now.month, now.day - 1),
+        body: 'אזכרתו של סבא יעקב',
+      ));
+      await _pumpUntilFound(
+          tester, find.text('מתי להזכיר?'), 'the choice dialog');
+
+      expect(find.text('לא נותרו מועדים לפני האזכרה'), findsOneWidget);
+      await tester.tap(find.text(NotificationService.stopRemindingLabel));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+
+      expect(repo.items.single.enabled, isFalse);
     });
 
     testWidgets('the chosen option is what gets rescheduled', (tester) async {
@@ -1923,61 +1928,90 @@ void main() {
     });
   });
 
-  group('the alarm horizon stays under what Android allows', () {
-    int alarmsFor(int memorials) =>
-        memorials * (NotificationService.horizonYearsFor(memorials) + 1) * 2;
+  group('the alarm budget is shared out across every memorial', () {
+    final cal = HebrewCalendarService(now: () => _fixedNow);
 
-    test('a handful of memorials still get the full twenty years', () {
-      for (final count in [1, 2, 5]) {
-        expect(NotificationService.horizonYearsFor(count),
-            HebrewCalendarService.scheduleHorizonYears,
-            reason: '$count memorials');
-      }
+    List<Memorial> names(int count) => [
+          for (var i = 0; i < count; i++)
+            _seed(
+              id: i + 1,
+              name: 'מנוח $i',
+              day: (i % 29) + 1,
+              month: HebrewMonth.values[i % HebrewMonth.values.length],
+            ),
+        ];
+
+    int total(Map<int, int> allocation) =>
+        allocation.values.fold(0, (sum, q) => sum + q);
+
+    test('three hundred names fit, which is the whole point', () {
+      // The old rule handed every memorial a fixed number of years, which
+      // measures the wrong thing: Android caps the total, so that broke
+      // silently at about 84 names and left memorials with nothing queued.
+      final allocation =
+          NotificationService.allocateBudget(names(300), cal);
+
+      expect(total(allocation), NotificationService.maxScheduledAlarms,
+          reason: 'the budget is spent, not exceeded');
+      expect(allocation, isNotEmpty);
     });
 
-    test('the horizon shrinks instead of breaching the ceiling', () {
-      // Twenty years across two series is 42 alarms per memorial, so a dozen
-      // memorials is already past Android's limit of 500 - and breaching it
-      // throws out of AlarmManager, leaving that memorial with nothing
-      // scheduled at all, because the cancel already ran.
-      for (final count in [10, 12, 20, 40, 60]) {
-        expect(alarmsFor(count),
+    test('the ceiling holds at every size', () {
+      for (final count in [1, 10, 50, 84, 300, 1000]) {
+        expect(total(NotificationService.allocateBudget(names(count), cal)),
             lessThanOrEqualTo(NotificationService.maxScheduledAlarms),
-            reason: '$count memorials');
+            reason: '$count names');
       }
     });
 
-    test('never drops below a couple of years, however many memorials', () {
-      for (final count in [100, 500]) {
-        expect(NotificationService.horizonYearsFor(count),
-            NotificationService.minHorizonYears,
-            reason: 'reminders must not vanish for someone with many');
+    test('a short list still gets every occurrence in the horizon', () {
+      final list = names(10);
+      final allocation = NotificationService.allocateBudget(list, cal);
+
+      for (final m in list) {
+        expect(allocation[m.id!], cal.futureReminderDates(m).length,
+            reason: '${m.name} keeps every occurrence in the horizon');
       }
     });
 
-    test('more memorials never means a longer horizon', () {
-      var previous = NotificationService.horizonYearsFor(1);
-      for (var count = 2; count <= 60; count++) {
-        final years = NotificationService.horizonYearsFor(count);
-        expect(years, lessThanOrEqualTo(previous), reason: '$count memorials');
-        previous = years;
+    test('nobody is allocated more occurrences than exist', () {
+      final list = names(300);
+      final allocation = NotificationService.allocateBudget(list, cal);
+
+      for (final m in list) {
+        final share = allocation[m.id!];
+        if (share == null) continue;
+        expect(share, lessThanOrEqualTo(cal.futureReminderDates(m).length));
       }
     });
 
-    test('an error is reported by its first line, not its whole stack', () {
-      // The screen showed a full page of stack frames with the reason itself
-      // scrolled off. Only the first line says what went wrong.
-      const trace = 'PlatformException(error, Maximum limit of concurrent '
-          'alarms 500 reached for uid, null, null)\n'
-          '\tat android.os.Parcel.readException(Parcel.java:3165)\n'
-          '\tat android.app.AlarmManager.setImpl(AlarmManager.java:1118)';
-      final line = NotificationService.firstLineOf(trace);
+    test('a memorial that is switched off takes no budget', () {
+      final list = [
+        ...names(3),
+        _seed(
+            id: 99,
+            name: 'כבוי',
+            day: 5,
+            month: HebrewMonth.tishrei,
+            enabled: false),
+      ];
+      expect(NotificationService.allocateBudget(list, cal)[99], isNull);
+    });
 
-      expect(line, contains('Maximum limit of concurrent alarms'));
-      expect(line, isNot(contains('Parcel.java')));
-      expect(NotificationService.firstLineOf('x' * 400).length,
-          lessThanOrEqualTo(201),
-          reason: 'a single very long line must not fill the screen either');
+    test('a tight budget goes to the soonest reminders', () {
+      // Two names, and room for two alarms. Both must go to whichever
+      // reminder comes first, not one each by position in the list.
+      final list = names(2);
+      final allocation =
+          NotificationService.allocateBudget(list, cal, budget: 2);
+
+      expect(total(allocation), 2);
+      final first = [
+        for (final m in list)
+          (id: m.id!, when: cal.futureReminderDates(m).first),
+      ]..sort((a, b) => a.when.compareTo(b.when));
+      expect(allocation[first.first.id], isNotNull,
+          reason: 'the nearest reminder of all must be scheduled');
     });
   });
 
@@ -2021,8 +2055,7 @@ void main() {
       ]);
       notif.report = const PendingReport(
         rows: [
-          PendingRow(
-              name: 'סבא יעקב', main: 21, dayBefore: 21, other: 0, stale: 0),
+          PendingRow(name: 'סבא יעקב', scheduled: 42, stale: 0),
         ],
         total: 42,
         orphans: 0,
@@ -2032,8 +2065,8 @@ void main() {
       await _pumpUntilFound(
           tester, find.text('תזכורות מתוזמנות'), 'the scheduled section');
 
-      expect(find.textContaining('ראשית 21, יום לפני 21'), findsOneWidget,
-          reason: 'this is the whole point - the duplicate becomes visible');
+      expect(find.textContaining('סבא יעקב: 42'), findsOneWidget,
+          reason: 'more than the horizon holds means leftovers are queued');
       expect(find.textContaining('סה"כ 42'), findsOneWidget);
     });
 
@@ -2047,8 +2080,7 @@ void main() {
       ]);
       notif.report = const PendingReport(
         rows: [
-          PendingRow(
-              name: 'סבא יעקב', main: 0, dayBefore: 0, other: 0, stale: 0),
+          PendingRow(name: 'סבא יעקב', scheduled: 0, stale: 0),
         ],
         total: 0,
         orphans: 0,
@@ -2071,8 +2103,7 @@ void main() {
       ]);
       notif.report = const PendingReport(
         rows: [
-          PendingRow(
-              name: 'סבא יעקב', main: 21, dayBefore: 0, other: 0, stale: 0),
+          PendingRow(name: 'סבא יעקב', scheduled: 21, stale: 0),
         ],
         total: 63,
         orphans: 42,
@@ -2136,59 +2167,6 @@ void main() {
       // throws, so an existing memorial must never fall outside this list.
       for (final d in const [1, 2, 3, 5, 7, 10, 14, 21, 30]) {
         expect(daysBeforeChoices, contains(d), reason: '$d days');
-      }
-    });
-  });
-
-  group('the day-before reminder never repeats the main one', () {
-    final cal = HebrewCalendarService(now: () => _fixedNow);
-
-    List<DateTime> dayBefore(Memorial m) =>
-        cal.dayBeforeMemorialDates(m, from: _fixedNow);
-
-    test('a main reminder set to one day before leaves no second series', () {
-      // Both series then land on the same day, and at 09:00 on the same
-      // minute: two identical notifications for one memorial. That is what
-      // "every reminder arrives twice" looks like from the outside.
-      expect(
-          dayBefore(_seed(
-            id: 1,
-            name: 'סבא יעקב',
-            day: 27,
-            month: HebrewMonth.av,
-            reminderMode: ReminderMode.fixedDaysBefore,
-            reminderValue: 1,
-          )),
-          isEmpty);
-    });
-
-    test('a two-day gap still keeps the day-before reminder', () {
-      expect(
-          dayBefore(_seed(
-            id: 1,
-            name: 'סבא יעקב',
-            day: 27,
-            month: HebrewMonth.av,
-            reminderMode: ReminderMode.fixedDaysBefore,
-            reminderValue: 2,
-          )),
-          isNotEmpty);
-    });
-
-    test('the default weekday reminder shares no day with the second series',
-        () {
-      final m =
-          _seed(id: 1, name: 'סבא יעקב', day: 27, month: HebrewMonth.av);
-      final second = dayBefore(m);
-      expect(second, isNotEmpty, reason: 'the series must still exist');
-
-      final mainDays = cal
-          .futureReminderDates(m, from: _fixedNow)
-          .map((d) => DateTime(d.year, d.month, d.day))
-          .toSet();
-      for (final d in second) {
-        expect(mainDays.contains(DateTime(d.year, d.month, d.day)), isFalse,
-            reason: 'a memorial must never be announced twice in one day');
       }
     });
   });

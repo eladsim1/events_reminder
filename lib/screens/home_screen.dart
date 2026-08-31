@@ -77,25 +77,55 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
             .reversed
             .toList();
 
-    if (options.isEmpty) {
-      _tell('לא נותרו מועדים לבחירה לפני האזכרה');
-      return;
-    }
-
+    // הדיאלוג נפתח גם כשלא נותר מועד לבחור בו: "לא להזכיר יותר" עדיין
+    // רלוונטי, ובלעדיו הכפתור היה פותח את האפליקציה ומודיע שאין מה לעשות.
+    //
+    // AlertDialog ולא SimpleDialog: רשימת המועדים ארוכה ונגללת, וכפתור
+    // הכיבוי בתחתיתה היה יוצא מהמסך. בשורת הפעולות הוא נשאר גלוי תמיד.
     final chosen = await showDialog<int>(
       context: context,
-      builder: (context) => SimpleDialog(
+      builder: (context) => AlertDialog(
         title: const Text('מתי להזכיר?'),
-        children: [
-          for (final d in options)
-            SimpleDialogOption(
-              onPressed: () => Navigator.pop(context, d),
-              child: Text(NotificationService.snoozeChoiceLabel(d)),
+        contentPadding: const EdgeInsets.symmetric(vertical: 8),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: options.isEmpty
+              ? const Padding(
+                  padding: EdgeInsets.fromLTRB(24, 4, 24, 4),
+                  child: Text('לא נותרו מועדים לפני האזכרה'),
+                )
+              // נבנית במלואה ולא ListView עצל: הרשימה קצרה מספיק, וכך
+              // בחירה רחוקה נשארת ניתנת למציאה בגלילה אחת.
+              : SingleChildScrollView(
+                  child: ListBody(
+                    children: [
+                      for (final d in options)
+                        ListTile(
+                          title: Text(NotificationService.snoozeChoiceLabel(d)),
+                          onTap: () => Navigator.pop(context, d),
+                        ),
+                    ],
+                  ),
+                ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () =>
+                Navigator.pop(context, NotificationService.stopReminding),
+            child: Text(
+              NotificationService.stopRemindingLabel,
+              style: TextStyle(color: Theme.of(context).colorScheme.error),
             ),
+          ),
         ],
       ),
     );
     if (chosen == null || !mounted) return;
+
+    if (chosen == NotificationService.stopReminding) {
+      await _stopReminding(request);
+      return;
+    }
 
     final moved = await ref
         .read(notificationServiceProvider)
@@ -104,6 +134,29 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     _tell(moved
         ? 'התזכורת נקבעה ל${NotificationService.snoozeChoiceLabel(chosen)}'
         : 'המועד שנבחר כבר חלף');
+  }
+
+  /// מכבה את התזכורות של האזכרה שההתראה שייכת לה.
+  ///
+  /// הפעולה הפיכה – אותו מתג שברשימה – ולכן אין כאן אישור נוסף: הבחירה
+  /// מתוך רשימה כבר מפורשת דיה, ואישור עליה היה רעש.
+  Future<void> _stopReminding(ReminderChoiceRequest request) async {
+    final memorialId =
+        Memorial.memorialIdForNotification(request.notificationId);
+    Memorial? target;
+    final list =
+        ref.read(memorialListProvider).valueOrNull ?? const <Memorial>[];
+    for (final m in list) {
+      if (m.id == memorialId) target = m;
+    }
+    if (target == null) {
+      _tell('האזכרה לא נמצאה');
+      return;
+    }
+
+    await ref.read(memorialListProvider.notifier).toggleEnabled(target, false);
+    if (!mounted) return;
+    _tell('התזכורות עבור ${target.name} כובו. אפשר להחזיר מהרשימה.');
   }
 
   void _tell(String message) {
@@ -157,13 +210,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   /// לא לפי מועד התזכורת: זה מקדים את האזכרה ב-5 עד 11 יום תלוי ביום בשבוע,
   /// ולכן היה הופך את הסדר בין אזכרות סמוכות. הוא גם שלילי בחלון שאחרי יום
   /// השלישי, מה שהיה מקפיץ אזכרה שהתזכורת עליה כבר חלפה לראש הרשימה.
-  List<Memorial> _sorted(
-      List<Memorial> list, HebrewCalendarService calendar) {
+  List<Memorial> _sorted(List<Memorial> list, HebrewCalendarService calendar) {
     // התאריך מחושב פעם אחת לכל אזכרה ולא בתוך ההשוואה – חישוב התאריך העברי
     // יקר, והשוואה ישירה הייתה מריצה אותו מחדש בכל השוואה ובכל בנייה.
     final keyed = [
-      for (final m in list)
-        (memorial: m, next: calendar.nextMemorialDate(m)),
+      for (final m in list) (memorial: m, next: calendar.nextMemorialDate(m)),
     ];
     keyed.sort((a, b) {
       final byDate = a.next.compareTo(b.next);
@@ -276,13 +327,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
             _FilterBar(memorials: asyncMemorials.value!, calendar: calendar),
           Expanded(
             child: asyncMemorials.when(
-              loading: () =>
-                  const Center(child: CircularProgressIndicator()),
+              loading: () => const Center(child: CircularProgressIndicator()),
               error: (e, _) => _ErrorView(
                 message: 'שגיאה בטעינת האזכרות: $e',
-                onRetry: () => ref
-                    .read(memorialListProvider.notifier)
-                    .loadAndReschedule(),
+                onRetry: () =>
+                    ref.read(memorialListProvider.notifier).loadAndReschedule(),
               ),
               data: (memorials) {
                 if (memorials.isEmpty) {
@@ -292,8 +341,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                 final filter = ref.watch(memorialFilterProvider);
                 final query = ref.watch(memorialSearchProvider);
 
-                final matched =
-                    [for (final m in memorials) if (m.matchesQuery(query)) m];
+                final matched = [
+                  for (final m in memorials)
+                    if (m.matchesQuery(query)) m
+                ];
                 final sorted =
                     _sorted(_filtered(matched, filter, calendar), calendar);
 
@@ -321,8 +372,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                         onTap: () {
                           Navigator.of(context).push(
                             MaterialPageRoute(
-                              builder: (_) =>
-                                  EditMemorialScreen(memorial: m),
+                              builder: (_) => EditMemorialScreen(memorial: m),
                             ),
                           );
                         },
@@ -363,8 +413,10 @@ class _FilterBar extends ConsumerWidget {
 
     // המונים נספרים בתוך תוצאות החיפוש. אחרת "החודש (3)" לצד רשימה שמציגה
     // אחת בלבד היה נראה כמו באג.
-    final visible =
-        [for (final m in memorials) if (m.matchesQuery(query)) m];
+    final visible = [
+      for (final m in memorials)
+        if (m.matchesQuery(query)) m
+    ];
 
     // מחושב פעם אחת לכל אפשרות ולא בתוך בניית ה-chip.
     final counts = {

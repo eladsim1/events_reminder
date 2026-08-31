@@ -37,24 +37,15 @@ class ReminderChoiceRequest {
 class PendingRow {
   final String name;
 
-  /// התזכורת הראשית, והתזכורת של יום לפני.
-  ///
-  /// **שתיהן גדולות מאפס פירושו שהאזכרה תוכרז פעמיים.** זו בדיוק הבדיקה
-  /// שאי אפשר היה לעשות בלי לראות את המכשיר.
-  final int main;
-  final int dayBefore;
-
-  /// מזהים בבלוק שאינם באף אחת מהסדרות – השלמה של תזכורת שהוחמצה.
-  final int other;
+  /// כמה התראות מתוזמנות לאזכרה הזו.
+  final int scheduled;
 
   /// כמה מהן נצרבו בגרסת תוכן ישנה וממתינות לתזמון מחדש.
   final int stale;
 
   const PendingRow({
     required this.name,
-    required this.main,
-    required this.dayBefore,
-    required this.other,
+    required this.scheduled,
     required this.stale,
   });
 }
@@ -125,6 +116,13 @@ class NotificationService {
   static const String snoozeActionId = 'reschedule:more';
   static const String snoozeActionLabel = 'דחיית תזכורת';
 
+  /// בחירה מיוחדת ברשימת הדחייה: לכבות את התזכורות לאזכרה הזו.
+  ///
+  /// ערך שלילי, ולכן לעולם אינו מתנגש במספר ימים אמיתי ואינו עובר את
+  /// [daysBeforeFromActionId].
+  static const int stopReminding = -1;
+  static const String stopRemindingLabel = 'לא להזכיר יותר';
+
   /// קידומת מזהה הפעולה; אחריה מספר הימים שלפני האזכרה.
   static const String rescheduleActionPrefix = 'reschedule:';
 
@@ -160,7 +158,7 @@ class NotificationService {
     return [
       for (final d in snoozeChoiceLadder)
         if (DateTime(memorialDate.year, memorialDate.month,
-                memorialDate.day - d, HebrewCalendarService.dayBeforeReminderHour)
+                memorialDate.day - d, HebrewCalendarService.rescheduledReminderHour)
             .isAfter(notBefore))
           d,
     ];
@@ -174,17 +172,42 @@ class NotificationService {
   /// לאזכרה, כלומר התקרה נפרצת כבר סביב תריסר אזכרות.
   static const int maxScheduledAlarms = 400;
 
-  /// לפחות כך וכך שנים קדימה, גם להרבה אזכרות. מתחת לזה התזכורות מתחילות
-  /// להיעלם למי שאינו פותח את האפליקציה.
-  static const int minHorizonYears = 2;
+  /// חלוקת התקציב: אילו תזכורות יתוזמנו בפועל, ולכל אזכרה כמה מכל סדרה.
+  ///
+  /// **גלובלית ולא לכל אזכרה בנפרד.** אנדרואיד מגביל את סך האזעקות, לא את
+  /// מספר השנים, ולכן חלוקה של "כך וכך שנים לכל אזכרה" מודדת את הדבר הלא
+  /// נכון: היא נשברת בשקט סביב 84 אזכרות, ומחזירה בדיוק את הכשל שמותיר
+  /// אזכרה בלי אף התראה. כאן נלקחות התזכורות **הקרובות ביותר מכל האזכרות
+  /// יחד**, עד מילוי התקציב. עם עשר אזכרות זה שנים של כיסוי, עם שלוש מאות
+  /// זה חודשים, ובשום מספר זה לא נשבר – הכיסוי מתקצר בהדרגה.
+  ///
+  /// המחיר בסקאלה גדולה: אזכרה שמועדה רחוק אינה מתוזמנת עדיין, ולכן צריך
+  /// לפתוח את האפליקציה מדי כמה חודשים במקום מדי כמה שנים.
+  ///
+  /// סטטית ומקבלת את הלוח במפורש, כדי שאפשר יהיה לבדוק אותה בלי להקים את
+  /// השירות – הפלאגין שבתוכו אינו ניתן להקמה בבדיקה.
+  static Map<int, int> allocateBudget(
+    List<Memorial> memorials,
+    HebrewCalendarService calendar, {
+    int budget = maxScheduledAlarms,
+  }) {
+    final candidates = <({int memorialId, DateTime when})>[];
+    for (final m in memorials) {
+      final id = m.id;
+      if (id == null || !m.enabled) continue;
+      for (final when in calendar.futureReminderDates(m)) {
+        candidates.add((memorialId: id, when: when));
+      }
+    }
+    // רשימת כל אזכרה כרונולוגית בפני עצמה, ולכן חיתוך של הרשימה הממוינת
+    // הוא תמיד רישא של כל אזכרה – מה שמאפשר לתרגם ספירה למספר מופעים.
+    candidates.sort((a, b) => a.when.compareTo(b.when));
 
-  /// כמה שנים לתזמן קדימה, כך שסך האזעקות יישאר מתחת לתקרה.
-  static int horizonYearsFor(int memorialCount) {
-    if (memorialCount <= 0) return HebrewCalendarService.scheduleHorizonYears;
-    // שתי סדרות לכל שנה, ועוד המופע של השנה הנוכחית.
-    final years = (maxScheduledAlarms ~/ (memorialCount * 2)) - 1;
-    return years.clamp(
-        minHorizonYears, HebrewCalendarService.scheduleHorizonYears);
+    final out = <int, int>{};
+    for (final c in candidates.take(budget)) {
+      out[c.memorialId] = (out[c.memorialId] ?? 0) + 1;
+    }
+    return out;
   }
 
   /// השורה הראשונה בלבד של שגיאה.
@@ -416,22 +439,30 @@ class NotificationService {
   /// האפליקציה אחרי שההתראה נורתה נראית כמו החמצה ומייצרת התראה כפולה.
   Future<DateTime?> scheduleForMemorial(
     Memorial memorial, {
-    int memorialCount = 1,
+    List<Memorial> among = const [],
+    int? quota,
   }) async {
     await init();
-    if (memorial.id == null) return null;
+    final memorialId = memorial.id;
+    if (memorialId == null) return null;
 
     // ביטול ההתראה הקודמת לפני חישוב מחדש.
-    await cancelForMemorial(memorial.id!);
+    await cancelForMemorial(memorialId);
 
     if (!memorial.enabled) return null;
 
-    final years = horizonYearsFor(memorialCount);
+    // המכסה מגיעה מהקורא כשהוא מתזמן את כולן יחד; אחרת היא מחושבת מול
+    // הרשימה כפי שהיא, כדי שהוספה בודדת לא תיקח יותר מחלקה.
+    final share = quota ??
+        allocateBudget(among.isEmpty ? [memorial] : among, _calendar)[
+            memorialId] ??
+        0;
 
     // מתזמנים את כל המופעים העתידיים בבת אחת ולא רק את הקרוב: zonedSchedule
     // הוא חד-פעמי, ולאנדרואיד אין חזרה שנתית לפי הלוח העברי. בלי זה, אחרי
     // שההתראה נורית לא הייתה מתוזמנת שנה נוספת עד לפתיחת האפליקציה.
-    final reminders = _calendar.futureReminderDates(memorial, years: years);
+    final reminders =
+        _calendar.futureReminderDates(memorial).take(share).toList();
     if (reminders.isEmpty) return null;
 
     final hebrewDate = _calendar.formatHebrewDate(memorial);
@@ -445,7 +476,7 @@ class NotificationService {
     // לאפליקציה", כי רק ההשלמה נשארת. בלי הרישום אין שום דרך להבדיל בין
     // כשל תזמון לבין כשל מסירה.
     try {
-      await _scheduleAll(memorial, reminders, hebrewDate, years,
+      await _scheduleAll(memorial, reminders, hebrewDate,
           AndroidScheduleMode.exactAllowWhileIdle);
       lastScheduleError = null;
     } on Exception catch (e) {
@@ -454,8 +485,8 @@ class NotificationService {
       // מה שעדיף בהרבה על לא להגיע כלל. הדיוק וההגעה הן שתי דרישות
       // נפרדות, וכשצריך לוותר, מוותרים על הדיוק.
       try {
-        await cancelForMemorial(memorial.id!);
-        await _scheduleAll(memorial, reminders, hebrewDate, years,
+        await cancelForMemorial(memorialId);
+        await _scheduleAll(memorial, reminders, hebrewDate,
             AndroidScheduleMode.inexactAllowWhileIdle);
         lastScheduleError =
             'תזמון מדויק נדחה, ההתראות תוזמנו כמשוערות — ${firstLineOf(e)}';
@@ -464,14 +495,13 @@ class NotificationService {
         return null;
       }
     }
-    return reminders.first;
+    return reminders.isEmpty ? null : reminders.first;
   }
 
   Future<void> _scheduleAll(
     Memorial memorial,
     List<DateTime> reminders,
     String hebrewDate,
-    int years,
     AndroidScheduleMode mode,
   ) async {
     for (var i = 0; i < reminders.length; i++) {
@@ -485,20 +515,6 @@ class NotificationService {
       );
     }
 
-    // סדרה שנייה: יום לפני האזכרה, בבוקר. טווח מזהים נפרד, אחרת היא
-    // הייתה דורסת את הראשית.
-    final dayBefore =
-        _calendar.dayBeforeMemorialDates(memorial, years: years);
-    for (var i = 0; i < dayBefore.length; i++) {
-      await _scheduleOne(
-        memorial: memorial,
-        hebrewDate: hebrewDate,
-        when: dayBefore[i],
-        id: memorial.notificationIdForDayBefore(i),
-        prefix: 'מחר אזכרתו של',
-        mode: mode,
-      );
-    }
   }
 
   /// מתזמן התראה אחת, עם טקסט וכפתורי דחייה שמותאמים למופע הספציפי.
@@ -638,7 +654,7 @@ class NotificationService {
       memorialDate.year,
       memorialDate.month,
       memorialDate.day - daysBefore,
-      HebrewCalendarService.dayBeforeReminderHour,
+      HebrewCalendarService.rescheduledReminderHour,
     );
     // הגנה: מוצעות רק אפשרויות עתידיות, אבל אם המשתמש התמהמה עם ההתראה
     // פתוחה, המועד שנבחר עשוי לחלוף בינתיים.
@@ -745,26 +761,13 @@ class NotificationService {
       final id = m.id;
       if (id == null) continue;
 
-      var main = 0, dayBefore = 0, other = 0, stale = 0;
+      var scheduled = 0, stale = 0;
       for (final r in requests) {
         if (!Memorial.ownsNotificationId(r.id, id)) continue;
-        final slot = r.id - Memorial.notificationIdBase(id);
-        if (slot < Memorial.dayBeforeSeriesOffset) {
-          main++;
-        } else if (slot < Memorial.catchUpIndex) {
-          dayBefore++;
-        } else {
-          other++;
-        }
+        scheduled++;
         if (!isCurrentPayload(r.payload)) stale++;
       }
-      rows.add(PendingRow(
-        name: m.name,
-        main: main,
-        dayBefore: dayBefore,
-        other: other,
-        stale: stale,
-      ));
+      rows.add(PendingRow(name: m.name, scheduled: scheduled, stale: stale));
     }
 
     final permissions = await permissionStatus();
@@ -799,7 +802,7 @@ class NotificationService {
 
     final requests = await _plugin.pendingNotificationRequests();
     final pending = requests.map((p) => p.id).toList();
-    final years = horizonYearsFor(memorials.length);
+    final allocation = allocateBudget(memorials, _calendar);
 
     // סחיפת כל מה שאינו שייך לאזכרה קיימת.
     //
@@ -822,9 +825,9 @@ class NotificationService {
       // ממלאים רק כשהחלון הצטמצם – כלומר מופעים נורו מאז הפעם הקודמת.
       // נספרות **שתי** הסדרות: הראשית והתזכורת של יום לפני. בלי הסדרה
       // השנייה בחשבון, התור היה נראה מלא והיא לא הייתה מתוזמנת לעולם.
-      final upcoming = _calendar.futureReminderDates(m, years: years);
-      final wanted = upcoming.length +
-          _calendar.dayBeforeMemorialDates(m, years: years).length;
+      final share = allocation[m.id!] ?? 0;
+      final upcoming = _calendar.futureReminderDates(m).take(share).toList();
+      final wanted = share;
       // התראה שתוזמנה בגרסת payload ישנה נושאת את הטקסט והכפתורים של
       // אותה גרסה – הם נצרבים בזמן התזמון. בלי הבדיקה הזו, שדרוג שמשנה
       // את ההתראה לא היה מגיע לעולם למי שכבר תוזמן.
@@ -843,8 +846,7 @@ class NotificationService {
         continue;
       }
 
-      final nearest =
-          await scheduleForMemorial(m, memorialCount: memorials.length);
+      final nearest = await scheduleForMemorial(m, quota: share);
       if (nearest != null) scheduled[m.id!] = nearest;
     }
     return scheduled;
