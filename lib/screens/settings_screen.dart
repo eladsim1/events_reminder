@@ -246,8 +246,15 @@ class _ScheduledReminders extends ConsumerWidget {
                     for (final r in report.rows)
                       '${r.name}: ראשית ${r.main}, יום לפני ${r.dayBefore}'
                           '${r.stale > 0 ? ', ממתינות לרענון ${r.stale}' : ''}',
+                    if (!report.notificationsEnabled) 'הרשאת התראות חסרה',
+                    if (!report.exactAlarmsAllowed) 'הרשאת אזעקה מדויקת חסרה',
+                    if (report.lastError != null)
+                      'כשל בתזמון — ${report.lastError}',
                   ].join('\n'),
-                  style: theme.textTheme.bodySmall,
+                  style: report.lastError == null
+                      ? theme.textTheme.bodySmall
+                      : theme.textTheme.bodySmall
+                          ?.copyWith(color: theme.colorScheme.error),
                 ),
         );
       },

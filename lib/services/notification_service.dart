@@ -68,10 +68,20 @@ class PendingReport {
   /// ישנה. הן ממשיכות לירות עד שנסחפות.
   final int orphans;
 
+  /// כשל התזמון האחרון, אם היה.
+  final String? lastError;
+
+  /// שתי ההרשאות שבלעדיהן שום דבר לא ייורה בזמן.
+  final bool notificationsEnabled;
+  final bool exactAlarmsAllowed;
+
   const PendingReport({
     required this.rows,
     required this.total,
     required this.orphans,
+    this.lastError,
+    this.notificationsEnabled = true,
+    this.exactAlarmsAllowed = true,
   });
 }
 
@@ -86,6 +96,12 @@ class NotificationService {
   final HebrewCalendarService _calendar;
 
   bool _initialized = false;
+
+  /// כשל התזמון האחרון, או null אם התזמון האחרון הצליח.
+  ///
+  /// מוצג במסך ההגדרות. תפיסה שקטה כאן הפכה "לא תוזמן דבר" ל"ההתראה לא
+  /// קופצת", ואי אפשר היה להבדיל ביניהם בלי לחבר את הטלפון.
+  String? lastScheduleError;
 
   static const String _channelId = 'azkarot_reminders';
   static const String _channelName = 'תזכורות אזכרה';
@@ -387,9 +403,17 @@ class NotificationService {
 
     // הפלאגין זורק כשאין הרשאת אזעקות מדויקות. לא מפילים את המסך – המשתמש
     // מקבל על כך אזהרה מתמדת דרך permissionStatus, ראה HomeScreen.
+    //
+    // אבל התפיסה **נרשמת**. היא הייתה שקטה לגמרי, וזה מסוכן במיוחד כאן:
+    // cancelForMemorial כבר רץ, כך שכשל בתזמון מותיר את האזכרה בלי אף
+    // התראה מתוזמנת – והסימפטום היחיד הוא "ההתראה לא קופצת, רק כשנכנסים
+    // לאפליקציה", כי רק ההשלמה נשארת. בלי הרישום אין שום דרך להבדיל בין
+    // כשל תזמון לבין כשל מסירה.
     try {
       await _scheduleAll(memorial, reminders, hebrewDate);
-    } on Exception {
+      lastScheduleError = null;
+    } on Exception catch (e) {
+      lastScheduleError = '${memorial.name}: $e';
       return null;
     }
     return reminders.first;
@@ -688,12 +712,15 @@ class NotificationService {
       ));
     }
 
+    final permissions = await permissionStatus();
     return PendingReport(
       rows: rows,
       total: requests.length,
-      orphans: requests
-          .where((r) => !_belongsToAny(r.id, memorials))
-          .length,
+      orphans:
+          requests.where((r) => !_belongsToAny(r.id, memorials)).length,
+      lastError: lastScheduleError,
+      notificationsEnabled: permissions.notificationsEnabled,
+      exactAlarmsAllowed: permissions.exactAlarmsAllowed,
     );
   }
 

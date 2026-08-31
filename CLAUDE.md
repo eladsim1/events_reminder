@@ -429,6 +429,14 @@ way to tell a queue holding two series from the system re-alerting one, and
 **four separate fixes were shipped blind before this existed**. Treat it as the
 first thing to read when a notification misbehaves.
 
+**`scheduleForMemorial` cancels before it schedules**, so a throw inside
+`_scheduleAll` leaves the memorial with *nothing* queued — and the only symptom
+is "the reminder never fires, it only appears when I open the app", because all
+that is left is the catch-up. The `on Exception` there used to be silent, which
+made a scheduling failure indistinguishable from a delivery failure without a
+cable. It now records `lastScheduleError`, and the settings row shows it in red
+along with the two permissions that gate delivery. Read that row first.
+
 `rescheduleAll` also sweeps every pending id that belongs to no current
 memorial. Two things strand a whole block: the pre-block id scheme, and a
 deletion whose cancel never ran — it is fire-and-forget, so a kill at the wrong

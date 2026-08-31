@@ -1975,6 +1975,34 @@ void main() {
       expect(find.textContaining('סה"כ 42'), findsOneWidget);
     });
 
+    testWidgets('a scheduling failure is named, not swallowed', (tester) async {
+      // scheduleForMemorial cancels before it schedules, so a throw leaves the
+      // memorial with nothing queued at all. The only symptom is "the reminder
+      // never fires, only when I open the app" - the catch-up. Without the
+      // error on screen there is no way to tell that from a delivery problem.
+      final (_, notif) = await _pumpApp(tester, seeded: [
+        _seed(id: 1, name: 'סבא יעקב', day: 27, month: HebrewMonth.av),
+      ]);
+      notif.report = const PendingReport(
+        rows: [
+          PendingRow(
+              name: 'סבא יעקב', main: 0, dayBefore: 0, other: 0, stale: 0),
+        ],
+        total: 0,
+        orphans: 0,
+        lastError: 'סבא יעקב: PlatformException(exact_alarms_not_permitted)',
+        exactAlarmsAllowed: false,
+      );
+
+      await tester.tap(find.byIcon(Icons.settings_outlined));
+      await _pumpUntilFound(
+          tester, find.text('תזכורות מתוזמנות'), 'the scheduled section');
+
+      expect(find.textContaining('כשל בתזמון'), findsOneWidget);
+      expect(find.textContaining('exact_alarms_not_permitted'), findsOneWidget);
+      expect(find.textContaining('הרשאת אזעקה מדויקת חסרה'), findsOneWidget);
+    });
+
     testWidgets('leftovers with no memorial are called out', (tester) async {
       final (_, notif) = await _pumpApp(tester, seeded: [
         _seed(id: 1, name: 'סבא יעקב', day: 27, month: HebrewMonth.av),
