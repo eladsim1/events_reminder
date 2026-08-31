@@ -429,7 +429,8 @@ derived from the current clock would be wrong by the time it fires.
 `hebrewWeekdayNames` includes שבת because a memorial can fall on any day;
 `reminderWeekdayChoices` is the six-day subset offered in the reminder picker.
 
-`daysBeforeChoices` is a full 1..`maxDaysBeforeChoice` run with no gaps. It used
+`daysBeforeChoices` is a full 1..`maxDaysBeforeChoice` run with no gaps, and
+`NotificationService.snoozeChoiceLadder` is the same run starting at 0. It used
 to be a rounded ladder (1, 2, 3, 5, 7, 10, …) that hid the numbers people
 actually ask for — four days, six, nine. Anything the old ladder could have
 stored has to stay inside the list: `DropdownButtonFormField` throws when its
@@ -478,15 +479,21 @@ why neither could be found by reasoning about the default configuration.
 default.** Two fixes were built, shipped and disproved on the device before
 that setting was asked about; asking took one question.
 
-### Three buttons is Android's ceiling, so the full list needs a screen
+### The notification carries one action; the list lives on a screen
 
-A notification renders at most three actions. When more options are still
-valid, the notification carries **two** quick buttons plus `עוד אפשרויות`,
-which is the only action with `showsUserInterface: true` — it opens the app,
-and the app shows every remaining option in a dialog. When everything fits in
-three there is no opener, because there would be nothing extra to show.
+Android renders at most three actions, so quick buttons could only ever offer
+three intervals out of a continuous run — and the interval left out is exactly
+the one being asked for. The notification therefore carries a single action,
+`עוד אפשרויות`, the only one with `showsUserInterface: true`; it opens the app,
+which shows every valid interval in a dialog. No action at all when nothing is
+left to choose.
 
-That request reaches the screen by two different paths, and **both are
+`snoozeChoiceLadder` is a full run, 0..`maxDaysBeforeChoice`, with nothing
+skipped; `choicesBefore` trims it to what is still ahead and still before the
+memorial. Only 0, 1 and 2 get worded labels — a "שבוע לפני" wedged between
+"6 ימים לפני" and "8 ימים לפני" breaks the eye going down a continuous list.
+
+The request reaches the screen by two different paths, and **both are
 required**:
 
 - the app is already running → `NotificationService.onChooseReminder`, which
@@ -501,7 +508,8 @@ immediately — 47 of them at once.
 
 The dialog rebuilds its list against `DateTime.now()`, not against the
 notification's own time: hours may have passed since it fired, and an option
-that has since expired must not be offered.
+that has since expired must not be offered. It is long enough to scroll, so a
+widget test that taps an entry has to pick one near the top or scroll first.
 
 ### "On the day of the memorial" is one of the choices
 

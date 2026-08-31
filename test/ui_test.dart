@@ -1654,15 +1654,15 @@ void main() {
       // unknown one must not be mistaken for a choice.
       expect(NotificationService.daysBeforeFromActionId(''), isNull);
       expect(NotificationService.daysBeforeFromActionId('snooze'), isNull);
-      // Off the ladder: a value the notification never offered.
-      expect(NotificationService.daysBeforeFromActionId('reschedule:4'), isNull);
+      // Past the maximum interval the app can ever schedule.
+      expect(NotificationService.daysBeforeFromActionId('reschedule:99'), isNull);
       expect(NotificationService.daysBeforeFromActionId('reschedule:x'), isNull);
     });
 
     test('labels read naturally in Hebrew', () {
       expect(NotificationService.snoozeChoiceLabel(1), 'יום לפני');
       expect(NotificationService.snoozeChoiceLabel(2), 'יומיים לפני');
-      expect(NotificationService.snoozeChoiceLabel(7), 'שבוע לפני');
+      expect(NotificationService.snoozeChoiceLabel(7), '7 ימים לפני');
       expect(NotificationService.snoozeChoiceLabel(3), '3 ימים לפני');
     });
 
@@ -1698,7 +1698,7 @@ void main() {
       expect(at(12).length, greaterThan(at(5).length));
       // 5 is still offered at five days out: the target is 09:00 and "now"
       // here is 08:00, so it is an hour away, not in the past.
-      expect(at(5), [0, 1, 2, 3, 5]);
+      expect(at(5), [0, 1, 2, 3, 4, 5], reason: 'four is not skipped');
       expect(at(2), [0, 1, 2]);
       // The morning of the memorial is still ahead at 08:00, so it stands as
       // the last thing left to choose.
@@ -1762,74 +1762,28 @@ void main() {
     });
   });
 
-  group('the buttons offered fit what a notification can show', () {
-    final memorial = DateTime(2026, 8, 20, 0, 0);
-
-    List<int> at(int daysOut) => NotificationService.quickChoices(
-          memorial,
-          DateTime(memorial.year, memorial.month, memorial.day - daysOut, 8),
-        );
-
-    test('never more than Android will render, and never fewer than exist',
-        () {
-      for (final daysOut in [0, 1, 2, 3, 5, 8, 12, 40]) {
-        final now =
-            DateTime(memorial.year, memorial.month, memorial.day - daysOut, 8);
-        final valid = NotificationService.choicesBefore(memorial, now);
-        final shown = NotificationService.quickChoices(memorial, now);
-
-        expect(shown.length,
-            lessThanOrEqualTo(NotificationService.maxRescheduleActions),
-            reason: 'Android drops actions past the third');
-        expect(shown.length, valid.length > 3 ? 3 : valid.length,
-            reason: 'no option is dropped while a slot is free');
-        expect(valid, containsAll(shown),
-            reason: 'every button shown must be a valid choice');
-        expect(shown.toSet().length, shown.length, reason: 'no duplicates');
-      }
-    });
-
-    test('reads from the longest lead time to the shortest', () {
-      for (final daysOut in [2, 5, 12, 40]) {
-        final shown = at(daysOut);
-        final descending = [...shown]..sort((a, b) => b.compareTo(a));
-        expect(shown, descending, reason: 'at $daysOut days out');
-      }
-    });
-
-    test('keeps a spread rather than three options that sit together', () {
-      // Far out, the whole ladder is valid and the three chosen must span it.
-      expect(at(40), [7, 3, 1]);
-      // Once a week before has passed, its slot goes to the longest option
-      // still available - otherwise only same-week reminders would be left.
-      expect(at(5), [5, 3, 1]);
-      expect(at(3), [3, 2, 1]);
-      expect(at(2), [2, 1, 0]);
-      // On the memorial day only its own morning is left.
-      expect(at(0), [0]);
-    });
-  });
-
   group('the notification hands the full list to the app', () {
     final memorial = DateTime(2026, 8, 20);
 
-    test('three options or fewer stay inside the notification', () {
-      final plan = NotificationService.actionPlan(
-          memorial, DateTime(2026, 8, 18, 8));
-      expect(plan.quick, [2, 1, 0]);
-      expect(plan.moreOptions, isFalse,
-          reason: 'nothing is hidden, so there is nothing to open a screen for');
+    test('the ladder runs from the memorial day to the maximum, unbroken', () {
+      final ladder = NotificationService.snoozeChoiceLadder;
+      expect(ladder.first, 0, reason: 'the morning of the memorial itself');
+      expect(ladder.last, maxDaysBeforeChoice);
+      for (var i = 0; i < ladder.length; i++) {
+        expect(ladder[i], i, reason: 'a number was skipped');
+      }
     });
 
-    test('more than three keeps two buttons and moves the rest to a screen',
-        () {
-      final plan = NotificationService.actionPlan(
+    test('every valid interval is offered, however many there are', () {
+      // Forty days out the whole run is still ahead, and all of it has to
+      // reach the user - which is exactly why it cannot live in the
+      // notification, where Android renders three actions at most.
+      final options = NotificationService.choicesBefore(
           memorial, DateTime(2026, 7, 11, 8));
-      expect(plan.quick.length, NotificationService.quickButtonCount);
-      expect(plan.moreOptions, isTrue);
-      // Android renders three actions at most, so two plus the opener is
-      // exactly the ceiling - a third quick button would push it off.
-      expect(plan.quick.length + 1, NotificationService.maxRescheduleActions);
+      expect(options.length, maxDaysBeforeChoice + 1);
+      for (var i = 0; i < options.length; i++) {
+        expect(options[i], i, reason: 'a number was skipped');
+      }
     });
 
     test('the response carries everything the screen needs', () {
@@ -1903,11 +1857,13 @@ void main() {
       notif.onChooseReminder!(farOffRequest());
       await _pumpUntilFound(
           tester, find.text('מתי להזכיר?'), 'the choice dialog');
-      await tester.tap(find.text('שבוע לפני'));
+      // The top of the list: with the whole run on offer the dialog scrolls,
+      // and a tap further down would land off-screen.
+      await tester.tap(find.text('30 ימים לפני'));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 400));
 
-      expect(notif.log, contains('reschedule:7'));
+      expect(notif.log, contains('reschedule:30'));
     });
 
     testWidgets('a cold start from the notification opens the same list',
@@ -1922,7 +1878,7 @@ void main() {
 
       await _pumpUntilFound(
           tester, find.text('מתי להזכיר?'), 'the choice dialog');
-      expect(notif.log, isNot(contains('reschedule:7')),
+      expect(notif.log, isNot(contains('reschedule:30')),
           reason: 'nothing moves until the user picks');
     });
   });

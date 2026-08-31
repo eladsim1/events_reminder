@@ -2,6 +2,7 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:timezone/data/latest_all.dart' as tz_data;
 import 'package:timezone/timezone.dart' as tz;
 
+import '../models/hebrew_date.dart';
 import '../models/memorial.dart';
 import 'hebrew_calendar_service.dart';
 
@@ -49,26 +50,20 @@ class NotificationService {
   static const String _channelDescription =
       'התראות תזכורת לאזכרות לפי התאריך העברי';
 
-  /// סולם האפשרויות שמוצע למשתמש: כמה ימים **לפני האזכרה** לקבל תזכורת.
+  /// כל המרווחים שאפשר לבחור: רצף מלא מיום האזכרה עצמו ועד
+  /// [maxDaysBeforeChoice] ימים לפניה, בלי לדלג על אף מספר.
   ///
-  /// אפס הוא בוקר יום האזכרה עצמו. בלעדיו התזכורת של יום-לפני נשארת בלי שום
-  /// כפתור – כל אפשרות אחרת כבר חלפה באותו רגע – וגם כשהאזכרה מחר או היום
-  /// לא נותר דבר לבחור. הבקשה הייתה "עד יום האזכרה ולא אחרי", ויום האזכרה
-  /// בכלל זה.
-  static const List<int> snoozeChoiceLadder = [
-    0, 1, 2, 3, 5, 7, 10, 14, 21, 30
-  ];
+  /// אפס הוא בוקר יום האזכרה. בלעדיו התזכורת של יום-לפני נשארת בלי שום
+  /// אפשרות – כל השאר כבר חלפו באותו רגע – וגם כשהאזכרה מחר או היום לא נותר
+  /// דבר לבחור. הבקשה הייתה "עד יום האזכרה ולא אחרי", ויום האזכרה בכלל זה.
+  static final List<int> snoozeChoiceLadder = List<int>.unmodifiable(
+      List<int>.generate(maxDaysBeforeChoice + 1, (i) => i));
 
-  /// כמה כפתורים אנדרואיד מציג בהתראה מורחבת. מעבר לזה הוא מתעלם מהשאר.
-  static const int maxRescheduleActions = 3;
-
-  /// כמה כפתורים מהירים נשארים כשגם כפתור "עוד אפשרויות" נדרש.
-  static const int quickButtonCount = maxRescheduleActions - 1;
-
-  /// פעולה שפותחת את האפליקציה עם הרשימה המלאה.
+  /// הפעולה היחידה בהתראה: פותחת את האפליקציה עם הרשימה המלאה.
   ///
-  /// שלושה כפתורים הם התקרה של אנדרואיד, ולכן כשיש יותר אפשרויות תקפות אין
-  /// דרך להציג את כולן בהתראה עצמה. הכפתור הזה מעביר את הבחירה למסך.
+  /// אנדרואיד מרנדר שלוש פעולות לכל היותר, ולכן כפתורים מהירים יכלו להציע
+  /// רק שלושה מרווחים מתוך רצף שלם – והבחירה שנשארה בחוץ היא בדיוק מה
+  /// שביקשו. עדיף מעבר אחד למסך שמציג את הכול.
   static const String moreOptionsActionId = 'reschedule:more';
   static const String moreOptionsLabel = 'עוד אפשרויות';
 
@@ -88,12 +83,14 @@ class NotificationService {
     return snoozeChoiceLadder.contains(days) ? days : null;
   }
 
+  /// רק היחיד והזוגי מנוסחים במילים.
+  ///
+  /// "שבוע לפני" בין "6 ימים לפני" ל-"8 ימים לפני" שובר את הסריקה של רשימה
+  /// רציפה, ולכן שאר המספרים נשארים מספרים.
   static String snoozeChoiceLabel(int daysBefore) => switch (daysBefore) {
         0 => 'ביום האזכרה',
         1 => 'יום לפני',
         2 => 'יומיים לפני',
-        7 => 'שבוע לפני',
-        14 => 'שבועיים לפני',
         _ => '$daysBefore ימים לפני',
       };
 
@@ -111,58 +108,13 @@ class NotificationService {
     ];
   }
 
-  /// הכפתורים שיוצגו בפועל – לכל היותר [maxRescheduleActions], מהרחוק לקרוב.
-  ///
-  /// מעדיפים שבוע / שלושה ימים / יום לפני: שלושתם יחד פורשים את הטווח. אם
-  /// אחד מהם כבר חלף, ממלאים את מקומו באפשרות הרחוקה ביותר שנותרה, כדי
-  /// שתמיד תוצע גם תזכורת מוקדמת ולא רק כאלה שצמודות לאזכרה.
-  static List<int> quickChoices(
-    DateTime? memorialDate,
-    DateTime notBefore, {
-    int limit = maxRescheduleActions,
-  }) {
-    final valid = choicesBefore(memorialDate, notBefore);
-    final picked = valid.length <= limit
-        ? [...valid]
-        : [
-            for (final d in const [7, 3, 1])
-              if (valid.contains(d)) d,
-          ];
-    while (picked.length > limit) {
-      picked.removeLast();
-    }
-    for (final d in valid.reversed) {
-      if (picked.length >= limit) break;
-      if (!picked.contains(d)) picked.add(d);
-    }
-    picked.sort((a, b) => b.compareTo(a));
-    return picked;
-  }
-
-  /// מה תישא ההתראה: כפתורים מהירים, ואם נותרו אפשרויות – גם מעבר למסך.
-  ///
-  /// כשהכול נכנס בשלושה כפתורים אין טעם בכפתור נוסף שפותח את האפליקציה.
-  static ({List<int> quick, bool moreOptions}) actionPlan(
-    DateTime? memorialDate,
-    DateTime notBefore,
-  ) {
-    final valid = choicesBefore(memorialDate, notBefore);
-    if (valid.length <= maxRescheduleActions) {
-      return (quick: quickChoices(memorialDate, notBefore), moreOptions: false);
-    }
-    return (
-      quick: quickChoices(memorialDate, notBefore, limit: quickButtonCount),
-      moreOptions: true,
-    );
-  }
-
   /// גרסת ה-payload. **יש להעלות אותה בכל שינוי בתוכן שנצרב בהתראה** –
   /// בטקסט או בכפתורים.
   ///
   /// [rescheduleAll] מזהה לפיה התראות שתוזמנו בגרסה ישנה, ומתזמן אותן
   /// מחדש. בלעדיה שדרוג של האפליקציה לא היה מגיע לעולם למי שכבר בתור:
   /// תוכן ההתראה נצרב בזמן התזמון, והחלון המלא שלה גורם לדילוג.
-  static const int payloadVersion = 4;
+  static const int payloadVersion = 5;
 
   /// ה-payload נושא גם את תאריך האזכרה: ה-isolate שמטפל בבחירה מבודד ואינו
   /// יכול לקרוא את מסד הנתונים, ובלי התאריך אין לו מול מה לחשב "ימים לפני".
@@ -214,10 +166,9 @@ class NotificationService {
     );
   }
 
-  /// הגדרות ההתראה. [quick] הם הימים-לפני שיוצעו ככפתורים, ו-[moreOptions]
-  /// מוסיף כפתור שפותח את הרשימה המלאה במסך.
+  /// הגדרות ההתראה. [moreOptions] מוסיף את הכפתור שפותח את הרשימה במסך;
+  /// בלעדיו ההתראה יוצאת בלי כפתורים, וזה הנכון כשלא נותר מה לבחור.
   static AndroidNotificationDetails _androidDetails({
-    List<int> quick = const [],
     bool moreOptions = false,
   }) =>
       AndroidNotificationDetails(
@@ -233,13 +184,6 @@ class NotificationService {
         // במימוש של יצרן המכשיר. במכשיר עצמו התוצאה הייתה שאין דחייה כלל.
         // פעולה רגילה, לעומת זאת, מוצגת בכל מגירה.
         actions: [
-          for (final d in quick)
-            AndroidNotificationAction(
-              rescheduleActionIdFor(d),
-              snoozeChoiceLabel(d),
-              // מטופל ב-isolate הרקע, בלי לפתוח את האפליקציה.
-              showsUserInterface: false,
-            ),
           if (moreOptions)
             const AndroidNotificationAction(
               moreOptionsActionId,
@@ -250,23 +194,18 @@ class NotificationService {
         ],
       );
 
-  static NotificationDetails _details({
-    List<int> quick = const [],
-    bool moreOptions = false,
-  }) =>
+  static NotificationDetails _details({bool moreOptions = false}) =>
       NotificationDetails(
-        android: _androidDetails(quick: quick, moreOptions: moreOptions),
+        android: _androidDetails(moreOptions: moreOptions),
         iOS: const DarwinNotificationDetails(),
       );
 
-  /// ההגדרות המתאימות למועד ירי נתון.
+  /// ההגדרות המתאימות למועד ירי נתון: כפתור בחירה רק כשיש מה לבחור.
   static NotificationDetails _detailsFor(
     DateTime? memorialDate,
     DateTime notBefore,
-  ) {
-    final plan = actionPlan(memorialDate, notBefore);
-    return _details(quick: plan.quick, moreOptions: plan.moreOptions);
-  }
+  ) =>
+      _details(moreOptions: choicesBefore(memorialDate, notBefore).isNotEmpty);
 
   NotificationService({HebrewCalendarService? calendar})
       : _calendar = calendar ?? HebrewCalendarService();
