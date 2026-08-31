@@ -1617,18 +1617,26 @@ void main() {
   group('the reminder offers a choice of how long before the memorial', () {
     final memorial = DateTime(2026, 8, 20, 0, 0);
 
-    test('labels round-trip, and unknown input is rejected', () {
+    test('an action id round-trips to its number of days', () {
       for (final d in NotificationService.snoozeChoiceLadder) {
-        final label = NotificationService.snoozeChoiceLabel(d);
-        expect(NotificationService.daysBeforeFromChoice(label), d,
-            reason: label);
+        final id = NotificationService.rescheduleActionIdFor(d);
+        expect(NotificationService.daysBeforeFromActionId(id), d, reason: id);
       }
-      expect(NotificationService.daysBeforeFromChoice(null), isNull);
-      expect(NotificationService.daysBeforeFromChoice('מתישהו'), isNull);
-      // Hebrew duals read naturally rather than "1 ימים".
+      expect(NotificationService.daysBeforeFromActionId(null), isNull);
+      // A plain tap on the notification body carries no action id, and an
+      // unknown one must not be mistaken for a choice.
+      expect(NotificationService.daysBeforeFromActionId(''), isNull);
+      expect(NotificationService.daysBeforeFromActionId('snooze'), isNull);
+      // Off the ladder: a value the notification never offered.
+      expect(NotificationService.daysBeforeFromActionId('reschedule:4'), isNull);
+      expect(NotificationService.daysBeforeFromActionId('reschedule:x'), isNull);
+    });
+
+    test('labels read naturally in Hebrew', () {
       expect(NotificationService.snoozeChoiceLabel(1), 'יום לפני');
       expect(NotificationService.snoozeChoiceLabel(2), 'יומיים לפני');
       expect(NotificationService.snoozeChoiceLabel(7), 'שבוע לפני');
+      expect(NotificationService.snoozeChoiceLabel(3), '3 ימים לפני');
     });
 
     test('every offered choice lands before the memorial and in the future',
@@ -1687,6 +1695,86 @@ void main() {
       final decoded = NotificationService.decodePayload('plain old body')!;
       expect(decoded.memorialDate, isNull);
       expect(decoded.body, 'plain old body');
+    });
+
+    test('the unversioned format from the previous build still decodes', () {
+      // Those notifications are still queued on an upgraded install.
+      final decoded = NotificationService.decodePayload(
+          '${memorial.millisecondsSinceEpoch}|body')!;
+      expect(decoded.memorialDate, memorial);
+      expect(decoded.body, 'body');
+    });
+
+    test('only the current version counts as current', () {
+      const body = 'אזכרתו של סבא יעקב';
+      expect(
+          NotificationService.isCurrentPayload(
+              NotificationService.encodePayload(memorial, body)),
+          isTrue);
+      // This is what makes an upgrade reach notifications already queued:
+      // their content was baked in when they were scheduled.
+      expect(
+          NotificationService.isCurrentPayload(
+              '${memorial.millisecondsSinceEpoch}|$body'),
+          isFalse);
+      expect(NotificationService.isCurrentPayload('v1|0|$body'), isFalse);
+      expect(NotificationService.isCurrentPayload(null), isFalse);
+    });
+
+    test('a body that opens like a version marker is not eaten', () {
+      const body = 'v9|not a version';
+      final decoded = NotificationService.decodePayload(
+          NotificationService.encodePayload(memorial, body))!;
+      expect(decoded.body, body);
+      expect(decoded.memorialDate, memorial);
+    });
+  });
+
+  group('the buttons offered fit what a notification can show', () {
+    final memorial = DateTime(2026, 8, 20, 0, 0);
+
+    List<int> at(int daysOut) => NotificationService.quickChoices(
+          memorial,
+          DateTime(memorial.year, memorial.month, memorial.day - daysOut, 8),
+        );
+
+    test('never more than Android will render, and never fewer than exist',
+        () {
+      for (final daysOut in [0, 1, 2, 3, 5, 8, 12, 40]) {
+        final now =
+            DateTime(memorial.year, memorial.month, memorial.day - daysOut, 8);
+        final valid = NotificationService.choicesBefore(memorial, now);
+        final shown = NotificationService.quickChoices(memorial, now);
+
+        expect(shown.length,
+            lessThanOrEqualTo(NotificationService.maxRescheduleActions),
+            reason: 'Android drops actions past the third');
+        expect(shown.length, valid.length > 3 ? 3 : valid.length,
+            reason: 'no option is dropped while a slot is free');
+        expect(valid, containsAll(shown),
+            reason: 'every button shown must be a valid choice');
+        expect(shown.toSet().length, shown.length, reason: 'no duplicates');
+      }
+    });
+
+    test('reads from the longest lead time to the shortest', () {
+      for (final daysOut in [2, 5, 12, 40]) {
+        final shown = at(daysOut);
+        final descending = [...shown]..sort((a, b) => b.compareTo(a));
+        expect(shown, descending, reason: 'at $daysOut days out');
+      }
+    });
+
+    test('keeps a spread rather than three options that sit together', () {
+      // Far out, the whole ladder is valid and the three chosen must span it.
+      expect(at(40), [7, 3, 1]);
+      // Once a week before has passed, its slot goes to the longest option
+      // still available - otherwise only same-week reminders would be left.
+      expect(at(5), [5, 3, 1]);
+      expect(at(3), [3, 2, 1]);
+      expect(at(2), [2, 1]);
+      // On the day itself there is nothing left to move to, so no buttons.
+      expect(at(0), isEmpty);
     });
   });
 

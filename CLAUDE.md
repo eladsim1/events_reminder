@@ -422,23 +422,44 @@ derived from the current clock would be wrong by the time it fires.
 
 ## The reminder offers a choice of how long before the memorial
 
-One action, 'שינוי מועד', opens an `AndroidNotificationActionInput` whose
-`choices` are the valid "N days before" options. `choicesBefore` filters them
-per notification, keeping only targets later than now and earlier than the
-memorial, so the list shrinks as the date approaches and the button disappears
-on the day itself. `allowFreeFormInput` is false, so nothing outside that range
-can be entered.
+Up to three plain action buttons, labelled by how long **before the memorial**
+they land: `quickChoices` filters the ladder to targets later than now and
+earlier than the memorial, so the list shrinks as the date approaches and the
+buttons disappear on the day itself.
+
+**Do not put the options behind an `AndroidNotificationActionInput` with
+`choices`.** That version shipped and produced no snooze at all on the device.
+A `RemoteInput` whose `allowFreeFormInput` is false gives the shade nothing to
+open — Android only raises the inline input when free-form text is allowed —
+and whether the choices render as chips instead is up to the OEM's shade. A
+plain action, by contrast, is rendered everywhere. Android shows at most three,
+hence `maxRescheduleActions`; `quickChoices` prefers 7 / 3 / 1 days because
+they span the range, and backfills the longest remaining option when one of
+them has passed, so an early reminder is always among the offers.
 
 The **payload carries the memorial date** — `encodePayload` / `decodePayload`
-write `millis|body` and split on the *first* separator, so a body may itself
-contain one. The background isolate has no database and cannot re-derive that
-date, and without it "three days before" has no meaning there. Carrying it is
-also what lets a rescheduled notification keep offering the choice, which the
-earlier fixed-days scheme could not.
+write `v<version>|<millis>|<body>`, splitting on the first separator so a body
+may itself contain one. The background isolate has no database and cannot
+re-derive that date, and without it "three days before" has no meaning there.
 
 Boundary worth remembering: the target hour is 09:00, so at N days out the
 "N days before" option is still offered until that hour passes. Two test
 expectations were written without accounting for it and had to be corrected.
+
+### A change to a notification does not reach the ones already queued
+
+Text and buttons are baked in at `zonedSchedule` time, and `rescheduleAll`
+skips any memorial whose window is already full — so an upgrade that changes
+the notification changes nothing for an existing install. That is why the
+button fix appeared to do nothing beyond a fresh install.
+
+`payloadVersion` is the fix: `rescheduleAll` reschedules a memorial when any of
+its pending notifications carries an older marker. **Bump it whenever the baked-in
+content changes**, or the change ships only to memorials that are added or
+edited afterwards. `decodePayload` still accepts both older shapes (bare body,
+and `<millis>|<body>`) because those notifications are what an upgraded install
+is holding.
+
 ## Nothing that touches the notification plugin may block the UI
 
 Scheduling one memorial issues ~40 `zonedSchedule` calls and the plugin
