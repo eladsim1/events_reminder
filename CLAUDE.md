@@ -533,6 +533,17 @@ required**:
   `pendingChoiceRequest()`. Without this one, tapping the button on a closed
   app opens the screen and shows nothing.
 
+**Ask for the launch details exactly once per process.** They never clear:
+Android answers with the same response for as long as the process lives. Since
+`HomeScreen` syncs on every resume, the unguarded version re-offered a
+postponement that had already been made, every time the app came back —
+endlessly. The guard is in `HomeScreen`, not in the service, for a reason worth
+keeping: the service cannot be exercised by a test at all (its plugin is a
+private field with no public constructor to subclass), so a guard hidden there
+would be untestable, and the fake would have to be written to hide the very bug
+it was meant to catch. The fake therefore models Android faithfully — it answers
+every time — and the caller is what the test holds to account.
+
 `HomeScreen` keeps the service in a field so `dispose` can unregister: `ref` is
 already unusable there and reading it throws. The widget tests caught that
 immediately — 47 of them at once.

@@ -166,6 +166,9 @@ class _FakeNotifications extends NotificationService {
   /// Set by a test to simulate the app being launched by "more options".
   ReminderChoiceRequest? pendingChoice;
 
+  // Faithful to Android: the launch details never clear themselves, so this
+  // keeps answering for as long as the process lives. A fake that consumed
+  // the request would hide the very bug the caller has to guard against.
   @override
   Future<ReminderChoiceRequest?> pendingChoiceRequest() async => pendingChoice;
 
@@ -1872,6 +1875,31 @@ void main() {
       await tester.pump(const Duration(milliseconds: 400));
 
       expect(notif.log, contains('reschedule:30'));
+    });
+
+    testWidgets('coming back to the app does not ask all over again',
+        (tester) async {
+      // The launch details do not clear themselves, and the home screen asks
+      // on every resume. Without a guard the app offered to postpone a
+      // reminder that had already been postponed, over and over.
+      await _pumpApp(
+        tester,
+        seeded: [_seed(id: 1, name: 'סבא יעקב', day: 27, month: HebrewMonth.av)],
+        pendingChoice: farOffRequest(),
+      );
+      await _pumpUntilFound(
+          tester, find.text('מתי להזכיר?'), 'the choice dialog');
+      await tester.tap(find.text('30 ימים לפני'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(find.text('מתי להזכיר?'), findsNothing);
+
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+
+      expect(find.text('מתי להזכיר?'), findsNothing,
+          reason: 'the postponement was already chosen');
     });
 
     testWidgets('a cold start from the notification opens the same list',

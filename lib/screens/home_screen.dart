@@ -29,6 +29,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   /// שירות ההתראות שאליו נרשמנו, לניתוק ההרשמה בסיום.
   NotificationService? _notifications;
 
+  /// האם כבר נבדקו פרטי ההשקה של התהליך הזה.
+  bool _askedForLaunchRequest = false;
+
   @override
   void initState() {
     super.initState();
@@ -52,9 +55,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     // ב-ref, וקריאה אליו זורקת.
     _notifications = notifications;
     notifications.onChooseReminder = _offerReminderChoice;
-    notifications.pendingChoiceRequest().then((request) {
-      if (request != null) _offerReminderChoice(request);
-    });
+
+    // פעם אחת בלבד. פרטי ההשקה אינם מתנקים אחרי קריאה – אנדרואיד משיב אותו
+    // דבר כל עוד התהליך חי – ולכן שאלה חוזרת בכל חזרה לחזית הציעה שוב ושוב
+    // לדחות תזכורת שכבר נדחתה.
+    if (!_askedForLaunchRequest) {
+      _askedForLaunchRequest = true;
+      notifications.pendingChoiceRequest().then((request) {
+        if (request != null) _offerReminderChoice(request);
+      });
+    }
   }
 
   /// מציג את הרשימה המלאה של המועדים האפשריים, ומתזמן מחדש לפי הבחירה.

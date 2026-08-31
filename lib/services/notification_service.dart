@@ -495,6 +495,10 @@ class NotificationService {
   }
 
   /// בקשה שממתינה מפתיחה קרה – האפליקציה לא רצה כשנלחץ הכפתור.
+  ///
+  /// **מחזיר את אותה בקשה בכל קריאה.** פרטי ההשקה אינם מתנקים: אנדרואיד
+  /// משיב אותו דבר כל עוד התהליך חי. על הקורא לשאול פעם אחת בלבד – ראה
+  /// HomeScreen, ששאל בכל חזרה לחזית והציע שוב ושוב לדחות תזכורת שכבר נדחתה.
   Future<ReminderChoiceRequest?> pendingChoiceRequest() async {
     await init();
     final launch = await _plugin.getNotificationAppLaunchDetails();
