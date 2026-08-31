@@ -484,7 +484,7 @@ that setting was asked about; asking took one question.
 Android renders at most three actions, so quick buttons could only ever offer
 three intervals out of a continuous run — and the interval left out is exactly
 the one being asked for. The notification therefore carries a single action,
-`דחיית תזכורת``דחיית תזכורת`, the only one with `showsUserInterface: true`; it opens the app,
+`דחיית תזכורת`, the only one with `showsUserInterface: true`; it opens the app,
 which shows every valid interval in a dialog. No action at all when nothing is
 left to choose.
 
