@@ -1614,61 +1614,79 @@ void main() {
     });
   });
 
-  group('snooze never lands past the memorial', () {
-    /// Mirrors NotificationService._daysBetween, which is private.
-    int gap(DateTime from, DateTime to) => DateTime.utc(to.year, to.month, to.day)
-        .difference(DateTime.utc(from.year, from.month, from.day))
-        .inDays;
+  group('the reminder offers a choice of how long before the memorial', () {
+    final memorial = DateTime(2026, 8, 20, 0, 0);
 
-    List<int> offered(int maxSnoozeDays) => [
-          for (final d in NotificationService.snoozeChoices)
-            if (d <= maxSnoozeDays) d,
-        ];
-
-    test('options are capped by the days left, and vanish on the day', () {
-      expect(offered(0), isEmpty, reason: 'nothing to postpone to');
-      expect(offered(1), [1]);
-      expect(offered(2), [1]);
-      expect(offered(3), [1, 3]);
-      expect(offered(6), [1, 3]);
-      expect(offered(7), [1, 3, 7]);
-      expect(offered(30), [1, 3, 7]);
+    test('labels round-trip, and unknown input is rejected', () {
+      for (final d in NotificationService.snoozeChoiceLadder) {
+        final label = NotificationService.snoozeChoiceLabel(d);
+        expect(NotificationService.daysBeforeFromChoice(label), d,
+            reason: label);
+      }
+      expect(NotificationService.daysBeforeFromChoice(null), isNull);
+      expect(NotificationService.daysBeforeFromChoice('מתישהו'), isNull);
+      // Hebrew duals read naturally rather than "1 ימים".
+      expect(NotificationService.snoozeChoiceLabel(1), 'יום לפני');
+      expect(NotificationService.snoozeChoiceLabel(2), 'יומיים לפני');
+      expect(NotificationService.snoozeChoiceLabel(7), 'שבוע לפני');
     });
 
-    test('no offered option ever overshoots a real reminder', () {
-      final cal = HebrewCalendarService(now: () => _fixedNow);
+    test('every offered choice lands before the memorial and in the future',
+        () {
+      for (final daysOut in [1, 2, 5, 12, 40]) {
+        final now = DateTime(
+            memorial.year, memorial.month, memorial.day - daysOut, 8);
+        final choices = NotificationService.choicesBefore(memorial, now);
 
-      for (final month in HebrewMonth.values) {
-        final m = _seed(id: 1, name: 'x', day: 12, month: month);
-
-        for (final series in [
-          cal.futureReminderDates(m, from: _fixedNow, years: 3),
-          cal.dayBeforeMemorialDates(m, from: _fixedNow, years: 3),
-        ]) {
-          for (final when in series) {
-            final memorialDate = cal.memorialDateForReminder(m, when);
-            if (memorialDate == null) continue;
-            final left = gap(when, memorialDate);
-
-            for (final d in offered(left)) {
-              final landing = DateTime(when.year, when.month, when.day + d);
-              expect(gap(landing, memorialDate), greaterThanOrEqualTo(0),
-                  reason: 'snoozing $d days from $when overshoots '
-                      '$memorialDate');
-            }
-          }
+        for (final d in choices) {
+          final when = DateTime(memorial.year, memorial.month,
+              memorial.day - d, HebrewCalendarService.dayBeforeReminderHour);
+          expect(when.isAfter(now), isTrue,
+              reason: '$d days before is already in the past');
+          expect(when.isBefore(memorial), isTrue,
+              reason: '$d days before overshoots the memorial');
         }
       }
     });
 
-    test('the day-before reminder can only be pushed to the day itself', () {
-      final cal = HebrewCalendarService(now: () => _fixedNow);
-      final m = _seed(id: 1, name: 'x', day: 27, month: HebrewMonth.av);
+    test('the list shrinks as the memorial approaches, then empties', () {
+      List<int> at(int daysOut) => NotificationService.choicesBefore(
+            memorial,
+            DateTime(memorial.year, memorial.month, memorial.day - daysOut, 8),
+          );
 
-      final when = cal.dayBeforeMemorialDates(m, from: _fixedNow).first;
-      final memorialDate = cal.memorialDateForReminder(m, when)!;
-      expect(gap(when, memorialDate), 1);
-      expect(offered(1), [1], reason: 'only "tomorrow" makes sense here');
+      expect(at(40).length, greaterThan(at(12).length));
+      expect(at(12).length, greaterThan(at(5).length));
+      // 5 is still offered at five days out: the target is 09:00 and "now"
+      // here is 08:00, so it is an hour away, not in the past.
+      expect(at(5), [1, 2, 3, 5]);
+      expect(at(2), [1, 2]);
+      // On the memorial day itself there is nothing left to move to.
+      expect(at(0), isEmpty);
+    });
+
+    test('the payload carries the memorial date through the isolate', () {
+      // The background isolate has no database, so without this it could not
+      // work out what "3 days before" means.
+      const body = 'אזכרתו של סבא יעקב';
+      final encoded = NotificationService.encodePayload(memorial, body);
+      final decoded = NotificationService.decodePayload(encoded)!;
+
+      expect(decoded.memorialDate, memorial);
+      expect(decoded.body, body);
+    });
+
+    test('a body containing a pipe survives decoding', () {
+      const body = 'אזכרתו של א|ב – כ"ז באב';
+      final decoded = NotificationService.decodePayload(
+          NotificationService.encodePayload(memorial, body))!;
+      expect(decoded.body, body, reason: 'split on the first separator only');
+    });
+
+    test('a payload from an older build still yields its text', () {
+      final decoded = NotificationService.decodePayload('plain old body')!;
+      expect(decoded.memorialDate, isNull);
+      expect(decoded.body, 'plain old body');
     });
   });
 
@@ -1707,20 +1725,6 @@ void main() {
       expect(
           cal.describeMemorialForReminder(m, memorialDate, memorialDate),
           contains('היום'));
-    });
-  });
-
-  group('notification snooze action', () {
-    test('snooze ids round-trip through the handler', () {
-      // A mismatch here would make the buttons appear and do nothing.
-      for (final d in NotificationService.snoozeChoices) {
-        final id = NotificationService.snoozeActionId(d);
-        expect(NotificationService.snoozeDaysFromActionId(id), d);
-      }
-      expect(NotificationService.snoozeDaysFromActionId(null), isNull);
-      expect(NotificationService.snoozeDaysFromActionId('tap'), isNull);
-      expect(NotificationService.snoozeChoices, contains(1),
-          reason: 'a one-day option is needed when the memorial is close');
     });
   });
 

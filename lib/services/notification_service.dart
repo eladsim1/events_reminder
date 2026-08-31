@@ -33,28 +33,65 @@ class NotificationService {
   static const String _channelDescription =
       'התראות תזכורת לאזכרות לפי התאריך העברי';
 
-  /// כמה ימים אפשר לדחות. מסוננים לכל התראה כך שהדחייה לא תעבור את יום
-  /// האזכרה – "הזכר בעוד שבוע" על אזכרה שבעוד יומיים היה חסר תועלת.
-  static const List<int> snoozeChoices = [1, 3, 7];
+  /// סולם האפשרויות שמוצע למשתמש: כמה ימים **לפני האזכרה** לקבל תזכורת.
+  static const List<int> snoozeChoiceLadder = [1, 2, 3, 5, 7, 10, 14, 21, 30];
 
-  static String snoozeActionId(int days) => 'snooze_$days';
+  /// מזהה פעולת "אפשרויות". אחת בלבד – היא פותחת רשימת בחירה.
+  static const String rescheduleActionId = 'reschedule';
 
-  /// מספר הימים שמזהה הפעולה מייצג, או null אם אינו פעולת דחייה.
-  static int? snoozeDaysFromActionId(String? actionId) {
-    if (actionId == null || !actionId.startsWith('snooze_')) return null;
-    return int.tryParse(actionId.substring('snooze_'.length));
-  }
-
-  static String _snoozeLabel(int days) => switch (days) {
-        1 => 'הזכר מחר',
-        7 => 'הזכר בעוד שבוע',
-        _ => 'הזכר בעוד $days ימים',
+  static String snoozeChoiceLabel(int daysBefore) => switch (daysBefore) {
+        1 => 'יום לפני',
+        2 => 'יומיים לפני',
+        7 => 'שבוע לפני',
+        14 => 'שבועיים לפני',
+        _ => '$daysBefore ימים לפני',
       };
 
-  /// הגדרות ההתראה. [maxSnoozeDays] הוא מספר הימים שנותרו עד האזכרה;
-  /// רק דחיות שאינן עוברות אותו מוצעות. 0 מסתיר את הכפתורים לגמרי.
+  /// ממיר בחירה של המשתמש חזרה למספר ימים, או null אם אינה מוכרת.
+  static int? daysBeforeFromChoice(String? choice) {
+    if (choice == null) return null;
+    for (final d in snoozeChoiceLadder) {
+      if (snoozeChoiceLabel(d) == choice) return d;
+    }
+    return null;
+  }
+
+  /// האפשרויות שעדיין בעתיד: כאלה שהמועד שלהן מאוחר מ-[notBefore].
+  ///
+  /// זה מה שמונע בחירה שנוחתת אחרי האזכרה, או לפני רגע זה.
+  static List<int> choicesBefore(DateTime? memorialDate, DateTime notBefore) {
+    if (memorialDate == null) return const [];
+    return [
+      for (final d in snoozeChoiceLadder)
+        if (DateTime(memorialDate.year, memorialDate.month,
+                memorialDate.day - d, HebrewCalendarService.dayBeforeReminderHour)
+            .isAfter(notBefore))
+          d,
+    ];
+  }
+
+  /// ה-payload נושא גם את תאריך האזכרה: ה-isolate שמטפל בבחירה מבודד ואינו
+  /// יכול לקרוא את מסד הנתונים, ובלי התאריך אין לו מול מה לחשב "ימים לפני".
+  static String encodePayload(DateTime? memorialDate, String body) =>
+      '${memorialDate?.millisecondsSinceEpoch ?? 0}|$body';
+
+  static ({DateTime? memorialDate, String body})? decodePayload(String? p) {
+    if (p == null) return null;
+    final i = p.indexOf('|');
+    if (i < 0) return (memorialDate: null, body: p);
+    final ms = int.tryParse(p.substring(0, i));
+    return (
+      memorialDate: (ms == null || ms == 0)
+          ? null
+          : DateTime.fromMillisecondsSinceEpoch(ms),
+      body: p.substring(i + 1),
+    );
+  }
+
+  /// הגדרות ההתראה. [choices] הן הימים-לפני שמוצעים; רשימה ריקה מסתירה את
+  /// כפתור האפשרויות לגמרי.
   static AndroidNotificationDetails _androidDetails({
-    int maxSnoozeDays = 0,
+    List<int> choices = const [],
   }) =>
       AndroidNotificationDetails(
         _channelId,
@@ -64,23 +101,32 @@ class NotificationService {
         priority: Priority.high,
         icon: '@drawable/ic_notification',
         actions: [
-          // showsUserInterface=false כדי שהדחייה תטופל ברקע בלי לפתוח את
-          // האפליקציה.
-          for (final d in snoozeChoices)
-            if (d <= maxSnoozeDays)
-              AndroidNotificationAction(
-                snoozeActionId(d),
-                _snoozeLabel(d),
-                showsUserInterface: false,
-              ),
+          if (choices.isNotEmpty)
+            AndroidNotificationAction(
+              rescheduleActionId,
+              'שינוי מועד',
+              // showsUserInterface=false כדי שהבחירה תטופל ברקע בלי לפתוח
+              // את האפליקציה.
+              showsUserInterface: false,
+              inputs: [
+                AndroidNotificationActionInput(
+                  label: 'מתי להזכיר?',
+                  // בלי טקסט חופשי: המשתמש חייב לבחור מהרשימה, אחרת אפשר
+                  // היה להזין מועד שכבר עבר או שאחרי האזכרה.
+                  allowFreeFormInput: false,
+                  choices: [for (final d in choices) snoozeChoiceLabel(d)],
+                ),
+              ],
+            ),
         ],
       );
 
-  static NotificationDetails _details({int maxSnoozeDays = 0}) =>
+  static NotificationDetails _details({List<int> choices = const []}) =>
       NotificationDetails(
-        android: _androidDetails(maxSnoozeDays: maxSnoozeDays),
+        android: _androidDetails(choices: choices),
         iOS: const DarwinNotificationDetails(),
       );
+
   NotificationService({HebrewCalendarService? calendar})
       : _calendar = calendar ?? HebrewCalendarService();
 
@@ -276,27 +322,15 @@ class NotificationService {
       body: body,
       // ה-payload נושא את הטקסט כדי שכפתור הדחייה יוכל לשחזר אותו:
       // isolate הרקע אינו יכול לקרוא את מסד הנתונים.
-      payload: body,
+      payload: encodePayload(memorialDate, body),
       scheduledDate: tz.TZDateTime.from(when, tz.local),
-      // הדחייה מוגבלת למספר הימים שנותרו עד האזכרה – דחייה מעבר לה הייתה
-      // מגיעה אחרי שהאזכרה כבר חלפה.
-      notificationDetails: _details(
-        maxSnoozeDays: _daysBetween(when, memorialDate),
-      ),
+      // רק אפשרויות שנוחתות לפני האזכרה ואחרי מועד ההתראה עצמו.
+      notificationDetails: _details(choices: choicesBefore(memorialDate, when)),
       // מדויק, ו-allowWhileIdle כדי שיירה גם כשהמכשיר במצב Doze.
       // אי-פספוס אינו נשען על מצב התזמון אלא על שתי שכבות נפרדות:
       // המקלט של BOOT_COMPLETED, ו-deliverMissedReminder בפתיחה.
       androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
     );
-  }
-
-  /// ימי לוח בין שני תאריכים, ב-UTC כדי ששעון קיץ לא יגרע יום.
-  static int _daysBetween(DateTime from, DateTime? to) {
-    if (to == null) return 0;
-    final d = DateTime.utc(to.year, to.month, to.day)
-        .difference(DateTime.utc(from.year, from.month, from.day))
-        .inDays;
-    return d < 0 ? 0 : d;
   }
   /// מאתחל אזורי זמן. בטוח לקריאה חוזרת, וגם מ-isolate הרקע.
   static void _initTimeZones() {
@@ -309,39 +343,48 @@ class NotificationService {
     }
   }
 
-  /// מטפל בלחיצה על פעולה בהתראה: דוחה את התזכורת במספר ימים.
+  /// מטפל בבחירת "שינוי מועד": מתזמן מחדש למספר ימים לפני האזכרה.
   ///
   /// סטטי כדי שיהיה נגיש גם מ-isolate הרקע, שבו אין מופע חי של השירות.
-  /// ה-payload נושא את גוף ההתראה, כי ב-isolate אין גישה למסד הנתונים
-  /// ואי אפשר לשחזר את האזכרה מהמזהה.
   static Future<void> handleNotificationResponse(
     NotificationResponse response,
   ) async {
-    final days = snoozeDaysFromActionId(response.actionId);
-    if (days == null) return; // הקשה רגילה על ההתראה – אין מה לעשות
+    if (response.actionId != rescheduleActionId) return; // הקשה רגילה
+    final daysBefore = daysBeforeFromChoice(response.input);
+    if (daysBefore == null) return;
 
     final id = response.id;
-    if (id == null) return;
+    final decoded = decodePayload(response.payload);
+    final memorialDate = decoded?.memorialDate;
+    if (id == null || decoded == null || memorialDate == null) return;
 
     // ב-isolate הרקע אזורי הזמן אינם מאותחלים – init() לא רץ שם.
     _initTimeZones();
 
-    final plugin = FlutterLocalNotificationsPlugin();
-    final when = tz.TZDateTime.now(tz.local).add(Duration(days: days));
+    final when = DateTime(
+      memorialDate.year,
+      memorialDate.month,
+      memorialDate.day - daysBefore,
+      HebrewCalendarService.dayBeforeReminderHour,
+    );
+    // הגנה: מוצעות רק אפשרויות עתידיות, אבל אם המשתמש התמהמה עם ההתראה
+    // פתוחה, המועד שנבחר עשוי לחלוף בינתיים.
+    if (!when.isAfter(DateTime.now())) return;
 
+    final plugin = FlutterLocalNotificationsPlugin();
     await plugin.zonedSchedule(
-      // אותו מזהה: הדחייה מחליפה את התזכורת ולא מוסיפה אחת נוספת.
+      // אותו מזהה: הבחירה מחליפה את התזכורת ולא מוסיפה אחת נוספת.
       id: id,
       title: 'תזכורת אזכרה',
-      body: response.payload ?? 'אזכרה מתקרבת',
-      scheduledDate: when,
-      // בלי כפתורי דחייה נוספים: ה-isolate אינו יודע מתי האזכרה, ולכן אינו
-      // יכול להבטיח שדחייה נוספת לא תעבור אותה.
-      notificationDetails: _details(),
+      body: decoded.body,
+      payload: response.payload,
+      scheduledDate: tz.TZDateTime.from(when, tz.local),
+      // האפשרויות נבנות מחדש מול המועד החדש, כך שאפשר לשנות שוב.
+      notificationDetails:
+          _details(choices: choicesBefore(memorialDate, when)),
       androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
     );
   }
-
   /// מציג מיד תזכורת שמועדה חלף וטרם נמסרה.
   ///
   /// מחזיר את המועד שהוצג, או null אם לא היה מה להשלים. הקורא אחראי לשמור
@@ -367,9 +410,8 @@ class NotificationService {
       id: memorial.notificationIdForOccurrence(Memorial.catchUpIndex),
       title: 'תזכורת אזכרה',
       body: body,
-      payload: body,
-      notificationDetails:
-          _details(maxSnoozeDays: _daysBetween(now, memorialDate)),
+      payload: encodePayload(memorialDate, body),
+      notificationDetails: _details(choices: choicesBefore(memorialDate, now)),
     );
     return missed;
   }

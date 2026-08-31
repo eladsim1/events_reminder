@@ -420,15 +420,21 @@ derived from the current clock would be wrong by the time it fires.
 `hebrewWeekdayNames` includes שבת because a memorial can fall on any day;
 `reminderWeekdayChoices` is the six-day subset offered in the reminder picker.
 
-## Snooze is capped at the memorial date
+## The reminder offers a choice of how long before the memorial
 
-Notification actions are built per notification, not shared as a const:
-`_androidDetails(maxSnoozeDays:)` filters `snoozeChoices` to options that do
-not land past the memorial. On the day-before reminder only "מחר" survives;
-on the memorial day no buttons show at all. Action ids encode the number
-(`snooze_3`) so the background isolate can parse them without a lookup table —
-it has no database and cannot re-derive the memorial date, which is also why a
-snoozed notification carries no further snooze buttons.
+One action, 'שינוי מועד', opening an  whose
+ are the valid "N days before" options — filtered per notification by
+, which keeps only targets later than now and earlier than the
+memorial. The list shrinks as the date approaches and is empty on the day, at
+which point the button disappears.  is false so nothing
+outside that range can be entered.
+
+The **payload carries the memorial date** (/,
+, split on the first separator so a body may contain one). The
+background isolate has no database and cannot re-derive it, and without it
+"three days before" has no meaning there. This is also what lets a rescheduled
+notification keep offering the choice, which the earlier fixed-days scheme
+could not.
 
 ## Nothing that touches the notification plugin may block the UI
 
