@@ -5,6 +5,7 @@ import '../models/memorial.dart';
 import '../models/memorial_filter.dart';
 import '../providers/memorial_provider.dart';
 import '../services/hebrew_calendar_service.dart';
+import '../services/notification_service.dart';
 import '../widgets/memorial_card.dart';
 import 'add_memorial_screen.dart';
 import 'edit_memorial_screen.dart';
@@ -25,6 +26,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   bool _searching = false;
   final _searchController = TextEditingController();
 
+  /// שירות ההתראות שאליו נרשמנו, לניתוק ההרשמה בסיום.
+  NotificationService? _notifications;
+
   @override
   void initState() {
     super.initState();
@@ -38,10 +42,69 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     if (!mounted) return;
     ref.read(memorialListProvider.notifier).syncNotifications();
     ref.invalidate(notificationPermissionProvider);
+
+    // לחיצה על "עוד אפשרויות" בהתראה מגיעה לכאן בשני מסלולים: השירות
+    // קורא ל-onChooseReminder כשהאפליקציה כבר רצה, ובפתיחה קרה הבקשה
+    // ממתינה בפרטי ההשקה. בלי המסלול השני, לחיצה על התראה כשהאפליקציה
+    // סגורה הייתה פותחת את המסך ולא מציגה דבר.
+    final notifications = ref.read(notificationServiceProvider);
+    // נשמר בשדה כדי שאפשר יהיה לנתק את ההרשמה ב-dispose: שם כבר אסור לגעת
+    // ב-ref, וקריאה אליו זורקת.
+    _notifications = notifications;
+    notifications.onChooseReminder = _offerReminderChoice;
+    notifications.pendingChoiceRequest().then((request) {
+      if (request != null) _offerReminderChoice(request);
+    });
+  }
+
+  /// מציג את הרשימה המלאה של המועדים האפשריים, ומתזמן מחדש לפי הבחירה.
+  Future<void> _offerReminderChoice(ReminderChoiceRequest request) async {
+    if (!mounted) return;
+    // נבנית מחדש מול הרגע הזה ולא מול מועד ההתראה: ייתכן שעברו שעות מאז
+    // שהיא נורתה, ואפשרות שחלפה בינתיים אסור שתוצע.
+    final options =
+        NotificationService.choicesBefore(request.memorialDate, DateTime.now())
+            .reversed
+            .toList();
+
+    if (options.isEmpty) {
+      _tell('לא נותרו מועדים לבחירה לפני האזכרה');
+      return;
+    }
+
+    final chosen = await showDialog<int>(
+      context: context,
+      builder: (context) => SimpleDialog(
+        title: const Text('מתי להזכיר?'),
+        children: [
+          for (final d in options)
+            SimpleDialogOption(
+              onPressed: () => Navigator.pop(context, d),
+              child: Text(NotificationService.snoozeChoiceLabel(d)),
+            ),
+        ],
+      ),
+    );
+    if (chosen == null || !mounted) return;
+
+    final moved = await ref
+        .read(notificationServiceProvider)
+        .rescheduleReminder(request: request, daysBefore: chosen);
+    if (!mounted) return;
+    _tell(moved
+        ? 'התזכורת נקבעה ל${NotificationService.snoozeChoiceLabel(chosen)}'
+        : 'המועד שנבחר כבר חלף');
+  }
+
+  void _tell(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(message)));
   }
 
   @override
   void dispose() {
+    _notifications?.onChooseReminder = null;
     _searchController.dispose();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();

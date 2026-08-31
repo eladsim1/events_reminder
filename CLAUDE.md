@@ -396,6 +396,15 @@ TLS connection to `storage.googleapis.com` (established socket, no bytes, near
 zero CPU). The pub cache is preserved, so killing the `dart` process and
 retrying resumes and succeeds.
 
+## One activity instance, or a notification opens the app again and again
+
+`launchMode` is `singleTask`, not the Flutter template's `singleTop`. The plugin
+builds its launch intent from `getLaunchIntentForPackage` and then **replaces
+the action**, so the intent no longer matches the task's root intent;
+`singleTop` only prevents a second instance when the activity happens to be on
+top, so every notification tap stacked another one. `singleTask` keeps a single
+instance and routes further intents to `onNewIntent`.
+
 ## Two reminder series, two id ranges
 
 Each memorial now schedules **two** independent series, and the id block is
@@ -468,6 +477,31 @@ why neither could be found by reasoning about the default configuration.
 **Reproduce a notification defect in the user's configuration, not the
 default.** Two fixes were built, shipped and disproved on the device before
 that setting was asked about; asking took one question.
+
+### Three buttons is Android's ceiling, so the full list needs a screen
+
+A notification renders at most three actions. When more options are still
+valid, the notification carries **two** quick buttons plus `עוד אפשרויות`,
+which is the only action with `showsUserInterface: true` — it opens the app,
+and the app shows every remaining option in a dialog. When everything fits in
+three there is no opener, because there would be nothing extra to show.
+
+That request reaches the screen by two different paths, and **both are
+required**:
+
+- the app is already running → `NotificationService.onChooseReminder`, which
+  `HomeScreen` registers from its post-frame callback;
+- the app was closed → `getNotificationAppLaunchDetails()`, read by
+  `pendingChoiceRequest()`. Without this one, tapping the button on a closed
+  app opens the screen and shows nothing.
+
+`HomeScreen` keeps the service in a field so `dispose` can unregister: `ref` is
+already unusable there and reading it throws. The widget tests caught that
+immediately — 47 of them at once.
+
+The dialog rebuilds its list against `DateTime.now()`, not against the
+notification's own time: hours may have passed since it fired, and an option
+that has since expired must not be offered.
 
 ### "On the day of the memorial" is one of the choices
 

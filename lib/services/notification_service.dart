@@ -16,6 +16,22 @@ void notificationTapBackground(NotificationResponse response) {
   NotificationService.handleNotificationResponse(response);
 }
 
+/// בקשה לבחור מחדש את מועד התזכורת, שנולדה מלחיצה על "עוד אפשרויות".
+///
+/// נושאת את גוף ההתראה כי היא נכתבת מחדש עם אותו טקסט, ואת תאריך האזכרה כי
+/// בלעדיו אי אפשר לחשב "כך וכך ימים לפני".
+class ReminderChoiceRequest {
+  final int notificationId;
+  final DateTime memorialDate;
+  final String body;
+
+  const ReminderChoiceRequest({
+    required this.notificationId,
+    required this.memorialDate,
+    required this.body,
+  });
+}
+
 /// שירות מרכזי לניהול כל ההתראות המקומיות.
 ///
 /// **חשוב:** כל ההתראות מנוהלות כאן בלבד.
@@ -45,6 +61,16 @@ class NotificationService {
 
   /// כמה כפתורים אנדרואיד מציג בהתראה מורחבת. מעבר לזה הוא מתעלם מהשאר.
   static const int maxRescheduleActions = 3;
+
+  /// כמה כפתורים מהירים נשארים כשגם כפתור "עוד אפשרויות" נדרש.
+  static const int quickButtonCount = maxRescheduleActions - 1;
+
+  /// פעולה שפותחת את האפליקציה עם הרשימה המלאה.
+  ///
+  /// שלושה כפתורים הם התקרה של אנדרואיד, ולכן כשיש יותר אפשרויות תקפות אין
+  /// דרך להציג את כולן בהתראה עצמה. הכפתור הזה מעביר את הבחירה למסך.
+  static const String moreOptionsActionId = 'reschedule:more';
+  static const String moreOptionsLabel = 'עוד אפשרויות';
 
   /// קידומת מזהה הפעולה; אחריה מספר הימים שלפני האזכרה.
   static const String rescheduleActionPrefix = 'reschedule:';
@@ -90,20 +116,44 @@ class NotificationService {
   /// מעדיפים שבוע / שלושה ימים / יום לפני: שלושתם יחד פורשים את הטווח. אם
   /// אחד מהם כבר חלף, ממלאים את מקומו באפשרות הרחוקה ביותר שנותרה, כדי
   /// שתמיד תוצע גם תזכורת מוקדמת ולא רק כאלה שצמודות לאזכרה.
-  static List<int> quickChoices(DateTime? memorialDate, DateTime notBefore) {
+  static List<int> quickChoices(
+    DateTime? memorialDate,
+    DateTime notBefore, {
+    int limit = maxRescheduleActions,
+  }) {
     final valid = choicesBefore(memorialDate, notBefore);
-    final picked = valid.length <= maxRescheduleActions
+    final picked = valid.length <= limit
         ? [...valid]
         : [
             for (final d in const [7, 3, 1])
               if (valid.contains(d)) d,
           ];
+    while (picked.length > limit) {
+      picked.removeLast();
+    }
     for (final d in valid.reversed) {
-      if (picked.length >= maxRescheduleActions) break;
+      if (picked.length >= limit) break;
       if (!picked.contains(d)) picked.add(d);
     }
     picked.sort((a, b) => b.compareTo(a));
     return picked;
+  }
+
+  /// מה תישא ההתראה: כפתורים מהירים, ואם נותרו אפשרויות – גם מעבר למסך.
+  ///
+  /// כשהכול נכנס בשלושה כפתורים אין טעם בכפתור נוסף שפותח את האפליקציה.
+  static ({List<int> quick, bool moreOptions}) actionPlan(
+    DateTime? memorialDate,
+    DateTime notBefore,
+  ) {
+    final valid = choicesBefore(memorialDate, notBefore);
+    if (valid.length <= maxRescheduleActions) {
+      return (quick: quickChoices(memorialDate, notBefore), moreOptions: false);
+    }
+    return (
+      quick: quickChoices(memorialDate, notBefore, limit: quickButtonCount),
+      moreOptions: true,
+    );
   }
 
   /// גרסת ה-payload. **יש להעלות אותה בכל שינוי בתוכן שנצרב בהתראה** –
@@ -112,7 +162,7 @@ class NotificationService {
   /// [rescheduleAll] מזהה לפיה התראות שתוזמנו בגרסה ישנה, ומתזמן אותן
   /// מחדש. בלעדיה שדרוג של האפליקציה לא היה מגיע לעולם למי שכבר בתור:
   /// תוכן ההתראה נצרב בזמן התזמון, והחלון המלא שלה גורם לדילוג.
-  static const int payloadVersion = 3;
+  static const int payloadVersion = 4;
 
   /// ה-payload נושא גם את תאריך האזכרה: ה-isolate שמטפל בבחירה מבודד ואינו
   /// יכול לקרוא את מסד הנתונים, ובלי התאריך אין לו מול מה לחשב "ימים לפני".
@@ -164,10 +214,11 @@ class NotificationService {
     );
   }
 
-  /// הגדרות ההתראה. [choices] הם הימים-לפני שיוצעו ככפתורים; רשימה ריקה
-  /// משאירה את ההתראה בלי כפתורים כלל.
+  /// הגדרות ההתראה. [quick] הם הימים-לפני שיוצעו ככפתורים, ו-[moreOptions]
+  /// מוסיף כפתור שפותח את הרשימה המלאה במסך.
   static AndroidNotificationDetails _androidDetails({
-    List<int> choices = const [],
+    List<int> quick = const [],
+    bool moreOptions = false,
   }) =>
       AndroidNotificationDetails(
         _channelId,
@@ -182,21 +233,40 @@ class NotificationService {
         // במימוש של יצרן המכשיר. במכשיר עצמו התוצאה הייתה שאין דחייה כלל.
         // פעולה רגילה, לעומת זאת, מוצגת בכל מגירה.
         actions: [
-          for (final d in choices)
+          for (final d in quick)
             AndroidNotificationAction(
               rescheduleActionIdFor(d),
               snoozeChoiceLabel(d),
               // מטופל ב-isolate הרקע, בלי לפתוח את האפליקציה.
               showsUserInterface: false,
             ),
+          if (moreOptions)
+            const AndroidNotificationAction(
+              moreOptionsActionId,
+              moreOptionsLabel,
+              // כאן כן פותחים את האפליקציה: הרשימה המלאה לא נכנסת בהתראה.
+              showsUserInterface: true,
+            ),
         ],
       );
 
-  static NotificationDetails _details({List<int> choices = const []}) =>
+  static NotificationDetails _details({
+    List<int> quick = const [],
+    bool moreOptions = false,
+  }) =>
       NotificationDetails(
-        android: _androidDetails(choices: choices),
+        android: _androidDetails(quick: quick, moreOptions: moreOptions),
         iOS: const DarwinNotificationDetails(),
       );
+
+  /// ההגדרות המתאימות למועד ירי נתון.
+  static NotificationDetails _detailsFor(
+    DateTime? memorialDate,
+    DateTime notBefore,
+  ) {
+    final plan = actionPlan(memorialDate, notBefore);
+    return _details(quick: plan.quick, moreOptions: plan.moreOptions);
+  }
 
   NotificationService({HebrewCalendarService? calendar})
       : _calendar = calendar ?? HebrewCalendarService();
@@ -223,7 +293,7 @@ class NotificationService {
 
     await _plugin.initialize(
       settings: initSettings,
-      onDidReceiveNotificationResponse: handleNotificationResponse,
+      onDidReceiveNotificationResponse: _onResponse,
       // נדרש כדי שכפתורי הדחייה יעבדו כשהאפליקציה סגורה – אנדרואיד מריץ
       // אז isolate נפרד, שאין לו את ה-Riverpod ולא את מסד הנתונים.
       onDidReceiveBackgroundNotificationResponse: notificationTapBackground,
@@ -396,7 +466,7 @@ class NotificationService {
       payload: encodePayload(memorialDate, body),
       scheduledDate: tz.TZDateTime.from(when, tz.local),
       // רק אפשרויות שנוחתות לפני האזכרה ואחרי מועד ההתראה עצמו.
-      notificationDetails: _details(choices: quickChoices(memorialDate, when)),
+      notificationDetails: _detailsFor(memorialDate, when),
       // מדויק, ו-allowWhileIdle כדי שיירה גם כשהמכשיר במצב Doze.
       // אי-פספוס אינו נשען על מצב התזמון אלא על שתי שכבות נפרדות:
       // המקלט של BOOT_COMPLETED, ו-deliverMissedReminder בפתיחה.
@@ -414,6 +484,57 @@ class NotificationService {
     }
   }
 
+  /// נקרא כשהמשתמש ביקש את הרשימה המלאה והאפליקציה בחזית.
+  ///
+  /// המסך הראשי נרשם לכאן. השירות עצמו אינו מציג ממשק – הוא רק מעביר את
+  /// הבקשה, כי בחירה מתוך רשימה שייכת ל-UI ולא לשכבת ההתראות.
+  void Function(ReminderChoiceRequest request)? onChooseReminder;
+
+  void _onResponse(NotificationResponse response) {
+    final request = choiceRequestFrom(response);
+    if (request != null) {
+      onChooseReminder?.call(request);
+      return;
+    }
+    handleNotificationResponse(response);
+  }
+
+  /// הבקשה שגלומה בתגובה, או null אם אין זו לחיצה על "עוד אפשרויות".
+  static ReminderChoiceRequest? choiceRequestFrom(NotificationResponse r) {
+    if (r.actionId != moreOptionsActionId) return null;
+    final id = r.id;
+    final decoded = decodePayload(r.payload);
+    final memorialDate = decoded?.memorialDate;
+    if (id == null || decoded == null || memorialDate == null) return null;
+    return ReminderChoiceRequest(
+      notificationId: id,
+      memorialDate: memorialDate,
+      body: decoded.body,
+    );
+  }
+
+  /// בקשה שממתינה מפתיחה קרה – האפליקציה לא רצה כשנלחץ הכפתור.
+  Future<ReminderChoiceRequest?> pendingChoiceRequest() async {
+    await init();
+    final launch = await _plugin.getNotificationAppLaunchDetails();
+    final response = launch?.notificationResponse;
+    return response == null ? null : choiceRequestFrom(response);
+  }
+
+  /// מתזמן מחדש לפי בחירת המשתמש במסך. מחזיר האם המועד עדיין בעתיד.
+  Future<bool> rescheduleReminder({
+    required ReminderChoiceRequest request,
+    required int daysBefore,
+  }) async {
+    await init();
+    return rescheduleTo(
+      notificationId: request.notificationId,
+      memorialDate: request.memorialDate,
+      body: request.body,
+      daysBefore: daysBefore,
+    );
+  }
+
   /// מטפל בלחיצה על כפתור דחייה: מתזמן מחדש למספר הימים שנבחר לפני האזכרה.
   ///
   /// סטטי כדי שיהיה נגיש גם מ-isolate הרקע, שבו אין מופע חי של השירות.
@@ -429,6 +550,23 @@ class NotificationService {
     final memorialDate = decoded?.memorialDate;
     if (id == null || decoded == null || memorialDate == null) return;
 
+    await rescheduleTo(
+      notificationId: id,
+      memorialDate: memorialDate,
+      body: decoded.body,
+      daysBefore: daysBefore,
+    );
+  }
+
+  /// מתזמן התראה קיימת מחדש ל-[daysBefore] ימים לפני האזכרה.
+  ///
+  /// סטטי כדי שיהיה נגיש גם מ-isolate הרקע, שבו אין מופע חי של השירות.
+  static Future<bool> rescheduleTo({
+    required int notificationId,
+    required DateTime memorialDate,
+    required String body,
+    required int daysBefore,
+  }) async {
     // ב-isolate הרקע אזורי הזמן אינם מאותחלים – init() לא רץ שם.
     _initTimeZones();
 
@@ -440,22 +578,24 @@ class NotificationService {
     );
     // הגנה: מוצעות רק אפשרויות עתידיות, אבל אם המשתמש התמהמה עם ההתראה
     // פתוחה, המועד שנבחר עשוי לחלוף בינתיים.
-    if (!when.isAfter(DateTime.now())) return;
+    if (!when.isAfter(DateTime.now())) return false;
 
     final plugin = FlutterLocalNotificationsPlugin();
     await plugin.zonedSchedule(
       // אותו מזהה: הבחירה מחליפה את התזכורת ולא מוסיפה אחת נוספת.
-      id: id,
+      id: notificationId,
       title: 'תזכורת אזכרה',
-      body: decoded.body,
+      body: body,
       // נכתב מחדש ולא מועתק: כך התראה שתוזמנה בגרסה ישנה עולה לנוכחית.
-      payload: encodePayload(memorialDate, decoded.body),
+      payload: encodePayload(memorialDate, body),
       scheduledDate: tz.TZDateTime.from(when, tz.local),
       // האפשרויות נבנות מחדש מול המועד החדש, כך שאפשר לשנות שוב.
-      notificationDetails: _details(choices: quickChoices(memorialDate, when)),
+      notificationDetails: _detailsFor(memorialDate, when),
       androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
     );
+    return true;
   }
+
   /// מציג מיד תזכורת שמועדה חלף וטרם נמסרה.
   ///
   /// מחזיר את המועד שהוצג, או null אם לא היה מה להשלים. הקורא אחראי לשמור
@@ -482,7 +622,7 @@ class NotificationService {
       title: 'תזכורת אזכרה',
       body: body,
       payload: encodePayload(memorialDate, body),
-      notificationDetails: _details(choices: quickChoices(memorialDate, now)),
+      notificationDetails: _detailsFor(memorialDate, now),
     );
     return missed;
   }

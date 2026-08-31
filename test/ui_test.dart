@@ -15,6 +15,8 @@ import 'dart:ui' as ui;
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart'
+    show NotificationResponse, NotificationResponseType;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -159,6 +161,21 @@ class _FakeNotifications extends NotificationService {
   @override
   Future<void> cancelAll() async {
     log.add('cancelAll');
+  }
+
+  /// Set by a test to simulate the app being launched by "more options".
+  ReminderChoiceRequest? pendingChoice;
+
+  @override
+  Future<ReminderChoiceRequest?> pendingChoiceRequest() async => pendingChoice;
+
+  @override
+  Future<bool> rescheduleReminder({
+    required ReminderChoiceRequest request,
+    required int daysBefore,
+  }) async {
+    log.add('reschedule:$daysBefore');
+    return true;
   }
 
   /// Set by a test to simulate a reminder that was missed and needs delivering.
@@ -354,11 +371,13 @@ Future<(_InMemoryRepo, _FakeNotifications)> _pumpApp(
   DateTime? now,
   bool notificationsEnabled = true,
   bool exactAlarmsAllowed = true,
+  ReminderChoiceRequest? pendingChoice,
 }) async {
   final repo = _InMemoryRepo()..items.addAll(seeded);
   final notif = _FakeNotifications()
     ..notificationsEnabled = notificationsEnabled
-    ..exactAlarmsAllowed = exactAlarmsAllowed;
+    ..exactAlarmsAllowed = exactAlarmsAllowed
+    ..pendingChoice = pendingChoice;
   final clock = now ?? _fixedNow;
 
   await tester.pumpWidget(
@@ -1788,6 +1807,123 @@ void main() {
       expect(at(2), [2, 1, 0]);
       // On the memorial day only its own morning is left.
       expect(at(0), [0]);
+    });
+  });
+
+  group('the notification hands the full list to the app', () {
+    final memorial = DateTime(2026, 8, 20);
+
+    test('three options or fewer stay inside the notification', () {
+      final plan = NotificationService.actionPlan(
+          memorial, DateTime(2026, 8, 18, 8));
+      expect(plan.quick, [2, 1, 0]);
+      expect(plan.moreOptions, isFalse,
+          reason: 'nothing is hidden, so there is nothing to open a screen for');
+    });
+
+    test('more than three keeps two buttons and moves the rest to a screen',
+        () {
+      final plan = NotificationService.actionPlan(
+          memorial, DateTime(2026, 7, 11, 8));
+      expect(plan.quick.length, NotificationService.quickButtonCount);
+      expect(plan.moreOptions, isTrue);
+      // Android renders three actions at most, so two plus the opener is
+      // exactly the ceiling - a third quick button would push it off.
+      expect(plan.quick.length + 1, NotificationService.maxRescheduleActions);
+    });
+
+    test('the response carries everything the screen needs', () {
+      const body = 'אזכרתו של סבא יעקב';
+      final request = NotificationService.choiceRequestFrom(NotificationResponse(
+        notificationResponseType:
+            NotificationResponseType.selectedNotificationAction,
+        id: 142,
+        actionId: NotificationService.moreOptionsActionId,
+        payload: NotificationService.encodePayload(memorial, body),
+      ))!;
+
+      expect(request.notificationId, 142);
+      expect(request.memorialDate, memorial);
+      expect(request.body, body,
+          reason: 'the reminder is rewritten with its own text');
+    });
+
+    test('a plain snooze button is not mistaken for the opener', () {
+      expect(
+          NotificationService.choiceRequestFrom(NotificationResponse(
+            notificationResponseType:
+                NotificationResponseType.selectedNotificationAction,
+            id: 1,
+            actionId: NotificationService.rescheduleActionIdFor(3),
+            payload: NotificationService.encodePayload(memorial, 'x'),
+          )),
+          isNull);
+    });
+  });
+
+  group('choosing a reminder time on screen', () {
+    // The dialog builds its list against the real clock, not the pinned one,
+    // so the memorial is placed far enough ahead that the whole ladder is
+    // valid whenever the suite runs.
+    ReminderChoiceRequest farOffRequest() {
+      final now = DateTime.now();
+      return ReminderChoiceRequest(
+        notificationId: 142,
+        memorialDate: DateTime(now.year, now.month, now.day + 60),
+        body: 'אזכרתו של סבא יעקב',
+      );
+    }
+
+    testWidgets('every remaining option is offered, not just three',
+        (tester) async {
+      final (_, notif) = await _pumpApp(tester, seeded: [
+        _seed(id: 1, name: 'סבא יעקב', day: 27, month: HebrewMonth.av),
+      ]);
+
+      expect(notif.onChooseReminder, isNotNull,
+          reason: 'the screen must register itself for the notification');
+      notif.onChooseReminder!(farOffRequest());
+      await _pumpUntilFound(
+          tester, find.text('מתי להזכיר?'), 'the choice dialog');
+
+      expect(find.byType(SimpleDialogOption),
+          findsNWidgets(NotificationService.snoozeChoiceLadder.length),
+          reason: 'this is the point of the screen - the notification cannot '
+              'show more than three');
+      // Longest lead time first, and the memorial day itself is last.
+      expect(find.text('30 ימים לפני'), findsOneWidget);
+      expect(find.text('ביום האזכרה'), findsOneWidget);
+    });
+
+    testWidgets('the chosen option is what gets rescheduled', (tester) async {
+      final (_, notif) = await _pumpApp(tester, seeded: [
+        _seed(id: 1, name: 'סבא יעקב', day: 27, month: HebrewMonth.av),
+      ]);
+
+      notif.onChooseReminder!(farOffRequest());
+      await _pumpUntilFound(
+          tester, find.text('מתי להזכיר?'), 'the choice dialog');
+      await tester.tap(find.text('שבוע לפני'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+
+      expect(notif.log, contains('reschedule:7'));
+    });
+
+    testWidgets('a cold start from the notification opens the same list',
+        (tester) async {
+      // The app was not running when the button was tapped, so the request
+      // arrives through the launch details instead of the callback.
+      final (_, notif) = await _pumpApp(
+        tester,
+        seeded: [_seed(id: 1, name: 'סבא יעקב', day: 27, month: HebrewMonth.av)],
+        pendingChoice: farOffRequest(),
+      );
+
+      await _pumpUntilFound(
+          tester, find.text('מתי להזכיר?'), 'the choice dialog');
+      expect(notif.log, isNot(contains('reschedule:7')),
+          reason: 'nothing moves until the user picks');
     });
   });
 
