@@ -167,9 +167,17 @@ class _FakeNotifications extends NotificationService {
 
   @override
   Future<DateTime?> deliverMissedReminder(Memorial memorial) async {
-    if (missedToDeliver == null || !memorial.enabled) return null;
+    final missed = missedToDeliver;
+    if (missed == null || !memorial.enabled) return null;
+    // Mirrors HebrewCalendarService.missedReminderDate: a reminder already
+    // accounted for is never delivered a second time.
+    final last = memorial.lastNotifiedAt;
+    if (last != null && !last.isBefore(missed)) return null;
+    // A real delivery crosses the platform channel. Yielding here is what
+    // lets a second, concurrent sync interleave - which is the whole bug.
+    await Future<void>.delayed(Duration.zero);
     log.add('missed:${memorial.name}');
-    return missedToDeliver;
+    return missed;
   }
 }
 
@@ -1775,6 +1783,78 @@ void main() {
       expect(at(2), [2, 1]);
       // On the day itself there is nothing left to move to, so no buttons.
       expect(at(0), isEmpty);
+    });
+  });
+
+  group('notification work never runs twice at once', () {
+    late _InMemoryRepo repo;
+    late _FakeNotifications notif;
+    late ProviderContainer container;
+
+    setUp(() {
+      repo = _InMemoryRepo();
+      notif = _FakeNotifications();
+      container = ProviderContainer(overrides: [
+        memorialRepositoryProvider.overrideWithValue(repo),
+        notificationServiceProvider.overrideWithValue(notif),
+      ]);
+      addTearDown(container.dispose);
+    });
+
+    test('two overlapping syncs deliver a missed reminder only once', () async {
+      // The home screen starts one sync after its first frame and another
+      // from didChangeAppLifecycleState; opening the app from a notification
+      // fires both within the same moment.
+      await repo.insert(_seed(id: 1, name: 'סבא יעקב', day: 27,
+          month: HebrewMonth.av));
+      notif.missedToDeliver = DateTime(2026, 8, 4, 9);
+      final notifier = container.read(memorialListProvider.notifier);
+      await notifier.load();
+
+      final first = notifier.syncNotifications();
+      final second = notifier.syncNotifications();
+      await Future.wait([first, second]);
+
+      expect(notif.log.where((e) => e.startsWith('missed:')).length, 1,
+          reason: 'the second sync must join the first, not repeat it');
+    });
+
+    test('a later sync still runs once the first has finished', () async {
+      await repo.insert(_seed(id: 1, name: 'סבא יעקב', day: 27,
+          month: HebrewMonth.av));
+      final notifier = container.read(memorialListProvider.notifier);
+      await notifier.load();
+
+      await notifier.syncNotifications();
+      final before = notif.log.length;
+      await notifier.syncNotifications();
+
+      expect(notif.log.length, greaterThan(before),
+          reason: 'the guard must not latch and block every later sync');
+    });
+  });
+
+  group('the manifest declares what the notification plugin needs', () {
+    final manifest =
+        File('android/app/src/main/AndroidManifest.xml').readAsStringSync();
+
+    // The plugin declares no receivers of its own, so anything it dispatches
+    // through must be declared here or the intent lands on nothing.
+    test('the action receiver is declared, or buttons do nothing', () {
+      expect(manifest,
+          contains('flutterlocalnotifications.ActionBroadcastReceiver'),
+          reason: 'without it a tap on a reminder button is silently dropped');
+    });
+
+    test('the scheduled and boot receivers are declared', () {
+      expect(manifest,
+          contains('flutterlocalnotifications.ScheduledNotificationReceiver'));
+      expect(
+          manifest,
+          contains(
+              'flutterlocalnotifications.ScheduledNotificationBootReceiver'));
+      expect(manifest, contains('android.intent.action.BOOT_COMPLETED'));
+      expect(manifest, contains('android.intent.action.MY_PACKAGE_REPLACED'));
     });
   });
 

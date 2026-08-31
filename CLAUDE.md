@@ -446,6 +446,25 @@ Boundary worth remembering: the target hour is 09:00, so at N days out the
 "N days before" option is still offered until that hour passes. Two test
 expectations were written without accounting for it and had to be corrected.
 
+### The plugin declares no receivers — the app must
+
+`flutter_local_notifications`' own `AndroidManifest.xml` holds two permissions
+and nothing else. Every component it dispatches through has to be declared in
+`android/app/src/main/AndroidManifest.xml` or the intent lands on nothing:
+
+```
+ActionBroadcastReceiver              notification action buttons
+ScheduledNotificationReceiver        the scheduled notification itself
+ScheduledNotificationBootReceiver    BOOT_COMPLETED / MY_PACKAGE_REPLACED
+```
+
+`ActionBroadcastReceiver` was missing until 2026-08-31, so **no reminder button
+had ever worked** — not the choice list, and not the fixed 1/3/7-day buttons
+before it. The failure is completely silent: the buttons render, the tap is
+swallowed, no Dart callback runs and nothing is logged. Two redesigns of the
+button were shipped chasing that symptom. A test asserts all three receivers
+are declared, because nothing else in the toolchain will.
+
 ### A change to a notification does not reach the ones already queued
 
 Text and buttons are baked in at `zonedSchedule` time, and `rescheduleAll`
@@ -476,3 +495,19 @@ seconds. Every entry point is therefore fire-and-forget:
 `ui_test.dart` proves this with a fake whose scheduling never completes: if
 any of these regained an `await`, the screen would hang and the test would
 time out rather than pass.
+
+### …which means `syncNotifications` must be single-flight
+
+`HomeScreen` starts a sync from its post-frame callback **and** from
+`didChangeAppLifecycleState` on `resumed`, and opening the app from a
+notification fires both at once. While the work was awaited those calls
+serialised themselves; once it became fire-and-forget they began to overlap,
+and **that is how the duplicate notification came back** on 2026-08-31. Both
+runs read the same `lastNotifiedAt`, both conclude the reminder was missed, and
+both deliver it.
+
+`MemorialNotifier.syncNotifications` therefore keeps the in-flight future and
+hands it to any caller that arrives while it is running. Do not "fix" a
+duplicate by moving the `lastNotifiedAt` write earlier — the write is not the
+race, the second reader is. The test drives two overlapping syncs and counts
+deliveries; with the guard removed it reports 2.

@@ -96,11 +96,27 @@ class MemorialNotifier extends AsyncNotifier<List<Memorial>> {
     }
   }
 
+  /// ריצת סנכרון שכבר פועלת, אם יש כזו.
+  Future<void>? _syncing;
+
   /// כל עבודת ההתראות: אתחול, השלמת תזכורות שהוחמצו, ותזמון מחדש.
   ///
   /// אינה חוסמת את ה-UI ואינה מפילה אותו – התזמון אינו דחוף לרגע, וכשל בו
   /// מדווח דרך באנר ההרשאות ולא דרך מסך שגיאה.
-  Future<void> syncNotifications() async {
+  ///
+  /// **ריצה אחת בכל רגע.** המסך הראשי קורא לכאן פעמיים בפתיחה – אחרי הציור
+  /// הראשון, ושוב מ-didChangeAppLifecycleState כשהמצב הופך ל-resumed – ומאז
+  /// שהעבודה הזו אינה מומתנת, שתי הקריאות רצות במקביל. שתיהן קוראות את אותו
+  /// lastNotifiedAt מהמסד, שתיהן מסיקות שהתזכורת הוחמצה, ושתיהן מציגות
+  /// אותה. זו ההתראה הכפולה. קריאה שנייה מצטרפת לריצה הקיימת במקום לפתוח
+  /// עוד אחת.
+  Future<void> syncNotifications() {
+    return _syncing ??= _syncNotifications().whenComplete(() {
+      _syncing = null;
+    });
+  }
+
+  Future<void> _syncNotifications() async {
     try {
       final all = await _repo.getAll();
       await _deliverMissedReminders(all);

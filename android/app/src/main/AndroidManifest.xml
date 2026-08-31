@@ -38,6 +38,12 @@
             android:value="2"/>
 
         <!-- מקלטים עבור flutter_local_notifications: התראות מתוזמנות ואתחול לאחר הפעלה מחדש -->
+
+        <!-- בלי המקלט הזה כפתורי ההתראה אינם עושים דבר: הפלאגין אינו מצהיר
+             על מקלטים משלו, וה-PendingIntent של כל כפתור מכוון לרכיב שאינו
+             קיים. הכפתור מוצג, הלחיצה נבלעת, ולא מגיעה שום קריאה ל-Dart. -->
+        <receiver android:exported="false"
+            android:name="com.dexterous.flutterlocalnotifications.ActionBroadcastReceiver"/>
         <receiver android:exported="false"
             android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationReceiver"/>
         <receiver android:exported="false"
