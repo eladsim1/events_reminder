@@ -420,6 +420,13 @@ derived from the current clock would be wrong by the time it fires.
 `hebrewWeekdayNames` includes שבת because a memorial can fall on any day;
 `reminderWeekdayChoices` is the six-day subset offered in the reminder picker.
 
+`daysBeforeChoices` is a full 1..`maxDaysBeforeChoice` run with no gaps. It used
+to be a rounded ladder (1, 2, 3, 5, 7, 10, …) that hid the numbers people
+actually ask for — four days, six, nine. Anything the old ladder could have
+stored has to stay inside the list: `DropdownButtonFormField` throws when its
+`initialValue` is not among its items, so narrowing the range would crash the
+edit screen for an existing memorial.
+
 ## The reminder offers a choice of how long before the memorial
 
 Up to three plain action buttons, labelled by how long **before the memorial**
@@ -506,6 +513,20 @@ before it. The failure is completely silent: the buttons render, the tap is
 swallowed, no Dart callback runs and nothing is logged. Two redesigns of the
 button were shipped chasing that symptom. A test asserts all three receivers
 are declared, because nothing else in the toolchain will.
+
+### A queue holding MORE than it should is not a full queue
+
+`rescheduleAll` skipped a memorial when `pending >= wanted`, read as "there are
+enough, nothing to do". More than wanted is not a full queue — it is leftovers
+from an earlier configuration, and skipping leaves them scheduled forever. That
+is how the day-before series survived after `fixedDaysBefore = 1` made it
+redundant: 42 scheduled against 21 wanted, so every launch decided there was
+nothing to fix and the reminder kept arriving twice, upgrade after upgrade.
+
+The test is now `pending != wanted`, in `needsReschedule`. An excess can only
+come from a code or setting change, so this also makes the app self-heal
+**without** a `payloadVersion` bump — which matters, because I forgot that bump
+one commit after documenting it.
 
 ### A change to a notification does not reach the ones already queued
 

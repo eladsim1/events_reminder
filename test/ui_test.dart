@@ -1791,6 +1791,60 @@ void main() {
     });
   });
 
+  group('a queue holding more than it should is rebuilt', () {
+    bool needs(int pending, int wanted, {bool stale = false}) =>
+        NotificationService.needsReschedule(
+          pendingCount: pending,
+          wantedCount: wanted,
+          stalePayload: stale,
+        );
+
+    test('leftovers from an earlier configuration are not left alone', () {
+      // Switching to "one day before" makes the day-before series redundant,
+      // so 42 scheduled against 21 wanted. The old test was "at least as many
+      // as wanted", which read that as a full queue and skipped it - and the
+      // reminder kept arriving twice, upgrade after upgrade.
+      expect(needs(42, 21), isTrue);
+    });
+
+    test('a queue that has drained is refilled', () {
+      expect(needs(20, 21), isTrue);
+    });
+
+    test('an exact match is left alone', () {
+      // Rescheduling costs tens of platform calls per memorial, and the
+      // plugin rewrites its whole store on each one.
+      expect(needs(21, 21), isFalse);
+    });
+
+    test('a stale payload rebuilds even when the count matches', () {
+      expect(needs(21, 21, stale: true), isTrue);
+    });
+  });
+
+  group('the days-before picker skips nothing', () {
+    test('every number from one to the maximum is there, in order', () {
+      expect(daysBeforeChoices.length, maxDaysBeforeChoice);
+      for (var i = 0; i < daysBeforeChoices.length; i++) {
+        expect(daysBeforeChoices[i], i + 1, reason: 'a number was skipped');
+      }
+    });
+
+    test('one and two read as Hebrew rather than as counts', () {
+      expect(daysBeforeLabel(1), 'יום אחד');
+      expect(daysBeforeLabel(2), 'יומיים');
+      expect(daysBeforeLabel(4), '4 ימים');
+    });
+
+    test('anything the old skipping ladder stored is still selectable', () {
+      // A DropdownButtonFormField whose initialValue is absent from its items
+      // throws, so an existing memorial must never fall outside this list.
+      for (final d in const [1, 2, 3, 5, 7, 10, 14, 21, 30]) {
+        expect(daysBeforeChoices, contains(d), reason: '$d days');
+      }
+    });
+  });
+
   group('the day-before reminder never repeats the main one', () {
     final cal = HebrewCalendarService(now: () => _fixedNow);
 

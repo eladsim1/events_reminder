@@ -48,6 +48,23 @@ const List<int> reminderWeekdayChoices = [
   DateTime.friday,
 ];
 
+/// המרווח המרבי, בימים, שאפשר לבקש לפני האזכרה.
+const int maxDaysBeforeChoice = 30;
+
+/// כל המרווחים שניתן לבחור במצב "מספר ימים לפני" – רצף מלא, בלי דילוגים.
+///
+/// היה כאן סולם מדלג (1,2,3,5,7,10,…) והוא הסתיר מספרים שאנשים באמת רוצים:
+/// ארבעה ימים, שישה, תשעה. אין סיבה לכפות עיגול על בחירה של המשתמש.
+final List<int> daysBeforeChoices =
+    List<int>.unmodifiable(List<int>.generate(maxDaysBeforeChoice, (i) => i + 1));
+
+/// ניסוח מרווח בעברית. יחיד וזוגי אינם "1 ימים" ו-"2 ימים".
+String daysBeforeLabel(int days) => switch (days) {
+      1 => 'יום אחד',
+      2 => 'יומיים',
+      _ => '$days ימים',
+    };
+
 /// סוג האדר עבור אזכרה.
 ///
 /// [none] – החודש אינו אדר.

@@ -123,6 +123,24 @@ class NotificationService {
   static bool isCurrentPayload(String? payload) =>
       payload != null && payload.startsWith('v$payloadVersion|');
 
+  /// האם התור של אזכרה מסוימת צריך להיבנות מחדש.
+  ///
+  /// שוויון ולא "לפחות": התנאי היה `pending >= wanted`, כלומר "יש מספיק,
+  /// אין מה לעשות". אבל **יותר** מהנדרש אינו תור מלא – אלה שאריות
+  /// מקונפיגורציה קודמת, והדילוג משאיר אותן מתוזמנות לנצח. כך שרדה
+  /// סדרת יום-לפני אחרי שהמצב "יום אחד לפני" הפך אותה למיותרת: 42 מתוזמנות
+  /// מול 21 נדרשות, ולכן כל פתיחה החליטה שאין מה לתקן – והתזכורת המשיכה
+  /// להגיע פעמיים.
+  ///
+  /// עודף נובע רק משינוי קוד או הגדרה, ולכן התיקון אינו תלוי בסימון גרסה:
+  /// האפליקציה מנקה את עצמה גם בלי שאזכור להעלות אותו.
+  static bool needsReschedule({
+    required int pendingCount,
+    required int wantedCount,
+    required bool stalePayload,
+  }) =>
+      stalePayload || pendingCount != wantedCount;
+
   static ({DateTime? memorialDate, String body})? decodePayload(String? p) {
     if (p == null) return null;
 
@@ -542,7 +560,11 @@ class NotificationService {
           Memorial.ownsNotificationId(p.id, m.id!) &&
           !isCurrentPayload(p.payload));
 
-      if (!stale && existing.length >= wanted) {
+      if (!needsReschedule(
+        pendingCount: existing.length,
+        wantedCount: wanted,
+        stalePayload: stale,
+      )) {
         // גם כשאין מה לתזמן, רושמים שהמועד הקרוב מטופל – אחרת אחרי שההתראה
         // תיורה, הפתיחה הבאה תראה בה החמצה ותשלח כפולה.
         if (upcoming.isNotEmpty) scheduled[m.id!] = upcoming.first;

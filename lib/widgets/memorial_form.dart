@@ -312,8 +312,8 @@ class _MemorialFormState extends State<MemorialForm> {
                 helperText: 'מרווח קבוע, ללא תלות ביום בשבוע',
               ),
               items: [
-                for (final d in const [1, 2, 3, 5, 7, 10, 14, 21, 30])
-                  DropdownMenuItem(value: d, child: Text('$d ימים')),
+                for (final d in daysBeforeChoices)
+                  DropdownMenuItem(value: d, child: Text(daysBeforeLabel(d))),
               ],
               onChanged: (v) =>
                   setState(() => _reminderValue = v ?? _reminderValue),
