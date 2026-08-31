@@ -1004,10 +1004,11 @@ void main() {
       final cal = HebrewCalendarService(now: () => _fixedNow);
       final m = _seed(id: 1, name: 'x', day: 27, month: HebrewMonth.av);
 
-      // A far-future occurrence: if "today" leaked in, the number would be
-      // in the hundreds instead of the 5..11 the rule produces.
+      // The furthest occurrence scheduled - not a fixed index, which broke
+      // the moment the horizon shrank. If "today" leaked in, the number
+      // would be in the hundreds instead of the 5..11 the rule produces.
       final reminders = cal.futureReminderDates(m, from: _fixedNow);
-      final late = reminders[5];
+      final late = reminders.last;
       final memorialDate = cal.memorialDateForReminder(m, late)!;
       final text = cal.describeMemorialForReminder(m, late, memorialDate);
 

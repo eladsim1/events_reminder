@@ -333,15 +333,30 @@ alarms the new code cannot match, which would fire *alongside* the new schedule.
 `rescheduleAll` cancels any pending id below `notificationIdsPerMemorial` —
 SQLite ids start at 1, so block 0 is never legitimately owned.
 
-## Reminders are scheduled many years ahead, deliberately
+## Reminders are scheduled a few years ahead, deliberately
 
 `zonedSchedule` is one-shot, and Android offers no yearly repeat that tracks the
 Hebrew calendar — `matchDateTimeComponents` only repeats weekly, monthly, or
 annually on a **fixed Gregorian date**, while a Hebrew anniversary drifts. So
 `NotificationService.scheduleForMemorial` enumerates
 `HebrewCalendarService.futureReminderDates` (horizon:
-`scheduleHorizonYears`, currently 20) and schedules every occurrence. Each app
-launch and resume refills the window via `loadAndReschedule`.
+`scheduleHorizonYears`, currently **3**) and schedules every occurrence. Each
+app launch and resume refills the window via `loadAndReschedule`.
+
+**Why not one year, and why not twenty.** One is too few: once the year's
+reminder fires, something has to compute and schedule the next, and the boot
+receiver only re-registers alarms that already exist — it does not compute new
+ones. So a phone left unopened for thirteen months would miss the next
+memorial. Twenty was too many: it defended a horizon that other, unhandled
+failures reach long before — a new phone, a reinstall, aggressive battery
+management — and there is no cloud backup, so a device change resets everything
+regardless. It bought that with two real costs: Android's 500-alarm ceiling, and
+scheduling that is quadratic in the number of occurrences. Three survives three
+consecutive years without the app being opened, which already exceeds the gap
+between two successive memorials.
+
+A test that indexes a fixed occurrence (`reminders[5]`) breaks the moment this
+changes; anchor on `reminders.last` instead.
 
 Two consequences to preserve when touching this:
 
