@@ -446,6 +446,22 @@ Boundary worth remembering: the target hour is 09:00, so at N days out the
 "N days before" option is still offered until that hour passes. Two test
 expectations were written without accounting for it and had to be corrected.
 
+### `ReminderMode.fixedDaysBefore` with a value of 1 broke both of these
+
+Confirmed by the user on 2026-08-31: their reminder was set to "one day
+before", and that single setting produced **both** reported symptoms, which is
+why neither could be found by reasoning about the default configuration.
+
+- the main reminder lands on `memorial - 1 day` at 09:00, exactly where the
+  day-before series already sits, so every reminder arrived twice, one minute
+  apart in text only (`אזכרתו של…` and `מחר אזכרתו של…`);
+- and at that moment every snooze option pointed at that same instant or
+  earlier, so the notification carried no buttons at all.
+
+**Reproduce a notification defect in the user's configuration, not the
+default.** Two fixes were built, shipped and disproved on the device before
+that setting was asked about; asking took one question.
+
 ### "On the day of the memorial" is one of the choices
 
 The ladder starts at 0, and 0 means the morning of the memorial itself. Without
