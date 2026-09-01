@@ -210,6 +210,38 @@ class NotificationService {
     return out;
   }
 
+  /// סדר התזמון: לפי מועד התזכורת הקרובה, ולא לפי מזהה.
+  ///
+  /// החלוקה ב-[allocateBudget] כבר ממוינת לפי תאריך, אבל לולאת התזמון עברה
+  /// לפי סדר הרשימה. כל עוד התקציב מתחת לתקרה של אנדרואיד זה לא משנה, כי
+  /// שום קריאה אינה נדחית – אבל אם קריאה כן תידחה, מי שיישאר בלי אזעקה
+  /// יהיה מי שנמצא במקרה בסוף הרשימה, ולא מי שמועדו הרחוק ביותר. אזכרה
+  /// שהתזכורת שלה בעוד שבוע יכולה ליפול רק משום שהמזהה שלה גבוה.
+  ///
+  /// כאן ההידרדרות הופכת מסודרת: הרחוקות נופלות ראשונות, וזו הבחירה הנכונה.
+  ///
+  /// אזכרה בלי מועד עתידי כלל יורדת לסוף – אין לה מה לתפוס.
+  static List<Memorial> inReminderOrder(
+    List<Memorial> memorials,
+    HebrewCalendarService calendar,
+  ) {
+    DateTime? nearest(Memorial m) {
+      final dates = calendar.futureReminderDates(m);
+      return dates.isEmpty ? null : dates.first;
+    }
+
+    final keyed = [
+      for (final m in memorials) (memorial: m, next: nearest(m)),
+    ];
+    keyed.sort((a, b) {
+      final an = a.next, bn = b.next;
+      if (an == null) return bn == null ? 0 : 1;
+      if (bn == null) return -1;
+      return an.compareTo(bn);
+    });
+    return [for (final e in keyed) e.memorial];
+  }
+
   /// השורה הראשונה בלבד של שגיאה.
   ///
   /// ה-toString של חריגת פלטפורמה גורר את כל ה-stack. במסך ההגדרות זה יצא
@@ -812,7 +844,7 @@ class NotificationService {
     // שהביטול שלה לא הספיק לרוץ, כי הוא מתבצע ברקע ואינו מומתן.
     await _cancelIds(pending.where((id) => !_belongsToAny(id, memorials)));
 
-    for (final m in memorials) {
+    for (final m in inReminderOrder(memorials, _calendar)) {
       if (m.id == null) continue;
 
       final existing = _idsWithin(pending, m.id!);

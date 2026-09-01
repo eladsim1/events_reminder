@@ -213,6 +213,23 @@ class _FakeNotifications extends NotificationService {
   }
 }
 
+/// A calendar that reports no upcoming reminders for one memorial, so the
+/// ordering rule for "nothing to schedule" can be exercised.
+class _NoUpcomingFor extends HebrewCalendarService {
+  final int barrenId;
+  _NoUpcomingFor(this.barrenId, {super.now});
+
+  @override
+  List<DateTime> futureReminderDates(
+    Memorial memorial, {
+    DateTime? from,
+    int years = HebrewCalendarService.scheduleHorizonYears,
+  }) =>
+      memorial.id == barrenId
+          ? const []
+          : super.futureReminderDates(memorial, from: from, years: years);
+}
+
 /// flutter_test ships no real glyphs, so Hebrew renders as boxes in goldens.
 /// Register a system font that has Hebrew coverage under the families the
 /// Material theme asks for.
@@ -1925,6 +1942,58 @@ void main() {
           tester, find.text('מתי להזכיר?'), 'the choice dialog');
       expect(notif.log, isNot(contains('reschedule:30')),
           reason: 'nothing moves until the user picks');
+    });
+  });
+
+  group('scheduling runs in date order, not id order', () {
+    final cal = HebrewCalendarService(now: () => _fixedNow);
+
+    test('the nearest reminder is scheduled first', () {
+      // Ids ascending, reminders descending: if the loop followed ids, the
+      // memorial due first would be scheduled last - and would be the one to
+      // fall off if the platform started refusing alarms.
+      final list = [
+        _seed(id: 1, name: 'רחוק', day: 1, month: HebrewMonth.av),
+        _seed(id: 2, name: 'בינוני', day: 1, month: HebrewMonth.iyar),
+        _seed(id: 3, name: 'קרוב', day: 1, month: HebrewMonth.tishrei),
+      ];
+
+      final ordered = NotificationService.inReminderOrder(list, cal);
+      final dates = [
+        for (final m in ordered) cal.futureReminderDates(m).first,
+      ];
+      final sorted = [...dates]..sort();
+      expect(dates, sorted, reason: 'nearest first, whatever the ids');
+    });
+
+    test('every memorial is still there, exactly once', () {
+      final list = [
+        for (var i = 0; i < 20; i++)
+          _seed(
+            id: i + 1,
+            name: 'מנוח $i',
+            day: (i % 29) + 1,
+            month: HebrewMonth.values[i % HebrewMonth.values.length],
+          ),
+      ];
+
+      final ordered = NotificationService.inReminderOrder(list, cal);
+      expect(ordered.length, list.length);
+      expect(ordered.map((m) => m.id).toSet(), list.map((m) => m.id).toSet());
+    });
+
+    test('a memorial with nothing upcoming sinks to the end', () {
+      // It has no claim on the budget, so it must not sit in front of one
+      // that does.
+      final live = _seed(id: 1, name: 'חי', day: 1, month: HebrewMonth.av);
+      final none = _seed(id: 2, name: 'כבוי', day: 1, month: HebrewMonth.av);
+
+      final ordered = NotificationService.inReminderOrder(
+        [none, live],
+        _NoUpcomingFor(none.id!, now: () => _fixedNow),
+      );
+      expect(ordered.first.id, live.id);
+      expect(ordered.last.id, none.id);
     });
   });
 
