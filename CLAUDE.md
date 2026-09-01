@@ -507,6 +507,32 @@ moment leaves it behind. Nothing else notices a leftover, since it is counted
 neither in what is wanted nor in what a memorial already holds, and it goes on
 firing the text baked into it years ago.
 
+## The window slides on its own, once a week
+
+`BackgroundRefresh` registers a WorkManager periodic task that reloads the
+memorials and runs `rescheduleAll`, without the app being opened.
+
+It exists because nothing else moves the window. A scheduled notification is
+one-shot; the plugin has no delivered-callback; the boot receiver only
+re-registers alarms that already exist and computes none; and the alarm budget
+means only the nearest reminders are queued at all. So when one fires, its slot
+frees but nothing fills it — until a launch. On a long list that could mean a
+reminder waiting for an app open that never comes.
+
+Notes for anyone touching it:
+
+- `register()` swallows its own failures. Tests and desktop have no
+  WorkManager, and a registration failure must not take down startup — the job
+  is a safety net, not the main path.
+- `existingWorkPolicy: update`, not `keep`. WorkManager keeps the *original*
+  frequency under `keep`, so a change here would never take effect on an
+  install that already registered the task.
+- The dispatcher is a top-level function annotated `@pragma('vm:entry-point')`,
+  same as `notificationTapBackground`, or R8 removes it from the release build.
+- `workmanager` 0.10.9 builds cleanly against the pinned AGP 8.13.2 / Kotlin
+  2.1.20 set. Verified in the APK: `androidx.work.impl.*` components are
+  present in the merged manifest.
+
 ## One reminder series, one id block
 
 ```

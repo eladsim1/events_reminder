@@ -1,7 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../providers/memorial_provider.dart';
+import '../services/background_refresh.dart';
 import 'home_screen.dart';
 
 /// מסך פתיחה.
@@ -34,6 +37,10 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
       // הפלאגין, בקשת הרשאות, השלמות ותזמון – עולה עשרות קריאות פלטפורמה
       // לכל אזכרה, וכשהיא חסמה כאן האפליקציה נראתה תקועה בכל עלייה.
       await ref.read(memorialListProvider.notifier).load();
+
+      // רישום העבודה השבועית שמחליקה את חלון ההתראות קדימה גם בלי שהמשתמש
+      // יפתח את האפליקציה. לא מומתן, כמו כל עבודת ההתראות.
+      unawaited(BackgroundRefresh.register());
 
       if (!mounted) return;
       Navigator.of(context).pushReplacement(
