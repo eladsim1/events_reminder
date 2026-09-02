@@ -471,14 +471,20 @@ class _PermissionWarning extends ConsumerWidget {
     return status.maybeWhen(
       orElse: () => const SizedBox.shrink(),
       data: (s) {
-        if (s.notificationsEnabled && s.exactAlarmsAllowed) {
+        if (s.notificationsEnabled &&
+            s.exactAlarmsAllowed &&
+            s.batteryExempt) {
           return const SizedBox.shrink();
         }
 
         final theme = Theme.of(context);
+        // הקשה ביותר קודמת: בלי הרשאת התראות שום דבר לא יוצג, ובלי פטור
+        // הסוללה אנדרואיד רשאי למחוק את האזעקות עצמן.
         final message = !s.notificationsEnabled
             ? 'ההתראות כבויות – לא תקבל תזכורות'
-            : 'חסרה הרשאה לאזעקות מדויקות – התזכורות לא יתוזמנו';
+            : !s.exactAlarmsAllowed
+                ? 'חסרה הרשאה לאזעקות מדויקות – התזכורות לא יתוזמנו'
+                : 'ניהול הסוללה עלול לעצור את האפליקציה ולמחוק תזכורות';
 
         return Material(
           color: theme.colorScheme.errorContainer,
@@ -500,9 +506,13 @@ class _PermissionWarning extends ConsumerWidget {
                 const SizedBox(width: 8),
                 FilledButton.tonal(
                   onPressed: () async {
-                    await ref
-                        .read(notificationServiceProvider)
-                        .requestMissingPermissions();
+                    if (!s.notificationsEnabled || !s.exactAlarmsAllowed) {
+                      await ref
+                          .read(notificationServiceProvider)
+                          .requestMissingPermissions();
+                    } else {
+                      await ref.read(batteryExemptionProvider).request();
+                    }
                     ref.invalidate(notificationPermissionProvider);
                   },
                   child: const Text('תיקון'),

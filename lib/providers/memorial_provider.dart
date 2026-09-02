@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/memorial.dart';
 import '../models/memorial_filter.dart';
 import '../repository/memorial_repository.dart';
+import '../services/battery_exemption.dart';
 import '../services/hebrew_calendar_service.dart';
 import '../services/navigation_launcher.dart';
 import '../services/notification_service.dart';
@@ -22,6 +23,10 @@ final navigationLauncherProvider = Provider<NavigationLauncher>((ref) {
 
 final photoStoreProvider = Provider<PhotoStore>((ref) {
   return const PhotoStore();
+});
+
+final batteryExemptionProvider = Provider<BatteryExemption>((ref) {
+  return const BatteryExemption();
 });
 
 final hebrewCalendarServiceProvider =
@@ -50,9 +55,23 @@ final memorialSearchProvider = StateProvider<String>((ref) => '');
 ///
 /// נחשף כספק נפרד כדי שהמסך הראשי יוכל להזהיר – בלעדיו סירוב הרשאה הוא
 /// כשל שקט: האפליקציה נראית תקינה לגמרי ופשוט לעולם לא מתריעה.
+/// שלושתן יחד קובעות אם תזכורת אכן תגיע:
+/// בלי [notificationsEnabled] דבר לא יוצג, בלי [exactAlarmsAllowed] התזמון
+/// יורד לדיוק משוער, ובלי [batteryExempt] אנדרואיד רשאי לעצור את האפליקציה
+/// **ולמחוק את האזעקות הרשומות שלה** – גם כאלה שתוזמנו מזמן.
 final notificationPermissionProvider = FutureProvider<
-    ({bool notificationsEnabled, bool exactAlarmsAllowed})>((ref) async {
-  return ref.watch(notificationServiceProvider).permissionStatus();
+    ({
+      bool notificationsEnabled,
+      bool exactAlarmsAllowed,
+      bool batteryExempt,
+    })>((ref) async {
+  final permissions =
+      await ref.watch(notificationServiceProvider).permissionStatus();
+  return (
+    notificationsEnabled: permissions.notificationsEnabled,
+    exactAlarmsAllowed: permissions.exactAlarmsAllowed,
+    batteryExempt: await ref.watch(batteryExemptionProvider).isExempt(),
+  );
 });
 
 /// שעת ברירת מחדל להתראות (שעה, דקה). ניתנת לשינוי במסך ההגדרות.

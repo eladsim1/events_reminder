@@ -62,9 +62,12 @@ class PendingReport {
   /// כשל התזמון האחרון, אם היה.
   final String? lastError;
 
-  /// שתי ההרשאות שבלעדיהן שום דבר לא ייורה בזמן.
+  /// שלושת התנאים שבלעדיהם תזכורת לא תגיע: שתי ההרשאות, ופטור מניהול
+  /// הסוללה – שבלעדיו אנדרואיד רשאי לעצור את האפליקציה ולמחוק את האזעקות
+  /// הרשומות שלה, גם כאלה שתוזמנו מזמן.
   final bool notificationsEnabled;
   final bool exactAlarmsAllowed;
+  final bool batteryExempt;
 
   const PendingReport({
     required this.rows,
@@ -73,6 +76,7 @@ class PendingReport {
     this.lastError,
     this.notificationsEnabled = true,
     this.exactAlarmsAllowed = true,
+    this.batteryExempt = true,
   });
 }
 
@@ -882,7 +886,10 @@ class NotificationService {
   /// קיימת כי אין דרך אחרת לדעת מה יושב בתור: הפלאגין מחזיק את ההתראות
   /// אצלו, והשאלה "כמה תזכורות באמת מתוזמנות לאזכרה הזו" הכריעה יותר מבאג
   /// אחד שנוסה לתקן מתוך ניחוש.
-  Future<PendingReport> pendingReport(List<Memorial> memorials) async {
+  Future<PendingReport> pendingReport(
+    List<Memorial> memorials, {
+    bool batteryExempt = true,
+  }) async {
     await init();
     final requests = await _plugin.pendingNotificationRequests();
 
@@ -909,6 +916,7 @@ class NotificationService {
       lastError: lastScheduleError,
       notificationsEnabled: permissions.notificationsEnabled,
       exactAlarmsAllowed: permissions.exactAlarmsAllowed,
+      batteryExempt: batteryExempt,
     );
   }
 

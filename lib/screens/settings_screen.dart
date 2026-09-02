@@ -275,7 +275,14 @@ class _ScheduledReminders extends ConsumerWidget {
     final theme = Theme.of(context);
 
     return FutureBuilder<PendingReport>(
-      future: ref.read(notificationServiceProvider).pendingReport(memorials),
+      future: ref
+          .read(notificationServiceProvider)
+          .pendingReport(memorials,
+              batteryExempt: ref
+                      .watch(notificationPermissionProvider)
+                      .valueOrNull
+                      ?.batteryExempt ??
+                  true),
       builder: (context, snapshot) {
         final report = snapshot.data;
         return ListTile(
@@ -293,6 +300,8 @@ class _ScheduledReminders extends ConsumerWidget {
                           '${r.stale > 0 ? ' (ממתינות לרענון ${r.stale})' : ''}',
                     if (!report.notificationsEnabled) 'הרשאת התראות חסרה',
                     if (!report.exactAlarmsAllowed) 'הרשאת אזעקה מדויקת חסרה',
+                    if (!report.batteryExempt)
+                      'ניהול הסוללה פעיל – אנדרואיד רשאי למחוק אזעקות',
                     if (report.lastError != null) report.lastError!,
                   ].join('\n'),
                   style: report.lastError == null

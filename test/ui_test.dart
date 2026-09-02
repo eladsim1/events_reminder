@@ -35,6 +35,7 @@ import 'package:azkarot_app/screens/settings_screen.dart';
 import 'package:azkarot_app/screens/splash_screen.dart';
 import 'package:azkarot_app/services/hebrew_calendar_service.dart';
 import 'package:azkarot_app/services/background_refresh.dart';
+import 'package:azkarot_app/services/battery_exemption.dart';
 import 'package:azkarot_app/services/notification_service.dart';
 import 'package:azkarot_app/services/reminder_sync.dart';
 import 'package:azkarot_app/services/photo_store.dart';
@@ -229,7 +230,11 @@ class _FakeNotifications extends NotificationService {
       const PendingReport(rows: [], total: 0, orphans: 0);
 
   @override
-  Future<PendingReport> pendingReport(List<Memorial> memorials) async => report;
+  Future<PendingReport> pendingReport(
+    List<Memorial> memorials, {
+    bool batteryExempt = true,
+  }) async =>
+      report;
 
   @override
   Future<DateTime?> rescheduleReminder({
@@ -289,6 +294,25 @@ class _NoUpcomingFor extends HebrewCalendarService {
       memorial.id == barrenId
           ? const []
           : super.futureReminderDates(memorial, from: from, years: years);
+}
+
+/// The real one talks to a platform channel, which a widget test has no
+/// business waiting on - and whose timing decided whether the banner had
+/// rendered yet.
+class _FakeBattery implements BatteryExemption {
+  _FakeBattery(this.exempt);
+
+  bool exempt;
+  int requests = 0;
+
+  @override
+  Future<bool> isExempt() async => exempt;
+
+  @override
+  Future<void> request() async {
+    requests++;
+    exempt = true;
+  }
 }
 
 /// flutter_test ships no real glyphs, so Hebrew renders as boxes in goldens.
@@ -464,8 +488,10 @@ Future<(_InMemoryRepo, _FakeNotifications)> _pumpApp(
   DateTime? now,
   bool notificationsEnabled = true,
   bool exactAlarmsAllowed = true,
+  bool batteryExempt = true,
   ReminderChoiceRequest? pendingChoice,
 }) async {
+  final battery = _FakeBattery(batteryExempt);
   final repo = _InMemoryRepo()..items.addAll(seeded);
   final notif = _FakeNotifications()
     ..notificationsEnabled = notificationsEnabled
@@ -478,6 +504,7 @@ Future<(_InMemoryRepo, _FakeNotifications)> _pumpApp(
       overrides: [
         memorialRepositoryProvider.overrideWithValue(repo),
         notificationServiceProvider.overrideWithValue(notif),
+        batteryExemptionProvider.overrideWithValue(battery),
         hebrewCalendarServiceProvider.overrideWithValue(
           HebrewCalendarService(now: () => clock),
         ),
@@ -1334,6 +1361,30 @@ void main() {
       _phoneViewport(tester);
       await _pumpApp(tester, seeded: seed, exactAlarmsAllowed: false);
       expect(find.textContaining('אזעקות מדויקות'), findsOneWidget);
+    });
+
+    testWidgets('warns when battery management can stop the app',
+        (tester) async {
+      // The one failure that takes the alarms with it: Android is allowed to
+      // stop an unexempt app and clear its scheduled alarms, including ones
+      // set long before.
+      _phoneViewport(tester);
+      await _pumpApp(tester, seeded: seed, batteryExempt: false);
+
+      expect(find.textContaining('ניהול הסוללה'), findsOneWidget);
+      expect(find.widgetWithText(FilledButton, 'תיקון'), findsOneWidget);
+    });
+
+    testWidgets('a missing notification permission is named first',
+        (tester) async {
+      // Ranked by severity: without it nothing shows at all, so saying
+      // "battery management" there would send the user to the wrong screen.
+      _phoneViewport(tester);
+      await _pumpApp(tester,
+          seeded: seed, notificationsEnabled: false, batteryExempt: false);
+
+      expect(find.textContaining('ההתראות כבויות'), findsOneWidget);
+      expect(find.textContaining('ניהול הסוללה'), findsNothing);
     });
 
     testWidgets('the fix button requests and the warning clears',

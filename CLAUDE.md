@@ -556,6 +556,40 @@ moment leaves it behind. Nothing else notices a leftover, since it is counted
 neither in what is wanted nor in what a memorial already holds, and it goes on
 firing the text baked into it years ago.
 
+## Battery optimisation is the last gap the app can narrow
+
+An app Android is allowed to stop does not merely lose background execution —
+it loses its **registered alarms**, including ones scheduled long before. That
+is the only remaining failure that can miss a reminder outright with every
+layer in the app working correctly.
+
+`BatteryExemption` checks `isIgnoringBatteryOptimizations` and can raise the
+system dialog. It is a hand-written `MethodChannel` in `MainActivity`, **not a
+plugin**: the build set here is narrow (AGP 8.13.2, Kotlin 2.1.20) and every
+added plugin risks the whole build, for what amounts to two system calls. The
+request falls back to the settings list when the direct dialog will not
+resolve.
+
+The state joins `notificationPermissionProvider` alongside the two permissions,
+and the home banner ranks them: notifications first (without it nothing shows
+at all), then exact alarms, then battery. A test pins that order — naming
+battery management while notifications are off sends the user to the wrong
+screen.
+
+**Do not oversell this.** Samsung's "sleeping apps" list is managed separately
+and has no API: an app cannot remove itself or prevent being added, and Samsung
+adds by usage pattern — which makes an app opened twice a year a prime
+candidate. The exemption lowers the odds and does not eliminate them. The one
+thing that actually closes it is the user checking that list by hand.
+
+`REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` is a Play-restricted permission, like
+`USE_EXACT_ALARM` above. Publishing would likely mean dropping the direct
+dialog and sending the user to settings instead.
+
+Widget tests inject a fake exemption (`_FakeBattery`) rather than let the
+provider await a real channel — the channel's timing decided whether the banner
+had rendered yet, which quietly broke three unrelated permission tests.
+
 ## Two isolates, one database, and no shared memory
 
 The background job runs in its own `FlutterEngine` and its own isolate. **Every
