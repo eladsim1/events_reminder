@@ -127,13 +127,22 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       return;
     }
 
-    final moved = await ref
+    final movedTo = await ref
         .read(notificationServiceProvider)
         .rescheduleReminder(request: request, daysBefore: chosen);
     if (!mounted) return;
-    _tell(moved
-        ? 'התזכורת נקבעה ל${NotificationService.snoozeChoiceLabel(chosen)}'
-        : 'המועד שנבחר כבר חלף');
+    if (movedTo == null) {
+      _tell('המועד שנבחר כבר חלף');
+      return;
+    }
+
+    // נשמר באזכרה, ולא רק באזעקה: כך הדחייה נראית ברשימה ושורדת תזמון מחדש.
+    await ref.read(memorialListProvider.notifier).recordPostponement(
+          Memorial.memorialIdForNotification(request.notificationId),
+          movedTo,
+        );
+    if (!mounted) return;
+    _tell('התזכורת נדחתה ל${NotificationService.snoozeChoiceLabel(chosen)}');
   }
 
   /// מכבה את התזכורות של האזכרה שההתראה שייכת לה.

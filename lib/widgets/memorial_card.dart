@@ -37,6 +37,15 @@ class MemorialCard extends StatelessWidget {
     return 'התזכורת בעוד $days ימים';
   }
 
+  /// כשהמשתמש דחה את התזכורת, הכרטיס אומר זאת במפורש – אחרת המספר
+  /// המוצג היה סותר את מה שהוא בחר בלי הסבר.
+  String _postponedLabel(int days) {
+    if (days <= 0) return 'נדחתה להיום';
+    if (days == 1) return 'נדחתה למחר';
+    if (days == 2) return 'נדחתה לעוד יומיים';
+    return 'נדחתה לעוד $days ימים';
+  }
+
   /// "יום שני, 10/08/2026" – היום בשבוע שבו תחול האזכרה.
   String _memorialDayLabel(DateTime d) {
     final weekday = hebrewWeekdayNames[d.weekday] ?? '';
@@ -85,6 +94,7 @@ class MemorialCard extends StatelessWidget {
     final nextDate = calendar.nextMemorialDate(memorial);
     final nextHebrew = calendar.formatNextMemorialHebrewDate(memorial);
     final daysUntil = calendar.daysUntilReminder(memorial);
+    final postponed = calendar.activePostponement(memorial);
 
     final dim = !memorial.enabled;
 
@@ -174,9 +184,11 @@ class MemorialCard extends StatelessWidget {
                 _InfoRow(
                   icon: Icons.notifications_active_outlined,
                   label: 'מועד התזכורת',
-                  value: memorial.enabled
-                      ? _daysLabel(daysUntil)
-                      : 'ההתראה כבויה',
+                  value: !memorial.enabled
+                      ? 'ההתראה כבויה'
+                      : postponed != null
+                          ? _postponedLabel(daysUntil)
+                          : _daysLabel(daysUntil),
                   highlight: memorial.enabled && daysUntil <= 1,
                 ),
                 if (memorial.burialSearchQuery case final query?) ...[

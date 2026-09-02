@@ -34,6 +34,14 @@ class Memorial {
   /// הייתה נראית כמו החמצה ומייצרת התראה כפולה.
   final DateTime? lastNotifiedAt;
 
+  /// מועד שאליו המשתמש דחה את התזכורת של המופע הקרוב.
+  ///
+  /// חד-פעמי ולא שינוי כלל: [reminderMode] נשאר כפי שהוא, וההמופעים של
+  /// השנים הבאות אינם מושפעים. תקף רק כל עוד הוא בעתיד ולפני האזכרה –
+  /// ראה HebrewCalendarService.activePostponement – ולכן אין צורך לנקות
+  /// אותו, הוא מפסיק לחול מעצמו.
+  final DateTime? postponedReminderAt;
+
   /// שם בית העלמין, למשל "ירקון".
   final String? cemetery;
 
@@ -73,6 +81,7 @@ class Memorial {
     this.notes,
     required this.createdAt,
     this.lastNotifiedAt,
+    this.postponedReminderAt,
     this.cemetery,
     this.plot,
     this.photoPath,
@@ -160,6 +169,7 @@ class Memorial {
     DateTime? createdAt,
     bool clearNotes = false,
     DateTime? lastNotifiedAt,
+    DateTime? postponedReminderAt,
     String? cemetery,
     String? plot,
     String? photoPath,
@@ -181,6 +191,8 @@ class Memorial {
       notes: clearNotes ? null : (notes ?? this.notes),
       createdAt: createdAt ?? this.createdAt,
       lastNotifiedAt: lastNotifiedAt ?? this.lastNotifiedAt,
+      postponedReminderAt:
+          postponedReminderAt ?? this.postponedReminderAt,
       cemetery: cemetery ?? this.cemetery,
       plot: plot ?? this.plot,
       photoPath: clearPhoto ? null : (photoPath ?? this.photoPath),
@@ -205,6 +217,7 @@ class Memorial {
       'notes': notes,
       'created_at': createdAt.toIso8601String(),
       'last_notified_at': lastNotifiedAt?.toIso8601String(),
+      'postponed_reminder_at': postponedReminderAt?.toIso8601String(),
       'cemetery': cemetery,
       'plot': plot,
       'photo_path': photoPath,
@@ -227,6 +240,10 @@ class Memorial {
       notes: map['notes'] as String?,
       createdAt: DateTime.parse(map['created_at'] as String),
       // חסר בגיבויים שנוצרו לפני גרסה 2 של הסכימה.
+      postponedReminderAt: switch (map['postponed_reminder_at']) {
+        final String s when s.isNotEmpty => DateTime.tryParse(s),
+        _ => null,
+      },
       lastNotifiedAt: switch (map['last_notified_at']) {
         final String s when s.isNotEmpty => DateTime.parse(s),
         _ => null,

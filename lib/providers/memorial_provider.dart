@@ -191,6 +191,25 @@ class MemorialNotifier extends AsyncNotifier<List<Memorial>> {
     }
   }
 
+  /// שומר דחייה שהמשתמש ביקש מתוך ההתראה.
+  ///
+  /// בלי השמירה הדחייה קיימת רק באזעקה עצמה: היא לא מופיעה ברשימה, והתזמון
+  /// מחדש הבא מחזיר את המועד המקורי ומוחק אותה בשקט.
+  ///
+  /// lastNotifiedAt מתעדכן יחד איתה, כי המועד הזה הוא מעתה "התזכורת הקרובה
+  /// שטופלה" – אחרת מנגנון ההשלמה היה רואה בה החמצה.
+  Future<void> recordPostponement(int memorialId, DateTime at) async {
+    final list = state.valueOrNull ?? await _repo.getAll();
+    for (final m in list) {
+      if (m.id != memorialId) continue;
+      await _repo.update(
+        m.copyWith(postponedReminderAt: at, lastNotifiedAt: at),
+      );
+      await _refresh();
+      return;
+    }
+  }
+
   Future<void> deleteMemorial(Memorial memorial) async {
     if (memorial.id == null) return;
     await _repo.delete(memorial.id!);

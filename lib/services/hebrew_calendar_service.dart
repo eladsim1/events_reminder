@@ -296,6 +296,26 @@ class HebrewCalendarService {
   /// למי שהגדיר תזכורת ראשית בשעה אחרת.
   static const int rescheduledReminderHour = 9;
 
+  /// הדחייה שהמשתמש ביקש, אם היא עדיין תקפה.
+  ///
+  /// תקפה = בעתיד, ולא אחרי יום האזכרה. ההשוואה לאזכרה היא ברמת התאריך
+  /// ולא הרגע, כי "ביום האזכרה" נוחת ב-09:00 ויום האזכרה מיוצג בחצות.
+  ///
+  /// אין מנגנון ניקוי: דחייה שחלפה פשוט מפסיקה לחול, וזה מספיק.
+  DateTime? activePostponement(Memorial memorial, {DateTime? from}) {
+    final at = memorial.postponedReminderAt;
+    if (at == null) return null;
+
+    final now = from ?? _now();
+    if (!at.isAfter(now)) return null;
+
+    final memorialDate = nextMemorialDate(memorial, from: now);
+    final lastDay =
+        DateTime(memorialDate.year, memorialDate.month, memorialDate.day);
+    final atDay = DateTime(at.year, at.month, at.day);
+    return atDay.isAfter(lastDay) ? null : at;
+  }
+
   /// כל מועדי ההתראה העתידיים, מהקרוב לרחוק.
   ///
   /// מדלג על שנים שבהן התאריך אינו קיים (ל' בחודש חסר, אדר א' בשנה פשוטה)
@@ -317,6 +337,15 @@ class HebrewCalendarService {
 
       final reminder = _reminderForMemorialDate(memorial, memorialDate);
       if (reminder.isAfter(now)) reminders.add(reminder);
+    }
+
+    // דחייה מחליפה את המופע הקרוב ואינה מתווספת אליו. בלי ההסרה, תזכורת
+    // שנדחתה עוד לפני שמועדה המקורי חלף הייתה מגיעה פעמיים.
+    final postponed = activePostponement(memorial, from: now);
+    if (postponed != null) {
+      final memorialDate = nextMemorialDate(memorial, from: now);
+      reminders.removeWhere((d) => d.isBefore(memorialDate));
+      reminders.insert(0, postponed);
     }
     return reminders;
   }
@@ -541,7 +570,9 @@ class HebrewCalendarService {
   /// מספר הימים (שלמים) מהיום ועד מועד ההתראה. שלילי אם עבר.
   int daysUntilReminder(Memorial memorial, {DateTime? from}) {
     final now = from ?? _now();
-    final reminder = reminderDate(memorial, from: from);
+    // דחייה גוברת על הכלל: היא המועד שבו ההתראה באמת תגיע.
+    final reminder = activePostponement(memorial, from: from) ??
+        reminderDate(memorial, from: from);
 
     // ההפרש נמדד ב-UTC: על תאריכים מקומיים מעבר שעון קיץ הופך את ההפרש
     // האבסולוטי ל-167 או 169 שעות, ו-inDays היה מעגל כלפי מטה ומחסיר יום.

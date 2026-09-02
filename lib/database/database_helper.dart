@@ -16,7 +16,8 @@ class DatabaseHelper {
   /// 2 -> 3: מיקום קבר (cemetery, plot), תמונה (photo_path), ומועד התזכורת
   /// הניתן להגדרה (reminder_mode, reminder_value).
   /// 3 -> 4: שנת הפטירה העברית (death_hebrew_year), אופציונלית.
-  static const _databaseVersion = 4;
+  /// 4 -> 5: postponed_reminder_at – דחייה חד-פעמית שהמשתמש ביקש מההתראה.
+  static const _databaseVersion = 5;
 
   static const table = 'memorials';
 
@@ -44,6 +45,11 @@ class DatabaseHelper {
 
   /// שדרוג סכימה. חייב להיות אינקרמנטלי – התקנות קיימות מכילות נתונים.
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
+    if (oldVersion < 5) {
+      await db.execute(
+        'ALTER TABLE $table ADD COLUMN postponed_reminder_at TEXT',
+      );
+    }
     if (oldVersion < 2) {
       await db.execute(
         'ALTER TABLE $table ADD COLUMN last_notified_at TEXT',
@@ -85,6 +91,7 @@ class DatabaseHelper {
         notes TEXT,
         created_at TEXT NOT NULL,
         last_notified_at TEXT,
+        postponed_reminder_at TEXT,
         cemetery TEXT,
         plot TEXT,
         photo_path TEXT,

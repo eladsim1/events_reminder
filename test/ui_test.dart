@@ -185,12 +185,13 @@ class _FakeNotifications extends NotificationService {
   Future<PendingReport> pendingReport(List<Memorial> memorials) async => report;
 
   @override
-  Future<bool> rescheduleReminder({
+  Future<DateTime?> rescheduleReminder({
     required ReminderChoiceRequest request,
     required int daysBefore,
   }) async {
     log.add('reschedule:$daysBefore');
-    return true;
+    return DateTime(request.memorialDate.year, request.memorialDate.month,
+        request.memorialDate.day - daysBefore, 9);
   }
 
   /// Set by a test to simulate a reminder that was missed and needs delivering.
@@ -1942,6 +1943,103 @@ void main() {
           tester, find.text('מתי להזכיר?'), 'the choice dialog');
       expect(notif.log, isNot(contains('reschedule:30')),
           reason: 'nothing moves until the user picks');
+    });
+  });
+
+  group('a postponement is remembered, not just fired', () {
+    final cal = HebrewCalendarService(now: () => _fixedNow);
+    final base = _seed(id: 1, name: 'סבא יעקב', day: 27, month: HebrewMonth.av);
+
+    Memorial postponedTo(DateTime at) =>
+        base.copyWith(postponedReminderAt: at);
+
+    test('it counts as the reminder date', () {
+      final natural = cal.reminderDate(base, from: _fixedNow);
+      final later = natural.add(const Duration(days: 3));
+
+      expect(cal.activePostponement(postponedTo(later), from: _fixedNow),
+          later);
+      expect(cal.daysUntilReminder(postponedTo(later), from: _fixedNow),
+          cal.daysUntilReminder(base, from: _fixedNow) + 3,
+          reason: 'the card counts to where the reminder will actually land');
+    });
+
+    test('it replaces the coming occurrence instead of joining it', () {
+      // Without the removal a reminder postponed before its original time
+      // would arrive twice for the same memorial.
+      final natural = cal.reminderDate(base, from: _fixedNow);
+      final later = natural.add(const Duration(days: 1));
+      final dates =
+          cal.futureReminderDates(postponedTo(later), from: _fixedNow);
+
+      expect(dates.first, later);
+      final memorialDate = cal.nextMemorialDate(base, from: _fixedNow);
+      expect(dates.where((d) => d.isBefore(memorialDate)).length, 1,
+          reason: 'exactly one reminder for the coming memorial');
+    });
+
+    test('it expires on its own once it has passed', () {
+      // No clean-up anywhere, so it has to stop applying by itself.
+      final past = _fixedNow.subtract(const Duration(days: 1));
+      expect(cal.activePostponement(postponedTo(past), from: _fixedNow),
+          isNull);
+    });
+
+    test('it is refused past the memorial itself', () {
+      final memorialDate = cal.nextMemorialDate(base, from: _fixedNow);
+      final tooLate = memorialDate.add(const Duration(days: 1));
+      expect(cal.activePostponement(postponedTo(tooLate), from: _fixedNow),
+          isNull);
+
+      // The morning of the memorial is still allowed - it is the last thing
+      // the postponement list offers.
+      final onTheDay = DateTime(memorialDate.year, memorialDate.month,
+          memorialDate.day, HebrewCalendarService.rescheduledReminderHour);
+      expect(cal.activePostponement(postponedTo(onTheDay), from: _fixedNow),
+          onTheDay);
+    });
+
+    test('it survives the database round trip', () {
+      final at = DateTime(2027, 8, 25, 9);
+      final restored = Memorial.fromMap(postponedTo(at).toMap());
+      expect(restored.postponedReminderAt, at);
+    });
+
+    testWidgets('the card says it was postponed', (tester) async {
+      // Seeded already postponed: the dialog builds its list against the real
+      // clock while the card runs on the pinned one, so driving both in a
+      // single test would only be testing the fixture.
+      final natural = cal.reminderDate(base, from: _fixedNow);
+      await _pumpApp(tester, seeded: [
+        base.copyWith(
+            postponedReminderAt: natural.add(const Duration(days: 3))),
+      ]);
+
+      expect(find.textContaining('נדחתה לעוד'), findsOneWidget);
+    });
+
+    testWidgets('choosing one writes it to the memorial', (tester) async {
+      // Only the alarm knew about it before, and the next reschedule wiped it.
+      final now = DateTime.now();
+      final (repo, notif) = await _pumpApp(tester, seeded: [
+        _seed(id: 1, name: 'סבא יעקב', day: 27, month: HebrewMonth.av),
+      ]);
+
+      notif.onChooseReminder!(ReminderChoiceRequest(
+        notificationId: 142,
+        memorialDate: DateTime(now.year, now.month, now.day + 60),
+        body: 'אזכרתו של סבא יעקב',
+      ));
+      await _pumpUntilFound(
+          tester, find.text('מתי להזכיר?'), 'the choice dialog');
+      await tester.tap(find.text('30 ימים לפני'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+
+      expect(repo.items.single.postponedReminderAt, isNotNull);
+      expect(repo.items.single.lastNotifiedAt,
+          repo.items.single.postponedReminderAt,
+          reason: 'otherwise the catch-up would call it a missed reminder');
     });
   });
 

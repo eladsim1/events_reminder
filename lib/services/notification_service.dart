@@ -633,8 +633,11 @@ class NotificationService {
     return response == null ? null : choiceRequestFrom(response);
   }
 
-  /// מתזמן מחדש לפי בחירת המשתמש במסך. מחזיר האם המועד עדיין בעתיד.
-  Future<bool> rescheduleReminder({
+  /// מתזמן מחדש לפי בחירת המשתמש במסך.
+  ///
+  /// מחזיר את המועד שנקבע, או null אם הוא כבר חלף. הקורא אחראי לשמור אותו
+  /// באזכרה – בלי זה הדחייה חיה רק באזעקה, וה-rescheduleAll הבא מוחק אותה.
+  Future<DateTime?> rescheduleReminder({
     required ReminderChoiceRequest request,
     required int daysBefore,
   }) async {
@@ -673,7 +676,7 @@ class NotificationService {
   /// מתזמן התראה קיימת מחדש ל-[daysBefore] ימים לפני האזכרה.
   ///
   /// סטטי כדי שיהיה נגיש גם מ-isolate הרקע, שבו אין מופע חי של השירות.
-  static Future<bool> rescheduleTo({
+  static Future<DateTime?> rescheduleTo({
     required int notificationId,
     required DateTime memorialDate,
     required String body,
@@ -690,7 +693,7 @@ class NotificationService {
     );
     // הגנה: מוצעות רק אפשרויות עתידיות, אבל אם המשתמש התמהמה עם ההתראה
     // פתוחה, המועד שנבחר עשוי לחלוף בינתיים.
-    if (!when.isAfter(DateTime.now())) return false;
+    if (!when.isAfter(DateTime.now())) return null;
 
     final plugin = FlutterLocalNotificationsPlugin();
     await plugin.zonedSchedule(
@@ -705,7 +708,7 @@ class NotificationService {
       notificationDetails: _detailsFor(memorialDate, when),
       androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
     );
-    return true;
+    return when;
   }
 
   /// מציג מיד תזכורת שמועדה חלף וטרם נמסרה.
