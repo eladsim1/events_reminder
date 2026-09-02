@@ -14,21 +14,32 @@ import 'notification_service.dart';
 /// הייתה מוצגת לעולם.
 Future<void> syncReminders(
   MemorialRepository repo,
-  NotificationService notifications,
-) async {
-  final memorials = await repo.getAll();
-  if (memorials.isEmpty) return;
+  NotificationService notifications, {
+  String owner = 'app',
+}) async {
+  // ריצה אחת בכל רגע, **בכל התהליך ולא רק ב-isolate הזה**. השמירה שבמסך
+  // היא שדה בזיכרון, ולעבודה ברקע יש עותק משלה של כל סטטי – כלומר שתיהן
+  // יכולות לרוץ יחד, לקרוא את אותו lastNotifiedAt ולהציג את אותה תזכורת
+  // פעמיים, או לשזור ביטול ותזמון זה בזה.
+  if (!await repo.claimSyncLock(owner)) return;
 
-  await _record(
-    repo,
-    memorials,
-    await notifications.deliverMissedReminders(memorials),
-  );
-  await _record(
-    repo,
-    memorials,
-    await notifications.rescheduleAll(memorials),
-  );
+  try {
+    final memorials = await repo.getAll();
+    if (memorials.isEmpty) return;
+
+    await _record(
+      repo,
+      memorials,
+      await notifications.deliverMissedReminders(memorials),
+    );
+    await _record(
+      repo,
+      memorials,
+      await notifications.rescheduleAll(memorials),
+    );
+  } finally {
+    await repo.releaseSyncLock();
+  }
 }
 
 /// רושם לכל אזכרה את המועד שטופל.

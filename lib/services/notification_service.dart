@@ -505,13 +505,14 @@ class NotificationService {
     Memorial memorial, {
     List<Memorial> among = const [],
     int? quota,
+    List<PendingNotificationRequest>? pending,
   }) async {
     await init();
     final memorialId = memorial.id;
     if (memorialId == null) return null;
 
     // ביטול ההתראה הקודמת לפני חישוב מחדש.
-    await cancelForMemorial(memorialId);
+    await cancelForMemorial(memorialId, pending: pending);
 
     if (!memorial.enabled) return null;
 
@@ -549,6 +550,8 @@ class NotificationService {
       // מה שעדיף בהרבה על לא להגיע כלל. הדיוק וההגעה הן שתי דרישות
       // נפרדות, וכשצריך לוותר, מוותרים על הדיוק.
       try {
+        // בלי הצילום הישן: ההתראות שהניסיון הראשון הספיק לכתוב אינן בו,
+        // והן היו נשארות בתור לצד החדשות.
         await cancelForMemorial(memorialId);
         await _scheduleAll(memorial, reminders, hebrewDate,
             AndroidScheduleMode.inexactAllowWhileIdle);
@@ -838,15 +841,19 @@ class NotificationService {
   /// כל cancel חוצה את גשר הפלטפורמה וגורם לפלאגין לכתוב מחדש את כל רשימת
   /// ההתראות המתוזמנות, כך שסריקה עיוורת של 100 מזהים לכל אזכרה הייתה
   /// עולה מאות קריאות בכל חזרה לחזית.
-  Future<void> cancelForMemorial(int memorialId) async {
+  /// [pending] הוא צילום מצב שכבר נשלף, כדי לא לשלוף שוב.
+  ///
+  /// **קריטי בסבב מלא:** בלעדיו rescheduleAll שלף את כל התור מחדש לכל
+  /// אזכרה – מאות קריאות פלטפורמה שכל אחת מהן מחזירה מאות רשומות, בעבודה
+  /// שאנדרואיד קוצב לה עשר דקות. הצילום תקף כי הבלוקים זרים זה לזה: תזמון
+  /// אזכרה אחת אינו משנה את המזהים של אחרת.
+  Future<void> cancelForMemorial(
+    int memorialId, {
+    List<PendingNotificationRequest>? pending,
+  }) async {
     await init();
-    await _cancelIds(await _pendingIdsFor(memorialId));
-  }
-
-  /// המזהים המתוזמנים בפועל בטווח של אזכרה נתונה.
-  Future<List<int>> _pendingIdsFor(int memorialId) async {
-    final pending = await _plugin.pendingNotificationRequests();
-    return _idsWithin(pending.map((p) => p.id), memorialId);
+    final snapshot = pending ?? await _plugin.pendingNotificationRequests();
+    await _cancelIds(_idsWithin(snapshot.map((p) => p.id), memorialId));
   }
 
   List<int> _idsWithin(Iterable<int> ids, int memorialId) =>
@@ -969,7 +976,8 @@ class NotificationService {
         continue;
       }
 
-      final nearest = await scheduleForMemorial(m, quota: share);
+      final nearest =
+          await scheduleForMemorial(m, quota: share, pending: requests);
       if (nearest != null) scheduled[m.id!] = nearest;
     }
     return scheduled;

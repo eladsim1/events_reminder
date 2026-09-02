@@ -21,6 +21,24 @@ class MemorialRepository {
 
   Future<Memorial?> getById(int id) => _db.getById(id);
 
+  /// נעילת הסנכרון, המשותפת לאפליקציה ולעבודה שרצה ברקע.
+  ///
+  /// יושבת כאן ולא בשירות נפרד כי היא נשמרת במסד – זה המקום היחיד ששני
+  /// ה-isolates רואים במשותף.
+  Future<bool> claimSyncLock(
+    String owner, {
+    Duration staleAfter = const Duration(minutes: 10),
+  }) =>
+      _db.claimSyncLock(owner, staleAfter);
+
+  Future<void> releaseSyncLock() => _db.releaseSyncLock();
+
+  Future<void> recordBackgroundRun(DateTime at, String? error) =>
+      _db.recordBackgroundRun(at, error);
+
+  Future<({DateTime? lastRun, String? lastError})> backgroundStatus() =>
+      _db.backgroundStatus();
+
   /// מחליף את כל הנתונים (ייבוא מ-JSON).
   Future<void> replaceAll(List<Memorial> memorials) =>
       _db.replaceAll(memorials);

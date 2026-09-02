@@ -17,9 +17,14 @@ class DatabaseHelper {
   /// הניתן להגדרה (reminder_mode, reminder_value).
   /// 3 -> 4: שנת הפטירה העברית (death_hebrew_year), אופציונלית.
   /// 4 -> 5: postponed_reminder_at – דחייה חד-פעמית שהמשתמש ביקש מההתראה.
-  static const _databaseVersion = 5;
+  /// 5 -> 6: טבלת app_state – נעילת סנכרון ומצב העבודה שרצה ברקע.
+  static const _databaseVersion = 6;
 
   static const table = 'memorials';
+
+  /// מפתח/ערך לענייני תשתית. קיימת בגלל שני צרכים שאין להם מקום אחר:
+  /// נעילה שמשותפת ל-isolates, ומצב הריצה של העבודה ברקע.
+  static const stateTable = 'app_state';
 
   DatabaseHelper._privateConstructor();
   static final DatabaseHelper instance =
@@ -45,6 +50,9 @@ class DatabaseHelper {
 
   /// שדרוג סכימה. חייב להיות אינקרמנטלי – התקנות קיימות מכילות נתונים.
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
+    if (oldVersion < 6) {
+      await _createStateTable(db);
+    }
     if (oldVersion < 5) {
       await db.execute(
         'ALTER TABLE $table ADD COLUMN postponed_reminder_at TEXT',
@@ -77,7 +85,93 @@ class DatabaseHelper {
     }
   }
 
+  /// תופס את נעילת הסנכרון, או מדווח שהיא תפוסה.
+  ///
+  /// **נעילה בתוך המסד ולא בזיכרון, כי שני isolates מעורבים**: המסך רץ
+  /// באחד והעבודה השבועית באחר, לכל אחד עותק משלו של כל משתנה סטטי. בלי
+  /// הנעילה שניהם קוראים את אותו lastNotifiedAt, שניהם מסיקים שהתזכורת
+  /// הוחמצה ושניהם מציגים אותה – וגם עלולים לשזור ביטול ותזמון זה בזה,
+  /// כי rescheduleAll מבטל לפני שהוא מתזמן.
+  ///
+  /// [staleAfter] הוא שסתום הביטחון: תהליך שנהרג באמצע לא משחרר דבר, ובלי
+  /// תפוגה הסנכרון היה מושבת לנצח.
+  Future<bool> claimSyncLock(String owner, Duration staleAfter) async {
+    final db = await database;
+    return db.transaction<bool>((txn) async {
+      final rows = await txn.query(stateTable,
+          where: 'key = ?', whereArgs: [_syncLockKey]);
+      final now = DateTime.now();
+
+      if (rows.isNotEmpty) {
+        final raw = rows.first['value'] as String?;
+        final held = DateTime.tryParse((raw ?? '').split('|').first);
+        if (held != null && now.difference(held) < staleAfter) return false;
+      }
+
+      await txn.insert(
+        stateTable,
+        {'key': _syncLockKey, 'value': '${now.toIso8601String()}|$owner'},
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+      return true;
+    });
+  }
+
+  Future<void> releaseSyncLock() async {
+    final db = await database;
+    await db.delete(stateTable, where: 'key = ?', whereArgs: [_syncLockKey]);
+  }
+
+  static const _syncLockKey = 'sync_lock';
+  static const _backgroundRunKey = 'background_last_run';
+  static const _backgroundErrorKey = 'background_last_error';
+
+  /// רושם את תוצאת הריצה של העבודה ברקע.
+  ///
+  /// היא רצה ב-isolate אחר, ולכן שדה בזיכרון לעולם לא יגיע למסך: כשל שבועי
+  /// היה נשאר בלתי נראה לגמרי.
+  Future<void> recordBackgroundRun(DateTime at, String? error) async {
+    final db = await database;
+    await db.insert(
+      stateTable,
+      {'key': _backgroundRunKey, 'value': at.toIso8601String()},
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+    await db.insert(
+      stateTable,
+      {'key': _backgroundErrorKey, 'value': error ?? ''},
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  Future<({DateTime? lastRun, String? lastError})> backgroundStatus() async {
+    final db = await database;
+    final rows = await db.query(stateTable,
+        where: 'key IN (?, ?)',
+        whereArgs: [_backgroundRunKey, _backgroundErrorKey]);
+
+    DateTime? lastRun;
+    String? lastError;
+    for (final r in rows) {
+      final value = r['value'] as String? ?? '';
+      if (r['key'] == _backgroundRunKey) {
+        lastRun = DateTime.tryParse(value);
+      } else if (value.isNotEmpty) {
+        lastError = value;
+      }
+    }
+    return (lastRun: lastRun, lastError: lastError);
+  }
+
+  Future<void> _createStateTable(Database db) async {
+    await db.execute(
+      'CREATE TABLE IF NOT EXISTS $stateTable ('
+      'key TEXT PRIMARY KEY, value TEXT)',
+    );
+  }
+
   Future<void> _onCreate(Database db, int version) async {
+    await _createStateTable(db);
     await db.execute('''
       CREATE TABLE $table (
         id INTEGER PRIMARY KEY AUTOINCREMENT,

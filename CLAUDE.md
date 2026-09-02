@@ -545,6 +545,33 @@ moment leaves it behind. Nothing else notices a leftover, since it is counted
 neither in what is wanted nor in what a memorial already holds, and it goes on
 firing the text baked into it years ago.
 
+## Two isolates, one database, and no shared memory
+
+The background job runs in its own `FlutterEngine` and its own isolate. **Every
+static is a separate copy there**, which means the single-flight guard in
+`MemorialNotifier` does not cover it at all: the screen and the job can sync at
+the same moment, read the same `lastNotifiedAt`, and both deliver the same
+reminder — the very failure that produced the duplicate notification. Worse,
+`rescheduleAll` cancels before it schedules, so interleaving them can cancel
+alarms the other has just written.
+
+`syncReminders` therefore claims a lock **in the database**, the only place the
+two isolates can both see. It is a row in `app_state`, taken in a transaction,
+and it expires (`staleAfter`, ten minutes, matching the WorkManager limit)
+because a process killed mid-run releases nothing and without expiry syncing
+would be dead forever. It is released in a `finally`, and a test asserts that —
+a throw that kept the lock would silently stop all scheduling.
+
+The same table records the background job's last run and last error. That is
+not a nicety: the job runs in another isolate, so `lastScheduleError` — a field
+in memory — can never reach the settings screen, and a job failing every week
+would be **completely invisible**. `BackgroundRefresh.run` takes an injectable
+repo and service purely so this can be tested.
+
+Two isolates also hold two SQLite connections to the same file. Writes are
+short and SQLite serialises them, but the lock removes the overlap that would
+have made contention likely in the first place.
+
 ## The window slides on its own, once a week
 
 `BackgroundRefresh` registers a WorkManager periodic task that reloads the
@@ -581,6 +608,18 @@ Notes for anyone touching it:
 - `workmanager` 0.10.9 builds cleanly against the pinned AGP 8.13.2 / Kotlin
   2.1.20 set. Verified in the APK: `androidx.work.impl.*` components are
   present in the merged manifest.
+- **WorkManager allows a worker about ten minutes.** `rescheduleAll` used to
+  re-fetch the entire pending queue *per memorial* inside `cancelForMemorial` —
+  hundreds of platform calls each returning hundreds of rows. It now passes the
+  snapshot it already holds; the blocks are disjoint, so scheduling one memorial
+  cannot invalidate another's ids. The inexact-retry path deliberately fetches
+  fresh, because the failed first attempt may already have written notifications
+  that the old snapshot does not know about.
+- `requiresBatteryNotLow: true` can defer the job indefinitely on a phone kept
+  low, and OEM standby buckets stretch "weekly" a long way. A force-stop
+  cancels it outright until the app is next opened. None of that is fixable
+  from inside the app — which is why the catch-up on launch stays the
+  backstop.
 
 ## One reminder series, one id block
 

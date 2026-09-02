@@ -16,7 +16,10 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart'
-    show NotificationResponse, NotificationResponseType;
+    show
+        NotificationResponse,
+        NotificationResponseType,
+        PendingNotificationRequest;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -31,6 +34,7 @@ import 'package:azkarot_app/screens/home_screen.dart';
 import 'package:azkarot_app/screens/settings_screen.dart';
 import 'package:azkarot_app/screens/splash_screen.dart';
 import 'package:azkarot_app/services/hebrew_calendar_service.dart';
+import 'package:azkarot_app/services/background_refresh.dart';
 import 'package:azkarot_app/services/notification_service.dart';
 import 'package:azkarot_app/services/reminder_sync.dart';
 import 'package:azkarot_app/services/photo_store.dart';
@@ -73,6 +77,40 @@ class _InMemoryRepo extends MemorialRepository {
     }
     return null;
   }
+
+  /// In the real repository the lock is a database row - the one place two
+  /// isolates can both see. In memory it is free unless a test holds it.
+  bool syncLockHeld = false;
+  final List<String> lockOwners = [];
+
+  @override
+  Future<bool> claimSyncLock(
+    String owner, {
+    Duration staleAfter = const Duration(minutes: 10),
+  }) async {
+    if (syncLockHeld) return false;
+    syncLockHeld = true;
+    lockOwners.add(owner);
+    return true;
+  }
+
+  @override
+  Future<void> releaseSyncLock() async {
+    syncLockHeld = false;
+  }
+
+  DateTime? backgroundRunAt;
+  String? backgroundError;
+
+  @override
+  Future<void> recordBackgroundRun(DateTime at, String? error) async {
+    backgroundRunAt = at;
+    backgroundError = error;
+  }
+
+  @override
+  Future<({DateTime? lastRun, String? lastError})> backgroundStatus() async =>
+      (lastRun: backgroundRunAt, lastError: backgroundError);
 
   @override
   Future<void> replaceAll(List<Memorial> memorials) async {
@@ -137,6 +175,7 @@ class _FakeNotifications extends NotificationService {
     Memorial memorial, {
     List<Memorial> among = const [],
     int? quota,
+    List<PendingNotificationRequest>? pending,
   }) async {
     schedulingStarted = true;
     await _maybeBlock();
@@ -148,13 +187,20 @@ class _FakeNotifications extends NotificationService {
   }
 
   @override
-  Future<void> cancelForMemorial(int memorialId) async {
+  Future<void> cancelForMemorial(
+    int memorialId, {
+    List<PendingNotificationRequest>? pending,
+  }) async {
     await _maybeBlock();
     log.add('cancel:$memorialId');
   }
 
+  /// Set by a test to make the scheduling step blow up.
+  bool failScheduling = false;
+
   @override
   Future<Map<int, DateTime>> rescheduleAll(List<Memorial> memorials) async {
+    if (failScheduling) throw Exception('scheduling refused');
     final out = <int, DateTime>{};
     for (final m in memorials) {
       final at = await scheduleForMemorial(m);
@@ -2439,6 +2485,76 @@ void main() {
       final notif = _FakeNotifications();
       await syncReminders(_InMemoryRepo(), notif);
       expect(notif.log, isEmpty);
+    });
+  });
+
+  group('the app and the background job cannot run at once', () {
+    _InMemoryRepo seeded() => _InMemoryRepo()
+      ..items
+          .add(_seed(id: 1, name: 'סבא יעקב', day: 27, month: HebrewMonth.av));
+
+    test('a sync backs off while another holds the lock', () async {
+      // The guard on the screen is a field in memory, and the background job
+      // has its own copy of every static - so without a lock in the database
+      // both can run, both read the same lastNotifiedAt, and both deliver.
+      final repo = seeded()..syncLockHeld = true;
+      final notif = _FakeNotifications()
+        ..missedToDeliver = DateTime(2026, 8, 4, 9);
+
+      await syncReminders(repo, notif, owner: 'background');
+
+      expect(notif.log, isEmpty, reason: 'no work while someone else holds it');
+    });
+
+    test('and runs once the lock is free', () async {
+      final repo = seeded();
+      final notif = _FakeNotifications()
+        ..nearestScheduled = DateTime(2027, 8, 24, 9);
+
+      await syncReminders(repo, notif, owner: 'background');
+
+      expect(notif.log, isNotEmpty);
+      expect(repo.lockOwners, ['background']);
+      expect(repo.syncLockHeld, isFalse, reason: 'and hands it back');
+    });
+
+    test('the lock is handed back even when the work throws', () async {
+      // A lock that is never released would disable syncing until it goes
+      // stale - ten minutes of no reminders being scheduled at all.
+      final repo = seeded();
+      final notif = _FakeNotifications()..failScheduling = true;
+
+      await expectLater(syncReminders(repo, notif), throwsException);
+      expect(repo.syncLockHeld, isFalse);
+    });
+  });
+
+  group('the background job leaves a trace', () {
+    _InMemoryRepo seeded() => _InMemoryRepo()
+      ..items
+          .add(_seed(id: 1, name: 'סבא יעקב', day: 27, month: HebrewMonth.av));
+
+    test('a good run is written down', () async {
+      final repo = seeded();
+      final notif = _FakeNotifications()
+        ..nearestScheduled = DateTime(2027, 8, 24, 9);
+
+      expect(await BackgroundRefresh.run(repo: repo, notifications: notif),
+          isTrue);
+      expect(repo.backgroundRunAt, isNotNull);
+      expect(repo.backgroundError, isNull);
+    });
+
+    test('so is a failure, and why', () async {
+      // It runs in another isolate, so a field in memory never reaches the
+      // screen: a job failing every week would be completely invisible.
+      final repo = seeded();
+      final notif = _FakeNotifications()..failScheduling = true;
+
+      expect(await BackgroundRefresh.run(repo: repo, notifications: notif),
+          isFalse);
+      expect(repo.backgroundError, contains('scheduling refused'));
+      expect(repo.syncLockHeld, isFalse);
     });
   });
 

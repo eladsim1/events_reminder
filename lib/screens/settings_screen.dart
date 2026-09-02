@@ -210,8 +210,53 @@ class SettingsScreen extends ConsumerWidget {
           ),
           const Divider(),
           const _ScheduledReminders(),
+          const _BackgroundRefreshStatus(),
         ],
       ),
+    );
+  }
+}
+
+/// מתי רץ הרענון השבועי, ומה קרה בו.
+///
+/// העבודה רצה ב-isolate נפרד, ולכן שדה בזיכרון לעולם לא יגיע לכאן – ובלי
+/// התצוגה הזו עבודה שנכשלת כל שבוע אינה נראית משום מקום.
+class _BackgroundRefreshStatus extends ConsumerWidget {
+  const _BackgroundRefreshStatus();
+
+  String _ago(DateTime at) {
+    final days = DateTime.now().difference(at).inDays;
+    if (days <= 0) return 'היום';
+    if (days == 1) return 'אתמול';
+    return 'לפני $days ימים';
+  }
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = Theme.of(context);
+    return FutureBuilder<({DateTime? lastRun, String? lastError})>(
+      future: ref.read(memorialRepositoryProvider).backgroundStatus(),
+      builder: (context, snapshot) {
+        final status = snapshot.data;
+        final failed = status?.lastError != null;
+        return ListTile(
+          leading: const Icon(Icons.autorenew),
+          title: const Text('רענון שבועי ברקע'),
+          subtitle: Text(
+            status == null
+                ? 'נבדק...'
+                : status.lastRun == null
+                    ? 'טרם רץ. אנדרואיד מריץ אותו מתי שנוח לו.'
+                    : failed
+                        ? 'נכשל ${_ago(status.lastRun!)} — ${status.lastError}'
+                        : 'רץ ${_ago(status.lastRun!)}',
+            style: failed
+                ? theme.textTheme.bodySmall
+                    ?.copyWith(color: theme.colorScheme.error)
+                : theme.textTheme.bodySmall,
+          ),
+        );
+      },
     );
   }
 }

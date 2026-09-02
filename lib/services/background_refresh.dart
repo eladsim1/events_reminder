@@ -56,15 +56,35 @@ class BackgroundRefresh {
   /// השירותים ישירות. היא **גם מציגה תזכורות שאבדו** ולא רק מתזמנת מחדש:
   /// קודם היא תיזמנה בלבד, ולכן מי שאזעקתו נהרגה בידי מנהל הסוללה נשאר
   /// ממתין לפתיחה ידנית של האפליקציה.
-  static Future<bool> run() async {
+  /// [repo] ו-[notifications] נפתחים להזרקה כדי שהרישום יהיה בר-בדיקה.
+  /// ה-isolate האמיתי אינו מעביר דבר ומקבל את ברירות המחדל.
+  static Future<bool> run({
+    MemorialRepository? repo,
+    NotificationService? notifications,
+  }) async {
+    repo ??= MemorialRepository();
     try {
-      await syncReminders(MemorialRepository(), NotificationService());
+      await syncReminders(repo, notifications ?? NotificationService(),
+          owner: 'background');
+      await _record(repo, null);
       return true;
-    } catch (_) {
-      // כשל כאן אינו קריטי: החלון יתרענן בפתיחה הבאה, ובנוסף מנגנון
-      // ההשלמה מציג תזכורת שמועדה חלף. החזרת false תגרום ל-WorkManager
-      // לנסות שוב.
+    } catch (e) {
+      // כשל כאן אינו קריטי לתזכורות: החלון יתרענן בפתיחה הבאה, ובנוסף
+      // מנגנון ההשלמה מציג תזכורת שמועדה חלף. החזרת false תגרום
+      // ל-WorkManager לנסות שוב.
+      //
+      // אבל הוא **נרשם**. הריצה הזו ב-isolate אחר, ולכן שדה בזיכרון לעולם
+      // לא יגיע למסך: עבודה שנכשלת כל שבוע הייתה בלתי נראית לחלוטין.
+      await _record(repo, NotificationService.firstLineOf(e));
       return false;
+    }
+  }
+
+  static Future<void> _record(MemorialRepository repo, String? error) async {
+    try {
+      await repo.recordBackgroundRun(DateTime.now(), error);
+    } catch (_) {
+      // אם גם הרישום נכשל אין מה לעשות, ובוודאי לא להפיל את העבודה.
     }
   }
 }
