@@ -378,20 +378,31 @@ Hebrew calendar — `matchDateTimeComponents` only repeats weekly, monthly, or
 annually on a **fixed Gregorian date**, while a Hebrew anniversary drifts. So
 `NotificationService.scheduleForMemorial` enumerates
 `HebrewCalendarService.futureReminderDates` (horizon:
-`scheduleHorizonYears`, currently **3**) and schedules every occurrence. Each
+`scheduleHorizonYears`, currently **2**) and schedules every occurrence. Each
 app launch and resume refills the window via `loadAndReschedule`.
 
 **Why not one year, and why not twenty.** One is too few: once the year's
 reminder fires, something has to compute and schedule the next, and the boot
 receiver only re-registers alarms that already exist — it does not compute new
-ones. So a phone left unopened for thirteen months would miss the next
-memorial. Twenty was too many: it defended a horizon that other, unhandled
-failures reach long before — a new phone, a reinstall, aggressive battery
-management — and there is no cloud backup, so a device change resets everything
-regardless. It bought that with two real costs: Android's 500-alarm ceiling, and
-scheduling that is quadratic in the number of occurrences. Three survives three
-consecutive years without the app being opened, which already exceeds the gap
-between two successive memorials.
+ones. Twenty was too many: it defended a horizon that other, unhandled failures
+reach long before — a new phone, a reinstall, aggressive battery management —
+and there is no cloud backup, so a device change resets everything regardless.
+It bought that with Android's 500-alarm ceiling and with scheduling that is
+quadratic in the number of occurrences.
+
+**The horizon counts Hebrew years, not the lead time that remains**, which is
+the part that is easy to misread. A memorial whose date has just passed loses
+an occurrence immediately, so in the worst case:
+
+```
+horizon 2  ->  1.05 years of cover,  3 alarms per memorial
+horizon 3  ->  2.03 years of cover,  4 alarms per memorial
+```
+
+That measurement led me to recommend 3; the user chose 2, deliberately. The
+consequence is that thirteen months without opening the app can miss one
+memorial — unless the weekly refresh runs, which is the thing an OEM battery
+manager may defer. Do not change the number without redoing the measurement.
 
 A test that indexes a fixed occurrence (`reminders[5]`) breaks the moment this
 changes; anchor on `reminders.last` instead.
@@ -505,13 +516,13 @@ hit the ceiling with nothing queued at all. Measured coverage under the global
 budget, on a list of evenly spread dates:
 
 ```
-1 name        2 alarms   ~2 years ahead
-10           29          ~2.6 years
-50          149          ~3 years   (the per-memorial horizon binds, not the budget)
-100         299          ~3 years
-200         400          ~2 years
-300         400          ~17 months
-1000        400          ~5.5 months
+1 name        1 alarm     ~13 months   (worst case: its date has just passed)
+10           19           ~20 months
+50           99           ~24 months   (the horizon binds here, not the budget)
+100         199           ~24 months
+200         399           ~24 months
+300         400           ~17 months
+1000        400           ~5.5 months
 ```
 
 It degrades instead of breaking. The cost at scale is that a memorial whose
