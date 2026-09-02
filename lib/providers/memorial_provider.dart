@@ -137,10 +137,13 @@ class MemorialNotifier extends AsyncNotifier<List<Memorial>> {
   /// מציג תזכורות שמועדן חלף ולא טופלו – למשל אזכרה שנוספה אחרי שיום השלישי
   /// שלה כבר חלף. עדיף באיחור מאשר לדלג.
   Future<void> _deliverMissedReminders(List<Memorial> memorials) async {
+    final delivered = await _notifications.deliverMissedReminders(memorials);
+    if (delivered.isEmpty) return;
+
     for (final m in memorials) {
-      final delivered = await _notifications.deliverMissedReminder(m);
-      if (delivered == null) continue;
-      await _repo.update(m.copyWith(lastNotifiedAt: delivered));
+      final at = delivered[m.id];
+      if (at == null || m.lastNotifiedAt == at) continue;
+      await _repo.update(m.copyWith(lastNotifiedAt: at));
     }
   }
 

@@ -257,12 +257,25 @@ class NotificationService {
   /// [rescheduleAll] מזהה לפיה התראות שתוזמנו בגרסה ישנה, ומתזמן אותן
   /// מחדש. בלעדיה שדרוג של האפליקציה לא היה מגיע לעולם למי שכבר בתור:
   /// תוכן ההתראה נצרב בזמן התזמון, והחלון המלא שלה גורם לדילוג.
-  static const int payloadVersion = 6;
+  static const int payloadVersion = 7;
+
+  /// הגרסה שממנה ה-payload נושא גם את מועד הירי.
+  ///
+  /// נדרש כדי לפענח נכון payload ישן: שם השדה השני הוא כבר גוף ההודעה.
+  static const int firesAtPayloadVersion = 7;
 
   /// ה-payload נושא גם את תאריך האזכרה: ה-isolate שמטפל בבחירה מבודד ואינו
   /// יכול לקרוא את מסד הנתונים, ובלי התאריך אין לו מול מה לחשב "ימים לפני".
-  static String encodePayload(DateTime? memorialDate, String body) =>
-      'v$payloadVersion|${memorialDate?.millisecondsSinceEpoch ?? 0}|$body';
+  /// [firesAt] הוא מועד הירי המתוכנן. הוא מה שמאפשר לזהות אזעקה שאבדה:
+  /// התראה שנורית נמחקת ממאגר הפלאגין, ולכן אחת שעדיין ממתינה אף שמועדה
+  /// חלף היא כזו שמעולם לא נורתה.
+  static String encodePayload(
+    DateTime? memorialDate,
+    String body, {
+    DateTime? firesAt,
+  }) =>
+      'v$payloadVersion|${memorialDate?.millisecondsSinceEpoch ?? 0}'
+      '|${firesAt?.millisecondsSinceEpoch ?? 0}|$body';
 
   /// האם ה-payload נכתב בגרסה הנוכחית.
   static bool isCurrentPayload(String? payload) =>
@@ -286,27 +299,46 @@ class NotificationService {
   }) =>
       stalePayload || pendingCount != wantedCount;
 
-  static ({DateTime? memorialDate, String body})? decodePayload(String? p) {
+  static ({DateTime? memorialDate, DateTime? firesAt, String body})?
+      decodePayload(String? p) {
     if (p == null) return null;
 
     var rest = p;
+    var version = 0;
     // קידומת הגרסה, אם קיימת. בניות קודמות כתבו payload בלעדיה, וההתראות
     // שלהן עדיין בתור.
     final v = rest.indexOf('|');
-    if (v > 0 &&
-        rest.startsWith('v') &&
-        int.tryParse(rest.substring(1, v)) != null) {
-      rest = rest.substring(v + 1);
+    if (v > 0 && rest.startsWith('v')) {
+      final parsed = int.tryParse(rest.substring(1, v));
+      if (parsed != null) {
+        version = parsed;
+        rest = rest.substring(v + 1);
+      }
     }
 
+    DateTime? at(int ms) =>
+        ms == 0 ? null : DateTime.fromMillisecondsSinceEpoch(ms);
+
     final i = rest.indexOf('|');
-    if (i < 0) return (memorialDate: null, body: rest);
+    if (i < 0) return (memorialDate: null, firesAt: null, body: rest);
     final ms = int.tryParse(rest.substring(0, i));
-    if (ms == null) return (memorialDate: null, body: rest);
-    return (
-      memorialDate: ms == 0 ? null : DateTime.fromMillisecondsSinceEpoch(ms),
-      body: rest.substring(i + 1),
-    );
+    if (ms == null) return (memorialDate: null, firesAt: null, body: rest);
+    rest = rest.substring(i + 1);
+
+    // רק מגרסה זו והלאה יש שדה שני. בישנות ממנה מה שאחריו הוא גוף ההודעה.
+    DateTime? firesAt;
+    if (version >= firesAtPayloadVersion) {
+      final j = rest.indexOf('|');
+      if (j >= 0) {
+        final parsed = int.tryParse(rest.substring(0, j));
+        if (parsed != null) {
+          firesAt = at(parsed);
+          rest = rest.substring(j + 1);
+        }
+      }
+    }
+
+    return (memorialDate: at(ms), firesAt: firesAt, body: rest);
   }
 
   /// הגדרות ההתראה. [withSnoozeAction] מוסיף את הכפתור שפותח את הרשימה במסך;
@@ -570,7 +602,7 @@ class NotificationService {
       body: body,
       // ה-payload נושא את הטקסט כדי שכפתור הדחייה יוכל לשחזר אותו:
       // isolate הרקע אינו יכול לקרוא את מסד הנתונים.
-      payload: encodePayload(memorialDate, body),
+      payload: encodePayload(memorialDate, body, firesAt: when),
       scheduledDate: tz.TZDateTime.from(when, tz.local),
       // רק אפשרויות שנוחתות לפני האזכרה ואחרי מועד ההתראה עצמו.
       notificationDetails: _detailsFor(memorialDate, when),
@@ -702,7 +734,7 @@ class NotificationService {
       title: 'תזכורת אזכרה',
       body: body,
       // נכתב מחדש ולא מועתק: כך התראה שתוזמנה בגרסה ישנה עולה לנוכחית.
-      payload: encodePayload(memorialDate, body),
+      payload: encodePayload(memorialDate, body, firesAt: when),
       scheduledDate: tz.TZDateTime.from(when, tz.local),
       // האפשרויות נבנות מחדש מול המועד החדש, כך שאפשר לשנות שוב.
       notificationDetails: _detailsFor(memorialDate, when),
@@ -715,11 +747,63 @@ class NotificationService {
   ///
   /// מחזיר את המועד שהוצג, או null אם לא היה מה להשלים. הקורא אחראי לשמור
   /// אותו ב-lastNotifiedAt כדי שלא יוצג שוב בפתיחה הבאה.
+  Future<Map<int, DateTime>> deliverMissedReminders(
+      List<Memorial> memorials) async {
+    await init();
+    // פעם אחת לכל הסבב: קריאה לכל אזכרה הייתה מאות קריאות פלטפורמה ברשימה
+    // גדולה, וכל אחת מהן מחזירה את כל התור.
+    final pending = await _plugin.pendingNotificationRequests();
+
+    final delivered = <int, DateTime>{};
+    for (final m in memorials) {
+      final at = await _deliverMissed(m, pending);
+      if (at != null && m.id != null) delivered[m.id!] = at;
+    }
+    return delivered;
+  }
+
   Future<DateTime?> deliverMissedReminder(Memorial memorial) async {
     await init();
+    return _deliverMissed(
+        memorial, await _plugin.pendingNotificationRequests());
+  }
+
+  /// התראה שמועדה חלף והיא עדיין רשומה כממתינה – כלומר האזעקה שלה אבדה.
+  ///
+  /// התראה שנורית נמחקת ממאגר הפלאגין. אחת שנשארה בו אחרי שמועדה עבר לא
+  /// נורתה מעולם, וזה מה שקורה כשאנדרואיד מוחק את האזעקות: סגירה כפויה, או
+  /// מנהל סוללה שהרג את האפליקציה.
+  ///
+  /// דווקא כאן ההשלמה הרגילה חסומה: lastNotifiedAt נכתב בזמן **התזמון**,
+  /// ולכן הוא כבר שווה למועד שאבד ומשכנע את missedReminderDate שהכול טופל.
+  static ({int id, DateTime firesAt})? _lostAlarm(
+    Memorial memorial,
+    List<PendingNotificationRequest> pending,
+    DateTime now,
+  ) {
+    final memorialId = memorial.id;
+    if (memorialId == null) return null;
+
+    ({int id, DateTime firesAt})? latest;
+    for (final r in pending) {
+      if (!Memorial.ownsNotificationId(r.id, memorialId)) continue;
+      final at = decodePayload(r.payload)?.firesAt;
+      if (at == null || at.isAfter(now)) continue;
+      if (latest == null || at.isAfter(latest.firesAt)) {
+        latest = (id: r.id, firesAt: at);
+      }
+    }
+    return latest;
+  }
+
+  Future<DateTime?> _deliverMissed(
+    Memorial memorial,
+    List<PendingNotificationRequest> pending,
+  ) async {
     if (memorial.id == null || !memorial.enabled) return null;
 
-    final missed = _calendar.missedReminderDate(memorial);
+    final lost = _lostAlarm(memorial, pending, DateTime.now());
+    final missed = _calendar.missedReminderDate(memorial) ?? lost?.firesAt;
     if (missed == null) return null;
 
     final now = DateTime.now();
@@ -739,6 +823,10 @@ class NotificationService {
       payload: encodePayload(memorialDate, body),
       notificationDetails: _detailsFor(memorialDate, now),
     );
+
+    // מבטלים את מה שאבד אחרי שהוצג, אחרת הוא יזוהה שוב בכל פתיחה: הסימון
+    // כבר שווה למועדו, ולכן שום דבר אחר לא ימנע חזרה.
+    if (lost != null) await _plugin.cancel(id: lost.id);
     return missed;
   }
   /// מבטל את **כל** המופעים המתוזמנים של אזכרה.

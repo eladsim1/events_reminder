@@ -174,12 +174,18 @@ class HebrewCalendarService {
       final probe = JewishDate();
       probe.setJewishDate(hebrewYear, kMonth, 1);
       final daysInMonth = probe.getDaysInJewishMonth();
-      if (memorial.hebrewDay > daysInMonth) {
-        return null; // היום אינו קיים בחודש בשנה זו.
-      }
+
+      // ל' בחודש שאורכו 29 בשנה זו – חשוון וכסלו משתנים באורכם. עד כה השנה
+      // דולגה כליל, ומדידה הראתה שאזכרה בל' בחשוון קיבלה תזכורת ב-5 שנים
+      // בלבד מתוך 11. **חוסר תזכורת גרוע מתזכורת ביום סמוך**, ולכן נסוגים
+      // ליום האחרון של אותו חודש. זו הכרעה מעשית ולא פסיקה: יש נוהגים
+      // לציין בכ"ט ויש בראש חודש שאחריו, והבחירה כאן היא זו שלעולם אינה
+      // מאחרת אחרי היום המקורי.
+      final day =
+          memorial.hebrewDay > daysInMonth ? daysInMonth : memorial.hebrewDay;
 
       final jd = JewishDate();
-      jd.setJewishDate(hebrewYear, kMonth, memorial.hebrewDay);
+      jd.setJewishDate(hebrewYear, kMonth, day);
       final g = jd.getGregorianCalendar();
       return DateTime(g.year, g.month, g.day);
     } catch (_) {
@@ -190,8 +196,8 @@ class HebrewCalendarService {
   /// מחזיר את תאריך האזכרה הלועזי הקרוב ביותר (מהיום והלאה).
   ///
   /// אם התאריך של השנה הנוכחית כבר עבר – מחזיר את של השנה הבאה.
-  /// מדלג על שנים שבהן היום/החודש אינם קיימים (למשל אדר א'/ב' בשנה פשוטה,
-  /// או ל' בחודש חסר).
+  /// בשנה שבה היום אינו קיים (ל' בחודש שאורכו 29) נסוגים ליום האחרון של
+  /// אותו חודש, במקום לדלג על השנה.
   DateTime nextMemorialDate(Memorial memorial, {DateTime? from}) {
     final occurrence = nextMemorialOccurrence(memorial, from: from);
     if (occurrence != null) return occurrence.gregorian;

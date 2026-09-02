@@ -304,6 +304,44 @@ other:
    `HebrewCalendarService.missedReminderDate` detects it and
    `deliverMissedReminder` shows it immediately.
 
+### A Hebrew date that some years do not have
+
+`ל' בחשוון` and `ל' בכסלו` exist only when the month runs to thirty days.
+`_memorialGregorianForYear` used to return null for the other years and the
+whole year was skipped — measured over eleven years, `ל' בחשוון` produced
+**five** reminders and `ל' בכסלו` eight. A memorial with no reminder at all is
+a worse answer than one on the adjacent day, so it now falls back to the last
+day of that month. Both now match an ordinary date.
+
+This is a practical call, not a ruling: some keep the yahrzeit on the 29th and
+some on the following Rosh Chodesh. The fallback picks the one that never lands
+*after* the original day. A test pins it by comparing the count against an
+ordinary date in the same month — the previous test asserted the skipping, so
+it had to be inverted rather than adjusted.
+
+### An alarm that was scheduled and never fired
+
+`lastNotifiedAt` is written at schedule time (below), which means the catch-up
+is blocked exactly when the alarm was scheduled and then silently killed —
+a force-stop, or an OEM battery manager. Measured: with the memorial never
+scheduled the catch-up fires; with it scheduled and the alarm lost it returns
+null.
+
+The signal that separates them is the plugin's own store: **a delivered
+notification is removed from it, so one still listed as pending after its time
+has passed never fired.** The payload therefore carries `firesAt`
+(`firesAtPayloadVersion`), and `_lostAlarm` looks for a pending entry in the
+memorial's block whose firing time is in the past. `_deliverMissed` falls back
+to it when `missedReminderDate` says nothing, then **cancels that entry** —
+otherwise it would be rediscovered on every launch, since `lastNotifiedAt`
+already equals its time and nothing else would stop it.
+
+Two details worth keeping: the pending list is fetched **once per sync**
+(`deliverMissedReminders`) rather than per memorial, which was hundreds of
+platform calls on a long list; and `decodePayload` only reads `firesAt` when
+the version says it is there, or a version-6 payload would have its body torn
+in half.
+
 ### lastNotifiedAt must be written at SCHEDULE time, not only on delivery
 
 `flutter_local_notifications` has no delivery callback (only a tap callback), so

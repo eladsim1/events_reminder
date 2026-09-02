@@ -198,6 +198,19 @@ class _FakeNotifications extends NotificationService {
   /// Left null, this is a no-op — which is what every other test wants.
   DateTime? missedToDeliver;
 
+  // The provider asks in one batch; the per-memorial rule below stays the
+  // single source of truth for what a fake delivery does.
+  @override
+  Future<Map<int, DateTime>> deliverMissedReminders(
+      List<Memorial> memorials) async {
+    final out = <int, DateTime>{};
+    for (final m in memorials) {
+      final at = await deliverMissedReminder(m);
+      if (at != null && m.id != null) out[m.id!] = at;
+    }
+    return out;
+  }
+
   @override
   Future<DateTime?> deliverMissedReminder(Memorial memorial) async {
     final missed = missedToDeliver;
@@ -664,17 +677,21 @@ void main() {
       expect(dates.last.year - dates.first.year, greaterThanOrEqualTo(18));
     });
 
-    test('skips years where the date does not exist', () {
+    test('a date absent in some years falls back instead of vanishing', () {
       final cal = HebrewCalendarService();
-      // Kislev has 29 or 30 days depending on the year, so ל' בכסלו is
-      // genuinely absent in some of them. (Adar I is NOT such a case: in a
-      // non-leap year it resolves onto the single Adar by design.)
-      final m = _seed(id: 1, name: 'x', day: 30, month: HebrewMonth.kislev);
-      final dates = cal.futureReminderDates(m, from: _fixedNow, years: 19);
-      // ignore: avoid_print
-      print('  30 Kislev over 19 years -> ${dates.length} reminders');
-      expect(dates.length, lessThan(19), reason: 'some years lack the date');
-      expect(dates, isNotEmpty);
+      // Cheshvan and Kislev are 29 or 30 days depending on the year, so
+      // ל' בהם is genuinely absent in some of them. Those years used to be
+      // dropped outright - measured at 5 reminders out of 11 for 30 Cheshvan
+      // and 8 for 30 Kislev. A memorial with no reminder at all is a worse
+      // answer than one on the adjacent day.
+      final absent = _seed(id: 1, name: 'x', day: 30, month: HebrewMonth.kislev);
+      final ordinary =
+          _seed(id: 2, name: 'y', day: 15, month: HebrewMonth.kislev);
+
+      final dates = cal.futureReminderDates(absent, from: _fixedNow, years: 19);
+      expect(dates.length,
+          cal.futureReminderDates(ordinary, from: _fixedNow, years: 19).length,
+          reason: 'as many reminders as any ordinary date');
       for (final d in dates) {
         expect(d.weekday, DateTime.tuesday);
       }
@@ -1943,6 +1960,49 @@ void main() {
           tester, find.text('מתי להזכיר?'), 'the choice dialog');
       expect(notif.log, isNot(contains('reschedule:30')),
           reason: 'nothing moves until the user picks');
+    });
+  });
+
+  group('an alarm that never fired is recovered', () {
+    final memorial = DateTime(2026, 8, 20);
+    const body = 'אזכרתו של סבא יעקב';
+
+    test('the payload carries when it was due', () {
+      // That is the whole signal: a notification the plugin still lists as
+      // pending, whose time has passed, was never delivered.
+      final firesAt = DateTime(2026, 8, 13, 9);
+      final decoded = NotificationService.decodePayload(
+          NotificationService.encodePayload(memorial, body,
+              firesAt: firesAt))!;
+
+      expect(decoded.firesAt, firesAt);
+      expect(decoded.memorialDate, memorial);
+      expect(decoded.body, body);
+    });
+
+    test('a body containing separators still survives', () {
+      const awkward = 'אזכרתו של א|ב – כ"ז באב';
+      final decoded = NotificationService.decodePayload(
+          NotificationService.encodePayload(memorial, awkward,
+              firesAt: DateTime(2026, 8, 13, 9)))!;
+      expect(decoded.body, awkward);
+    });
+
+    test('a payload from before this field reads as having none', () {
+      // Version 6 wrote the body straight after the memorial date. Reading a
+      // firing time there would tear the text apart.
+      final decoded = NotificationService.decodePayload(
+          'v6|${memorial.millisecondsSinceEpoch}|$body')!;
+
+      expect(decoded.firesAt, isNull);
+      expect(decoded.body, body, reason: 'the body must not be cut in half');
+      expect(decoded.memorialDate, memorial);
+    });
+
+    test('and so does one from before versions existed', () {
+      final decoded = NotificationService.decodePayload('plain old body')!;
+      expect(decoded.firesAt, isNull);
+      expect(decoded.body, 'plain old body');
     });
   });
 
