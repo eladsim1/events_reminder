@@ -2,6 +2,7 @@ import 'package:workmanager/workmanager.dart';
 
 import '../repository/memorial_repository.dart';
 import 'notification_service.dart';
+import 'reminder_sync.dart';
 
 /// רענון תקופתי של חלון ההתראות, בלי שהמשתמש יפתח את האפליקציה.
 ///
@@ -49,15 +50,15 @@ class BackgroundRefresh {
     );
   }
 
-  /// העבודה עצמה: טוענת את האזכרות ומתזמנת מחדש.
+  /// העבודה עצמה: אותו רצף שרץ בפתיחת האפליקציה.
   ///
   /// רצה ב-isolate נפרד, בלי Riverpod ובלי מצב מסך – ולכן היא מרכיבה את
-  /// השירותים ישירות.
+  /// השירותים ישירות. היא **גם מציגה תזכורות שאבדו** ולא רק מתזמנת מחדש:
+  /// קודם היא תיזמנה בלבד, ולכן מי שאזעקתו נהרגה בידי מנהל הסוללה נשאר
+  /// ממתין לפתיחה ידנית של האפליקציה.
   static Future<bool> run() async {
     try {
-      final memorials = await MemorialRepository().getAll();
-      if (memorials.isEmpty) return true;
-      await NotificationService().rescheduleAll(memorials);
+      await syncReminders(MemorialRepository(), NotificationService());
       return true;
     } catch (_) {
       // כשל כאן אינו קריטי: החלון יתרענן בפתיחה הבאה, ובנוסף מנגנון

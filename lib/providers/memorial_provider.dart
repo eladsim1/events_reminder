@@ -8,6 +8,7 @@ import '../repository/memorial_repository.dart';
 import '../services/hebrew_calendar_service.dart';
 import '../services/navigation_launcher.dart';
 import '../services/notification_service.dart';
+import '../services/reminder_sync.dart';
 import '../services/photo_store.dart';
 
 /// ספקי תשתית (Repository ושירותים).
@@ -118,9 +119,8 @@ class MemorialNotifier extends AsyncNotifier<List<Memorial>> {
 
   Future<void> _syncNotifications() async {
     try {
-      final all = await _repo.getAll();
-      await _deliverMissedReminders(all);
-      await _rescheduleAndRecord(all);
+      // אותו רצף בדיוק שרץ בעבודה השבועית ברקע – ראה syncReminders.
+      await syncReminders(_repo, _notifications);
       // הרשימה נטענת מחדש כי שני השלבים עדכנו את lastNotifiedAt.
       state = AsyncData(await _repo.getAll());
     } catch (_) {
@@ -132,34 +132,6 @@ class MemorialNotifier extends AsyncNotifier<List<Memorial>> {
   Future<void> loadAndReschedule() async {
     await load();
     await syncNotifications();
-  }
-
-  /// מציג תזכורות שמועדן חלף ולא טופלו – למשל אזכרה שנוספה אחרי שיום השלישי
-  /// שלה כבר חלף. עדיף באיחור מאשר לדלג.
-  Future<void> _deliverMissedReminders(List<Memorial> memorials) async {
-    final delivered = await _notifications.deliverMissedReminders(memorials);
-    if (delivered.isEmpty) return;
-
-    for (final m in memorials) {
-      final at = delivered[m.id];
-      if (at == null || m.lastNotifiedAt == at) continue;
-      await _repo.update(m.copyWith(lastNotifiedAt: at));
-    }
-  }
-
-  /// מתזמן מחדש ורושם את המועד הקרוב שטופל לכל אזכרה.
-  ///
-  /// הרישום הוא מה שמונע התראה כפולה: אחרי שההתראה המתוזמנת נורית, אין דרך
-  /// לדעת זאת מהפלאגין, ולכן בלי הרישום כל פתיחה הייתה מזהה "החמצה".
-  Future<void> _rescheduleAndRecord(List<Memorial> memorials) async {
-    final scheduled = await _notifications.rescheduleAll(memorials);
-    if (scheduled.isEmpty) return;
-
-    for (final m in memorials) {
-      final at = scheduled[m.id];
-      if (at == null || m.lastNotifiedAt == at) continue;
-      await _repo.update(m.copyWith(lastNotifiedAt: at));
-    }
   }
 
   Future<void> addMemorial(Memorial memorial) async {
@@ -228,11 +200,13 @@ class MemorialNotifier extends AsyncNotifier<List<Memorial>> {
   }
 
   /// מחליף את כל הנתונים (ייבוא מ-JSON) ומתזמן מחדש.
+  ///
+  /// אותו רצף של הסנכרון הרגיל: אחרי ייבוא ייתכן שמועד של אזכרה כבר חלף,
+  /// והשלמה היא בדיוק מה שנדרש שם.
   Future<void> importMemorials(List<Memorial> memorials) async {
     await _notifications.cancelAll();
     await _repo.replaceAll(memorials);
-    final all = await _repo.getAll();
-    await _rescheduleAndRecord(all);
+    await syncReminders(_repo, _notifications);
     state = AsyncData(await _repo.getAll());
   }
 }

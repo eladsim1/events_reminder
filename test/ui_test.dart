@@ -32,6 +32,7 @@ import 'package:azkarot_app/screens/settings_screen.dart';
 import 'package:azkarot_app/screens/splash_screen.dart';
 import 'package:azkarot_app/services/hebrew_calendar_service.dart';
 import 'package:azkarot_app/services/notification_service.dart';
+import 'package:azkarot_app/services/reminder_sync.dart';
 import 'package:azkarot_app/services/photo_store.dart';
 import 'package:azkarot_app/widgets/hebrew_date_picker.dart';
 import 'package:azkarot_app/widgets/memorial_card.dart';
@@ -2395,6 +2396,49 @@ void main() {
       for (final d in const [1, 2, 3, 5, 7, 10, 14, 21, 30]) {
         expect(daysBeforeChoices, contains(d), reason: '$d days');
       }
+    });
+  });
+
+  group('the weekly job does the same work as opening the app', () {
+    test('missed reminders are delivered, and only then rescheduled',
+        () async {
+      // The background job used to reschedule and nothing else, so a reminder
+      // whose alarm had been killed sat waiting for someone to open the app.
+      final repo = _InMemoryRepo()
+        ..items.add(
+            _seed(id: 1, name: 'סבא יעקב', day: 27, month: HebrewMonth.av));
+      final notif = _FakeNotifications()
+        ..missedToDeliver = DateTime(2026, 8, 4, 9)
+        ..nearestScheduled = DateTime(2027, 8, 24, 9);
+
+      await syncReminders(repo, notif);
+
+      final missed = notif.log.indexOf('missed:סבא יעקב');
+      final scheduled = notif.log.indexOf('schedule:סבא יעקב');
+      expect(missed, isNonNegative, reason: 'the missed reminder is shown');
+      expect(scheduled, isNonNegative, reason: 'and the window is refilled');
+      expect(missed, lessThan(scheduled),
+          reason: 'rescheduling writes lastNotifiedAt forward, so running it '
+              'first would bury the missed reminder for good');
+    });
+
+    test('what was handled is written down', () async {
+      // Without it the same reminder is delivered again on the next launch.
+      final repo = _InMemoryRepo()
+        ..items.add(
+            _seed(id: 1, name: 'סבא יעקב', day: 27, month: HebrewMonth.av));
+      final notif = _FakeNotifications()
+        ..nearestScheduled = DateTime(2027, 8, 24, 9);
+
+      await syncReminders(repo, notif);
+
+      expect(repo.items.single.lastNotifiedAt, DateTime(2027, 8, 24, 9));
+    });
+
+    test('an empty list is not work', () async {
+      final notif = _FakeNotifications();
+      await syncReminders(_InMemoryRepo(), notif);
+      expect(notif.log, isEmpty);
     });
   });
 

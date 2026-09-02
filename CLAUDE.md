@@ -557,6 +557,17 @@ means only the nearest reminders are queued at all. So when one fires, its slot
 frees but nothing fills it — until a launch. On a long list that could mean a
 reminder waiting for an app open that never comes.
 
+It runs `syncReminders`, the **same** sequence the home screen runs: deliver
+what was missed, then reschedule. It used to reschedule only, which meant a
+reminder whose alarm had been killed sat waiting for someone to open the app by
+hand. That sequence now lives in `lib/services/reminder_sync.dart` so the two
+callers cannot drift apart again — the difference between them was invisible
+from anywhere.
+
+The order inside it is load-bearing: rescheduling writes `lastNotifiedAt`
+forward to the next occurrence, so running it first buries a missed reminder
+for good. A test pins the order rather than the outcome.
+
 Notes for anyone touching it:
 
 - `register()` swallows its own failures. Tests and desktop have no
