@@ -2398,7 +2398,7 @@ void main() {
 
       await tester.tap(find.byIcon(Icons.settings_outlined));
       await _pumpUntilFound(
-          tester, find.text('תזכורות מתוזמנות'), 'the scheduled section');
+          tester, find.text('מועדי התזכורות המתוזמנות'), 'the scheduled section');
 
       // Date first, because the rows are sorted by it - that is the only
       // place the allocation's choice is visible at all.
@@ -2429,7 +2429,7 @@ void main() {
 
       await tester.tap(find.byIcon(Icons.settings_outlined));
       await _pumpUntilFound(
-          tester, find.text('תזכורות מתוזמנות'), 'the scheduled section');
+          tester, find.text('מועדי התזכורות המתוזמנות'), 'the scheduled section');
 
       expect(find.textContaining('כשל בתזמון'), findsOneWidget);
       expect(find.textContaining('exact_alarms_not_permitted'), findsOneWidget);
@@ -2459,7 +2459,7 @@ void main() {
 
       await tester.tap(find.byIcon(Icons.settings_outlined));
       await _pumpUntilFound(
-          tester, find.text('תזכורות מתוזמנות'), 'the scheduled section');
+          tester, find.text('מועדי התזכורות המתוזמנות'), 'the scheduled section');
 
       // The gap is named, not just coloured - red alone says something is
       // wrong without saying what.
@@ -2495,7 +2495,7 @@ void main() {
 
       await tester.tap(find.byIcon(Icons.settings_outlined));
       await _pumpUntilFound(
-          tester, find.text('תזכורות מתוזמנות'), 'the scheduled section');
+          tester, find.text('מועדי התזכורות המתוזמנות'), 'the scheduled section');
 
       expect(find.byIcon(Icons.refresh), findsNothing);
     });
@@ -2515,7 +2515,7 @@ void main() {
 
       await tester.tap(find.byIcon(Icons.settings_outlined));
       await _pumpUntilFound(
-          tester, find.text('תזכורות מתוזמנות'), 'the scheduled section');
+          tester, find.text('מועדי התזכורות המתוזמנות'), 'the scheduled section');
 
       expect(find.textContaining('ללא אזכרה: 42'), findsOneWidget);
     });

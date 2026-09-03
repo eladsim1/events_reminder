@@ -326,7 +326,7 @@ class _ScheduledRemindersState extends ConsumerState<_ScheduledReminders> {
         final report = snapshot.data;
         return ListTile(
           leading: const Icon(Icons.pending_actions),
-          title: const Text('תזכורות מתוזמנות'),
+          title: const Text('מועדי התזכורות המתוזמנות'),
           isThreeLine: report != null && report.rows.isNotEmpty,
           subtitle: report == null
               ? const Text('נבדק...')
