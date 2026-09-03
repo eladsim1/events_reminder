@@ -107,5 +107,11 @@
             <action android:name="android.intent.action.VIEW"/>
             <data android:scheme="https"/>
         </intent>
+        <!-- אותה מלכודת כמו geo: בלי ההצהרה canLaunchUrl מחזיר false על
+             tel: גם כשיש אפליקציית חיוג, ושורת המשוב לא תיפתח. -->
+        <intent>
+            <action android:name="android.intent.action.DIAL"/>
+            <data android:scheme="tel"/>
+        </intent>
     </queries>
 </manifest>

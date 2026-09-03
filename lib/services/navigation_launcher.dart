@@ -1,10 +1,21 @@
 import 'package:url_launcher/url_launcher.dart';
 
-/// פותח ניווט אל מיקום הקבר.
+/// פותח אפליקציות חיצוניות – ניווט, חיוג.
 ///
-/// מרוכז כאן ולא ב-UI, כדי שהמסכים לא יתעסקו בסכמות URI.
+/// מרוכז כאן ולא ב-UI, כדי שהמסכים לא יתעסקו בסכמות URI, ומוזרק דרך ספק
+/// כדי שבדיקות ווידג'ט לא ייגעו בפלטפורמה.
 class NavigationLauncher {
   const NavigationLauncher();
+
+  /// פותח את מסך החיוג עם [phone]. מחזיר האם נפתח.
+  ///
+  /// חיוג ולא שיחה ישירה: אין הרשאת CALL_PHONE, ואין סיבה שתהיה – פתיחת
+  /// המסך משאירה את ההחלטה למשתמש.
+  Future<bool> dial(String phone) async {
+    final uri = Uri(scheme: 'tel', path: phone);
+    if (!await canLaunchUrl(uri)) return false;
+    return launchUrl(uri, mode: LaunchMode.externalApplication);
+  }
 
   /// פותח את [query] באפליקציית ניווט.
   ///

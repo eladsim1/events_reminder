@@ -209,11 +209,42 @@ class SettingsScreen extends ConsumerWidget {
             onTap: () => _import(context, ref),
           ),
           const Divider(),
+          const _Feedback(),
+          const Divider(),
           const _ScheduledReminders(),
           const _BackgroundRefreshStatus(),
           const _AlarmCanaryStatus(),
         ],
       ),
+    );
+  }
+}
+
+/// פרטי הקשר למשוב.
+///
+/// מעל שורות האבחון בכוונה: אלה מיועדות לי, וזו מיועדת למשתמש.
+class _Feedback extends ConsumerWidget {
+  const _Feedback();
+
+  static const String name = 'אלעד שמחי';
+  static const String phone = '0544908008';
+  static const String display = '054-490-8008';
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return ListTile(
+      leading: const Icon(Icons.feedback_outlined),
+      title: const Text('הערות והארות'),
+      subtitle: const Text('$name · $display'),
+      trailing: const Icon(Icons.phone_outlined),
+      onTap: () async {
+        final opened = await ref.read(navigationLauncherProvider).dial(phone);
+        if (!opened && context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('לא נמצאה אפליקציית חיוג')),
+          );
+        }
+      },
     );
   }
 }

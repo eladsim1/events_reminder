@@ -36,6 +36,7 @@ import 'package:azkarot_app/screens/splash_screen.dart';
 import 'package:azkarot_app/services/hebrew_calendar_service.dart';
 import 'package:azkarot_app/services/background_refresh.dart';
 import 'package:azkarot_app/services/delivery_checks.dart';
+import 'package:azkarot_app/services/navigation_launcher.dart';
 import 'package:azkarot_app/services/notification_service.dart';
 import 'package:azkarot_app/services/reminder_sync.dart';
 import 'package:azkarot_app/services/photo_store.dart';
@@ -296,6 +297,26 @@ class _NoUpcomingFor extends HebrewCalendarService {
           : super.futureReminderDates(memorial, from: from, years: years);
 }
 
+/// Records what would have been opened. The real one reaches url_launcher,
+/// which in a widget test resolves nothing.
+class _FakeLauncher implements NavigationLauncher {
+  final List<String> dialled = [];
+  final List<String> navigated = [];
+  bool succeeds = true;
+
+  @override
+  Future<bool> dial(String phone) async {
+    dialled.add(phone);
+    return succeeds;
+  }
+
+  @override
+  Future<bool> openBurialLocation(String query) async {
+    navigated.add(query);
+    return succeeds;
+  }
+}
+
 /// The real one talks to a platform channel, which a widget test has no
 /// business waiting on - and whose timing decided whether the banner had
 /// rendered yet.
@@ -503,6 +524,9 @@ Future<void> _pumpUntilFound(
 /// wall clock — otherwise every golden fails a day later.
 final DateTime _fixedNow = DateTime(2026, 7, 31, 12);
 
+/// The launcher of the app most recently pumped, for tests that tap a link.
+_FakeLauncher? _lastLauncher;
+
 Future<(_InMemoryRepo, _FakeNotifications)> _pumpApp(
   WidgetTester tester, {
   List<Memorial> seeded = const [],
@@ -515,6 +539,8 @@ Future<(_InMemoryRepo, _FakeNotifications)> _pumpApp(
   DateTime? canaryLastFired,
   ReminderChoiceRequest? pendingChoice,
 }) async {
+  final launcher = _FakeLauncher();
+  _lastLauncher = launcher;
   final checks = _FakeChecks(
     exempt: batteryExempt,
     channelOn: channelEnabled,
@@ -534,6 +560,7 @@ Future<(_InMemoryRepo, _FakeNotifications)> _pumpApp(
         memorialRepositoryProvider.overrideWithValue(repo),
         notificationServiceProvider.overrideWithValue(notif),
         deliveryChecksProvider.overrideWithValue(checks),
+        navigationLauncherProvider.overrideWithValue(launcher),
         hebrewCalendarServiceProvider.overrideWithValue(
           HebrewCalendarService(now: () => clock),
         ),
@@ -2924,6 +2951,34 @@ void main() {
 
       expect(notif.log.length, greaterThan(before),
           reason: 'the guard must not latch and block every later sync');
+    });
+  });
+
+  group('feedback details', () {
+    testWidgets('the settings screen carries them, and dials', (tester) async {
+      await _pumpApp(tester, seeded: [
+        _seed(id: 1, name: 'סבא יעקב', day: 27, month: HebrewMonth.av),
+      ]);
+
+      await tester.tap(find.byIcon(Icons.settings_outlined));
+      await _pumpUntilFound(
+          tester, find.text('הערות והארות'), 'the feedback row');
+
+      expect(find.textContaining('אלעד שמחי'), findsOneWidget);
+      expect(find.textContaining('054-490-8008'), findsOneWidget);
+
+      await tester.tap(find.text('הערות והארות'));
+      await tester.pump();
+      expect(_lastLauncher!.dialled, ['0544908008'],
+          reason: 'the dialler gets the digits, not the display form');
+    });
+
+    test('tel: is declared, or canLaunchUrl refuses it', () {
+      // The same trap as geo: on Android 11+, and it fails silently - the row
+      // would simply do nothing.
+      final manifest =
+          File('android/app/src/main/AndroidManifest.xml').readAsStringSync();
+      expect(manifest, contains('android:scheme="tel"'));
     });
   });
 
