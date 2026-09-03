@@ -63,7 +63,13 @@
         <!-- אזעקת הביקורת. אינה מציגה דבר – רושמת שהיא נורתה ומזמנת את
              עצמה מחדש, וכך חותמת שמתיישנת מסגירה שאנדרואיד מדכא אזעקות. -->
         <receiver android:exported="false"
-            android:name=".CanaryReceiver"/>
+            android:name=".CanaryReceiver">
+            <!-- אתחול מוחק אזעקות. בלי זה הביקורת הייתה נשארת מחוקה עד
+                 שהאפליקציה נפתחת, והחותמת הייתה מתיישנת בלי סיבה אמיתית. -->
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED"/>
+            </intent-filter>
+        </receiver>
 
         <!-- מקלטים עבור flutter_local_notifications: התראות מתוזמנות ואתחול לאחר הפעלה מחדש -->
 

@@ -608,6 +608,18 @@ would defeat the point, since it exists for the case where it is not. It uses
 `setAndAllowWhileIdle`, not an exact alarm — precision is irrelevant here and it
 should not draw from the exact-alarm quota.
 
+**`arm()` must not push an existing deadline forward.** It is called on every
+return to the foreground, and the first version rescheduled to *now + 24h* each
+time — so for anyone who opens the app daily the canary would never fire at all,
+and the row would read "טרם נבדק" forever. Precisely the users whose alarms are
+healthy would learn nothing. It now probes with `FLAG_NO_CREATE` and only arms
+when nothing is pending; `force` exists for the receiver itself, which must
+re-arm after a firing that leaves the PendingIntent intact.
+
+The receiver also listens for `BOOT_COMPLETED`, and on that path arms **without**
+recording a firing — a reboot clears alarms, so otherwise the stamp went stale
+after every restart and the row reddened for no real reason.
+
 **Do not oversell it.** It proves the alarm mechanism runs. It does *not* prove
 a notification was shown, because it shows none — a daily probe that produced
 daily noise in the shade would be worse than the problem. The step from "the
@@ -625,6 +637,19 @@ and nothing verified it.
 **No `<exclude>` entries.** Once an `<include>` is present everything else is
 already excluded, and lint fails the release build for excluding a path outside
 the included set — which is how the first attempt was caught.
+
+### Import is the one caller that may not skip the lock
+
+`syncReminders` normally gives up when the lock is held: the sync runs again on
+every resume, so waiting buys nothing. Import is the exception — it has just
+replaced every memorial, and skipping would leave the user with **nothing
+scheduled** immediately after being told the import succeeded. It passes
+`waitForLock`.
+
+Import also no longer calls `cancelAll` first. `replaceAll` deletes and
+re-inserts, so the ids change and the old notifications become orphans, which
+`rescheduleAll` sweeps anyway. Cancelling up front only opened a window where
+everything was cancelled and nothing was scheduled yet.
 
 ## Battery optimisation is the last gap the app can narrow
 

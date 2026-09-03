@@ -239,9 +239,16 @@ class MemorialNotifier extends AsyncNotifier<List<Memorial>> {
   /// אותו רצף של הסנכרון הרגיל: אחרי ייבוא ייתכן שמועד של אזכרה כבר חלף,
   /// והשלמה היא בדיוק מה שנדרש שם.
   Future<void> importMemorials(List<Memorial> memorials) async {
-    await _notifications.cancelAll();
     await _repo.replaceAll(memorials);
-    await syncReminders(_repo, _notifications);
+
+    // אין כאן cancelAll: replaceAll מוחק ומכניס מחדש, כך שהמזהים משתנים
+    // וההתראות הישנות הופכות ליתומות – ו-rescheduleAll סוחף אותן ממילא.
+    // ביטול מוקדם היה פותח חלון שבו הכול מבוטל ודבר עוד לא תוזמן.
+    //
+    // וממתינים לנעילה: זה הקורא היחיד שאסור לו לדלג, כי אחרי "יובאו N
+    // אזכרות" המשתמש מאמין שהעניין סגור.
+    await syncReminders(_repo, _notifications,
+        owner: 'import', waitForLock: const Duration(seconds: 15));
     state = AsyncData(await _repo.getAll());
   }
 }

@@ -2731,6 +2731,35 @@ void main() {
       expect(repo.syncLockHeld, isFalse, reason: 'and hands it back');
     });
 
+    test('a caller that must not skip waits for the lock', () async {
+      // Import is the one caller that cannot back off: it has just replaced
+      // every memorial, and skipping would leave the user with nothing
+      // scheduled right after being told the import succeeded.
+      final repo = seeded()..syncLockHeld = true;
+      final notif = _FakeNotifications()
+        ..nearestScheduled = DateTime(2027, 8, 24, 9);
+
+      unawaited(Future<void>.delayed(const Duration(milliseconds: 300), () {
+        repo.syncLockHeld = false;
+      }));
+
+      await syncReminders(repo, notif,
+          owner: 'import', waitForLock: const Duration(seconds: 5));
+
+      expect(notif.log, isNotEmpty, reason: 'it waited rather than skipping');
+    });
+
+    test('but it does not wait forever', () async {
+      final repo = seeded()..syncLockHeld = true;
+      final notif = _FakeNotifications();
+
+      await syncReminders(repo, notif,
+          owner: 'import', waitForLock: const Duration(milliseconds: 300));
+
+      expect(notif.log, isEmpty);
+      expect(repo.syncLockHeld, isTrue, reason: 'the holder keeps it');
+    });
+
     test('the lock is handed back even when the work throws', () async {
       // A lock that is never released would disable syncing until it goes
       // stale - ten minutes of no reminders being scheduled at all.
@@ -2739,6 +2768,33 @@ void main() {
 
       await expectLater(syncReminders(repo, notif), throwsException);
       expect(repo.syncLockHeld, isFalse);
+    });
+  });
+
+  group('import schedules without a gap', () {
+    test('nothing is cancelled up front', () async {
+      // replaceAll deletes and re-inserts, so the ids change and the old
+      // notifications become orphans - rescheduleAll sweeps them anyway. A
+      // cancelAll first only opened a window where everything was cancelled
+      // and nothing was scheduled yet.
+      final repo = _InMemoryRepo();
+      final notif = _FakeNotifications()
+        ..nearestScheduled = DateTime(2027, 8, 24, 9);
+      final container = ProviderContainer(overrides: [
+        memorialRepositoryProvider.overrideWithValue(repo),
+        notificationServiceProvider.overrideWithValue(notif),
+      ]);
+      addTearDown(container.dispose);
+
+      final notifier = container.read(memorialListProvider.notifier);
+      await notifier.load();
+      await notifier.importMemorials([
+        _seed(id: 1, name: 'סבא יעקב', day: 27, month: HebrewMonth.av),
+      ]);
+
+      expect(notif.log, isNot(contains('cancelAll')));
+      expect(notif.log, contains('schedule:סבא יעקב'),
+          reason: 'and the imported memorial is scheduled straight away');
     });
   });
 

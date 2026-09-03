@@ -31,10 +31,22 @@ class CanaryReceiver : BroadcastReceiver() {
         private const val REQUEST_CODE = 730_001
         private const val INTERVAL_MS = 24L * 60 * 60 * 1000
 
-        /** מזמן את הביקורת הבאה. בטוח לקריאה חוזרת – אותו PendingIntent. */
-        fun arm(context: Context) {
+        /**
+         * מזמן את הביקורת הבאה.
+         *
+         * **אינו דוחף מועד קיים.** arm נקרא בכל חזרה לחזית, ואילו כל קריאה
+         * הייתה מזמנת מחדש ל-24 שעות קדימה – הביקורת לא הייתה פועלת לעולם
+         * אצל מי שפותח את האפליקציה מדי יום, כלומר בדיוק אצל מי שהאזעקות
+         * שלו תקינות. השורה בהגדרות הייתה נתקעת על "טרם נבדק" לנצח.
+         *
+         * [force] הוא למקלט עצמו: אחרי ירי ואחרי אתחול צריך לזמן מחדש
+         * למרות שה-PendingIntent עדיין קיים.
+         */
+        fun arm(context: Context, force: Boolean = false) {
             val alarms = context.getSystemService(Context.ALARM_SERVICE)
                 as? AlarmManager ?: return
+            if (!force && pendingIntent(context, create = false) != null) return
+
             val at = System.currentTimeMillis() + INTERVAL_MS
 
             runCatching {
@@ -44,7 +56,7 @@ class CanaryReceiver : BroadcastReceiver() {
                 alarms.setAndAllowWhileIdle(
                     AlarmManager.RTC_WAKEUP,
                     at,
-                    pendingIntent(context),
+                    pendingIntent(context, create = true)!!,
                 )
             }
         }
@@ -53,8 +65,13 @@ class CanaryReceiver : BroadcastReceiver() {
             context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
                 .getLong(KEY_LAST_FIRED, 0L)
 
-        private fun pendingIntent(context: Context): PendingIntent {
-            var flags = PendingIntent.FLAG_UPDATE_CURRENT
+        /** [create]=false מחזיר null כשאין אזעקה ממתינה – כך בודקים. */
+        private fun pendingIntent(context: Context, create: Boolean): PendingIntent? {
+            var flags = if (create) {
+                PendingIntent.FLAG_UPDATE_CURRENT
+            } else {
+                PendingIntent.FLAG_NO_CREATE
+            }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                 flags = flags or PendingIntent.FLAG_IMMUTABLE
             }
@@ -68,6 +85,15 @@ class CanaryReceiver : BroadcastReceiver() {
     }
 
     override fun onReceive(context: Context, intent: Intent) {
+        // אתחול מוחק את כל האזעקות. רק מזמנים מחדש – לא נורתה כאן ביקורת,
+        // ורישום חותמת כאן היה מדווח על בריאות שלא נבדקה. בלי זה החותמת
+        // הייתה מתיישנת אחרי כל אתחול עד שהאפליקציה נפתחת, והשורה הייתה
+        // מאדימה בלי סיבה.
+        if (intent.action == Intent.ACTION_BOOT_COMPLETED) {
+            arm(context, force = true)
+            return
+        }
+
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit()
             .putLong(KEY_LAST_FIRED, System.currentTimeMillis())
@@ -75,7 +101,8 @@ class CanaryReceiver : BroadcastReceiver() {
 
         // מזמנת את עצמה מחדש. אזעקה חד-פעמית לא חוזרת מעצמה, ואילו הסתמכות
         // על פתיחת האפליקציה הייתה הופכת את הבדיקה לחסרת ערך: היא נועדה
-        // לפעול דווקא כשלא פותחים אותה.
-        arm(context)
+        // לפעול דווקא כשלא פותחים אותה. force, כי ה-PendingIntent שרד את
+        // הירי והבדיקה ב-arm הייתה חוסמת את הזימון.
+        arm(context, force = true)
     }
 }

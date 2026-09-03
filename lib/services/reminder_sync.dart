@@ -16,12 +16,13 @@ Future<void> syncReminders(
   MemorialRepository repo,
   NotificationService notifications, {
   String owner = 'app',
+  Duration? waitForLock,
 }) async {
   // ריצה אחת בכל רגע, **בכל התהליך ולא רק ב-isolate הזה**. השמירה שבמסך
   // היא שדה בזיכרון, ולעבודה ברקע יש עותק משלה של כל סטטי – כלומר שתיהן
   // יכולות לרוץ יחד, לקרוא את אותו lastNotifiedAt ולהציג את אותה תזכורת
   // פעמיים, או לשזור ביטול ותזמון זה בזה.
-  if (!await repo.claimSyncLock(owner)) return;
+  if (!await _claim(repo, owner, waitForLock)) return;
 
   try {
     final memorials = await repo.getAll();
@@ -39,6 +40,24 @@ Future<void> syncReminders(
     );
   } finally {
     await repo.releaseSyncLock();
+  }
+}
+
+/// תופס את הנעילה, ואם [wait] ניתן – ממתין לה במקום לוותר.
+///
+/// רוב הקוראים מוותרים בשמחה: הסנכרון רץ שוב בכל חזרה לחזית, ואין טעם
+/// לחכות. הייבוא הוא היוצא מן הכלל – הוא **חייב** לתזמן מחדש, ודילוג היה
+/// משאיר את המשתמש, אחרי הודעת "יובאו N אזכרות", בלי אף תזכורת מתוזמנת.
+Future<bool> _claim(
+  MemorialRepository repo,
+  String owner,
+  Duration? wait,
+) async {
+  final deadline = wait == null ? null : DateTime.now().add(wait);
+  while (true) {
+    if (await repo.claimSyncLock(owner)) return true;
+    if (deadline == null || !DateTime.now().isBefore(deadline)) return false;
+    await Future<void>.delayed(const Duration(milliseconds: 200));
   }
 }
 
