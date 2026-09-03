@@ -571,6 +571,61 @@ moment leaves it behind. Nothing else notices a leftover, since it is counted
 neither in what is wanted nor in what a memorial already holds, and it goes on
 firing the text baked into it years ago.
 
+## What only the operating system can answer
+
+`DeliveryChecks` is a hand-written `MethodChannel` in `MainActivity` — **not a
+plugin**: the build set is narrow (AGP 8.13.2, Kotlin 2.1.20) and every added
+plugin risks the whole build, for what amounts to a handful of system calls. It
+covers the questions Dart cannot ask:
+
+- **`channelEnabled`** — `areNotificationsEnabled()` is *app-level*, so a
+  channel blocked on its own passed every check the app made while nothing ever
+  arrived. Total, silent failure. This was the highest-value gap left.
+- **`hasNotificationIcon`** — resolves the drawable at runtime. The shrinker
+  once removed it from a release build, because the only reference is a Dart
+  string, and every notification then failed silently while being built. The
+  `keep.xml` guard and the post-build `aapt2` check still stand; this catches a
+  regression on the device itself.
+- **`batteryExempt`** / `requestBatteryExemption` — an app Android may stop
+  loses its **registered alarms**, including ones scheduled long ago.
+
+The banner ranks them by severity — permission, channel, icon, exact alarms,
+battery — because a wrong message sends the user to the wrong settings screen,
+and a test pins the order. It shows a fix button only for the two that a
+button can fix; a blocked channel and a stripped icon cannot be undone from
+inside the app, and a dead button is worse than none.
+
+### The canary alarm
+
+`CanaryReceiver` is a daily alarm that shows nothing. It records that it fired
+and re-arms itself, and the settings screen reports the timestamp. **Every other
+check in this app examines the app's own bookkeeping; this one observes what
+Android actually did.** A stamp going stale means alarms are being suppressed —
+known before a memorial is missed rather than after.
+
+It re-arms from inside `onReceive` deliberately: relying on the app being opened
+would defeat the point, since it exists for the case where it is not. It uses
+`setAndAllowWhileIdle`, not an exact alarm — precision is irrelevant here and it
+should not draw from the exact-alarm quota.
+
+**Do not oversell it.** It proves the alarm mechanism runs. It does *not* prove
+a notification was shown, because it shows none — a daily probe that produced
+daily noise in the shade would be worse than the problem. The step from "the
+alarm fired" to "a notification appeared" has no measurement, and that is not
+for lack of trying.
+
+## Backup is declared, not assumed
+
+`allowBackup`, `fullBackupContent` and `dataExtractionRules` are now explicit,
+covering the database and the photo folder. A new phone or a reinstall is the
+only scenario that loses *everything* rather than one reminder, and the rules
+were undeclared: the defaults may well have covered it, but nothing aimed them
+and nothing verified it.
+
+**No `<exclude>` entries.** Once an `<include>` is present everything else is
+already excluded, and lint fails the release build for excluding a path outside
+the included set — which is how the first attempt was caught.
+
 ## Battery optimisation is the last gap the app can narrow
 
 An app Android is allowed to stop does not merely lose background execution —

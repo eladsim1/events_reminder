@@ -472,19 +472,26 @@ class _PermissionWarning extends ConsumerWidget {
       orElse: () => const SizedBox.shrink(),
       data: (s) {
         if (s.notificationsEnabled &&
+            s.channelEnabled &&
+            s.hasNotificationIcon &&
             s.exactAlarmsAllowed &&
             s.batteryExempt) {
           return const SizedBox.shrink();
         }
 
         final theme = Theme.of(context);
-        // הקשה ביותר קודמת: בלי הרשאת התראות שום דבר לא יוצג, ובלי פטור
-        // הסוללה אנדרואיד רשאי למחוק את האזעקות עצמן.
+        // מדורג לפי חומרה: קודם מה שמונע הצגה לגמרי, אחר כך מה שפוגע
+        // בתזמון, ולבסוף מה שמסכן את האזעקות עצמן. הודעה לא נכונה שולחת
+        // את המשתמש למסך הגדרות הלא נכון.
         final message = !s.notificationsEnabled
             ? 'ההתראות כבויות – לא תקבל תזכורות'
-            : !s.exactAlarmsAllowed
-                ? 'חסרה הרשאה לאזעקות מדויקות – התזכורות לא יתוזמנו'
-                : 'ניהול הסוללה עלול לעצור את האפליקציה ולמחוק תזכורות';
+            : !s.channelEnabled
+                ? 'ערוץ "תזכורות אזכרה" חסום – לא תקבל תזכורות'
+                : !s.hasNotificationIcon
+                    ? 'תקלה בבנייה: אייקון ההתראה חסר, ההתראות ייכשלו'
+                    : !s.exactAlarmsAllowed
+                        ? 'חסרה הרשאה לאזעקות מדויקות – התזכורות לא יתוזמנו'
+                        : 'ניהול הסוללה עלול לעצור את האפליקציה ולמחוק תזכורות';
 
         return Material(
           color: theme.colorScheme.errorContainer,
@@ -504,19 +511,24 @@ class _PermissionWarning extends ConsumerWidget {
                   ),
                 ),
                 const SizedBox(width: 8),
-                FilledButton.tonal(
-                  onPressed: () async {
-                    if (!s.notificationsEnabled || !s.exactAlarmsAllowed) {
-                      await ref
-                          .read(notificationServiceProvider)
-                          .requestMissingPermissions();
-                    } else {
-                      await ref.read(batteryExemptionProvider).request();
-                    }
-                    ref.invalidate(notificationPermissionProvider);
-                  },
-                  child: const Text('תיקון'),
-                ),
+                // ערוץ חסום מתוקן רק בהגדרות המערכת, ואייקון חסר הוא תקלת
+                // בנייה. כפתור שאינו עושה דבר גרוע מהיעדרו.
+                if (s.channelEnabled && s.hasNotificationIcon)
+                  FilledButton.tonal(
+                    onPressed: () async {
+                      if (!s.notificationsEnabled || !s.exactAlarmsAllowed) {
+                        await ref
+                            .read(notificationServiceProvider)
+                            .requestMissingPermissions();
+                      } else if (!s.batteryExempt) {
+                        await ref
+                            .read(deliveryChecksProvider)
+                            .requestBatteryExemption();
+                      }
+                      ref.invalidate(notificationPermissionProvider);
+                    },
+                    child: const Text('תיקון'),
+                  ),
               ],
             ),
           ),

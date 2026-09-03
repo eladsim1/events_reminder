@@ -5,7 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/memorial.dart';
 import '../models/memorial_filter.dart';
 import '../repository/memorial_repository.dart';
-import '../services/battery_exemption.dart';
+import '../services/delivery_checks.dart';
 import '../services/hebrew_calendar_service.dart';
 import '../services/navigation_launcher.dart';
 import '../services/notification_service.dart';
@@ -25,8 +25,8 @@ final photoStoreProvider = Provider<PhotoStore>((ref) {
   return const PhotoStore();
 });
 
-final batteryExemptionProvider = Provider<BatteryExemption>((ref) {
-  return const BatteryExemption();
+final deliveryChecksProvider = Provider<DeliveryChecks>((ref) {
+  return const DeliveryChecks();
 });
 
 final hebrewCalendarServiceProvider =
@@ -55,22 +55,38 @@ final memorialSearchProvider = StateProvider<String>((ref) => '');
 ///
 /// נחשף כספק נפרד כדי שהמסך הראשי יוכל להזהיר – בלעדיו סירוב הרשאה הוא
 /// כשל שקט: האפליקציה נראית תקינה לגמרי ופשוט לעולם לא מתריעה.
-/// שלושתן יחד קובעות אם תזכורת אכן תגיע:
-/// בלי [notificationsEnabled] דבר לא יוצג, בלי [exactAlarmsAllowed] התזמון
-/// יורד לדיוק משוער, ובלי [batteryExempt] אנדרואיד רשאי לעצור את האפליקציה
-/// **ולמחוק את האזעקות הרשומות שלה** – גם כאלה שתוזמנו מזמן.
+/// כל מה שצריך להיות תקין כדי שתזכורת תגיע בפועל.
+///
+/// בלי [notificationsEnabled] דבר לא יוצג; בלי [channelEnabled] אותו דבר,
+/// אלא שהבדיקה ברמת האפליקציה עוברת בשלום ולכן זה כשל שקט לגמרי; בלי
+/// [exactAlarmsAllowed] התזמון יורד לדיוק משוער; בלי [batteryExempt]
+/// אנדרואיד רשאי לעצור את האפליקציה **ולמחוק את האזעקות הרשומות שלה**;
+/// ובלי [hasNotificationIcon] כל התראה נכשלת בבנייה בזמן הירי.
 final notificationPermissionProvider = FutureProvider<
     ({
       bool notificationsEnabled,
       bool exactAlarmsAllowed,
       bool batteryExempt,
+      bool channelEnabled,
+      bool hasNotificationIcon,
+      DateTime? canaryLastFired,
     })>((ref) async {
   final permissions =
       await ref.watch(notificationServiceProvider).permissionStatus();
+  final checks = ref.watch(deliveryChecksProvider);
+
+  // מזמנים את הביקורת הבאה בכל בדיקה. היא חד-פעמית ומזמנת את עצמה מחדש,
+  // אבל אם אנדרואיד מחק אותה זו ההזדמנות להחזיר אותה.
+  await checks.armCanary();
+
   return (
     notificationsEnabled: permissions.notificationsEnabled,
     exactAlarmsAllowed: permissions.exactAlarmsAllowed,
-    batteryExempt: await ref.watch(batteryExemptionProvider).isExempt(),
+    batteryExempt: await checks.batteryExempt(),
+    channelEnabled:
+        await checks.channelEnabled(NotificationService.channelId),
+    hasNotificationIcon: await checks.hasNotificationIcon(),
+    canaryLastFired: await checks.canaryLastFired(),
   );
 });
 

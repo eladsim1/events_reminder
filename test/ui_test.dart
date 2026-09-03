@@ -35,7 +35,7 @@ import 'package:azkarot_app/screens/settings_screen.dart';
 import 'package:azkarot_app/screens/splash_screen.dart';
 import 'package:azkarot_app/services/hebrew_calendar_service.dart';
 import 'package:azkarot_app/services/background_refresh.dart';
-import 'package:azkarot_app/services/battery_exemption.dart';
+import 'package:azkarot_app/services/delivery_checks.dart';
 import 'package:azkarot_app/services/notification_service.dart';
 import 'package:azkarot_app/services/reminder_sync.dart';
 import 'package:azkarot_app/services/photo_store.dart';
@@ -299,20 +299,41 @@ class _NoUpcomingFor extends HebrewCalendarService {
 /// The real one talks to a platform channel, which a widget test has no
 /// business waiting on - and whose timing decided whether the banner had
 /// rendered yet.
-class _FakeBattery implements BatteryExemption {
-  _FakeBattery(this.exempt);
+class _FakeChecks implements DeliveryChecks {
+  _FakeChecks({
+    this.exempt = true,
+    this.channelOn = true,
+    this.iconPresent = true,
+    this.canaryAt,
+  });
 
   bool exempt;
+  bool channelOn;
+  bool iconPresent;
+  DateTime? canaryAt;
   int requests = 0;
+  int armed = 0;
 
   @override
-  Future<bool> isExempt() async => exempt;
+  Future<bool> batteryExempt() async => exempt;
 
   @override
-  Future<void> request() async {
+  Future<void> requestBatteryExemption() async {
     requests++;
     exempt = true;
   }
+
+  @override
+  Future<bool> channelEnabled(String channelId) async => channelOn;
+
+  @override
+  Future<bool> hasNotificationIcon() async => iconPresent;
+
+  @override
+  Future<void> armCanary() async => armed++;
+
+  @override
+  Future<DateTime?> canaryLastFired() async => canaryAt;
 }
 
 /// flutter_test ships no real glyphs, so Hebrew renders as boxes in goldens.
@@ -489,9 +510,17 @@ Future<(_InMemoryRepo, _FakeNotifications)> _pumpApp(
   bool notificationsEnabled = true,
   bool exactAlarmsAllowed = true,
   bool batteryExempt = true,
+  bool channelEnabled = true,
+  bool hasNotificationIcon = true,
+  DateTime? canaryLastFired,
   ReminderChoiceRequest? pendingChoice,
 }) async {
-  final battery = _FakeBattery(batteryExempt);
+  final checks = _FakeChecks(
+    exempt: batteryExempt,
+    channelOn: channelEnabled,
+    iconPresent: hasNotificationIcon,
+    canaryAt: canaryLastFired,
+  );
   final repo = _InMemoryRepo()..items.addAll(seeded);
   final notif = _FakeNotifications()
     ..notificationsEnabled = notificationsEnabled
@@ -504,7 +533,7 @@ Future<(_InMemoryRepo, _FakeNotifications)> _pumpApp(
       overrides: [
         memorialRepositoryProvider.overrideWithValue(repo),
         notificationServiceProvider.overrideWithValue(notif),
-        batteryExemptionProvider.overrideWithValue(battery),
+        deliveryChecksProvider.overrideWithValue(checks),
         hebrewCalendarServiceProvider.overrideWithValue(
           HebrewCalendarService(now: () => clock),
         ),
@@ -1373,6 +1402,29 @@ void main() {
 
       expect(find.textContaining('ניהול הסוללה'), findsOneWidget);
       expect(find.widgetWithText(FilledButton, 'תיקון'), findsOneWidget);
+    });
+
+    testWidgets('a blocked channel is caught, and named', (tester) async {
+      // The silent total failure: areNotificationsEnabled is app-level, so a
+      // channel blocked on its own passes every check the app used to make
+      // while nothing ever arrives.
+      _phoneViewport(tester);
+      await _pumpApp(tester, seeded: seed, channelEnabled: false);
+
+      expect(find.textContaining('ערוץ'), findsOneWidget);
+      expect(find.widgetWithText(FilledButton, 'תיקון'), findsNothing,
+          reason: 'only system settings can undo it; a dead button is worse '
+              'than none');
+    });
+
+    testWidgets('a stripped notification icon is caught', (tester) async {
+      // It has happened here: the shrinker removed the drawable from a
+      // release build, because the only reference to it is a Dart string, and
+      // every notification then failed silently at fire time.
+      _phoneViewport(tester);
+      await _pumpApp(tester, seeded: seed, hasNotificationIcon: false);
+
+      expect(find.textContaining('אייקון ההתראה חסר'), findsOneWidget);
     });
 
     testWidgets('a missing notification permission is named first',
@@ -2472,6 +2524,37 @@ void main() {
               .error);
       expect(find.byIcon(Icons.refresh), findsOneWidget,
           reason: 'and there is a way to put it right');
+    });
+
+    testWidgets('a canary that has not fired for days is flagged',
+        (tester) async {
+      // Everything else asks the plugin what it believes is scheduled. This
+      // one observes what Android actually did.
+      await _pumpApp(
+        tester,
+        seeded: [_seed(id: 1, name: 'סבא יעקב', day: 27, month: HebrewMonth.av)],
+        canaryLastFired: DateTime.now().subtract(const Duration(days: 6)),
+      );
+
+      await tester.tap(find.byIcon(Icons.settings_outlined));
+      await _pumpUntilFound(
+          tester, find.text('מנגנון האזעקות'), 'the canary row');
+
+      expect(find.textContaining('לא פעל 6 ימים'), findsOneWidget);
+    });
+
+    testWidgets('a canary that fired today is not flagged', (tester) async {
+      await _pumpApp(
+        tester,
+        seeded: [_seed(id: 1, name: 'סבא יעקב', day: 27, month: HebrewMonth.av)],
+        canaryLastFired: DateTime.now(),
+      );
+
+      await tester.tap(find.byIcon(Icons.settings_outlined));
+      await _pumpUntilFound(
+          tester, find.text('מנגנון האזעקות'), 'the canary row');
+
+      expect(find.textContaining('פעל היום'), findsOneWidget);
     });
 
     testWidgets('a queue that matches shows no refresh button', (tester) async {

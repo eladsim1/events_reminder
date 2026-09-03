@@ -14,10 +14,16 @@
         android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"/>
     <uses-permission android:name="android.permission.VIBRATE"/>
 
+    <!-- גיבוי מוצהר במפורש. מכשיר חדש או התקנה מחדש הם התרחיש היחיד
+         שמאבד את כל הנתונים ולא רק תזכורת אחת, וללא הצהרה שום דבר לא כיוון
+         את מה שנשמר ושום דבר לא אימת זאת. -->
     <application
         android:label="תזכורת אזכרות"
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher">
+        android:icon="@mipmap/ic_launcher"
+        android:allowBackup="true"
+        android:fullBackupContent="@xml/backup_rules"
+        android:dataExtractionRules="@xml/data_extraction_rules">
 
         <!-- singleTask ולא singleTop: הפלאגין בונה את כוונת ההפעלה מ-
              getLaunchIntentForPackage ואז מחליף לה את ה-action, כך שהיא כבר
@@ -53,6 +59,11 @@
         <meta-data
             android:name="flutterEmbedding"
             android:value="2"/>
+
+        <!-- אזעקת הביקורת. אינה מציגה דבר – רושמת שהיא נורתה ומזמנת את
+             עצמה מחדש, וכך חותמת שמתיישנת מסגירה שאנדרואיד מדכא אזעקות. -->
+        <receiver android:exported="false"
+            android:name=".CanaryReceiver"/>
 
         <!-- מקלטים עבור flutter_local_notifications: התראות מתוזמנות ואתחול לאחר הפעלה מחדש -->
 

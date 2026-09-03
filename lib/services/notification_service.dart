@@ -117,7 +117,9 @@ class NotificationService {
   /// קופצת", ואי אפשר היה להבדיל ביניהם בלי לחבר את הטלפון.
   String? lastScheduleError;
 
-  static const String _channelId = 'azkarot_reminders';
+  /// ציבורי: מסך ההגדרות שואל את המערכת אם דווקא הערוץ הזה חסום.
+  static const String channelId = 'azkarot_reminders';
+  static const String _channelId = channelId;
   static const String _channelName = 'תזכורות אזכרה';
   static const String _channelDescription =
       'התראות תזכורת לאזכרות לפי התאריך העברי';

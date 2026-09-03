@@ -211,7 +211,51 @@ class SettingsScreen extends ConsumerWidget {
           const Divider(),
           const _ScheduledReminders(),
           const _BackgroundRefreshStatus(),
+          const _AlarmCanaryStatus(),
         ],
+      ),
+    );
+  }
+}
+
+/// מתי אנדרואיד הפעיל לאחרונה אזעקה של האפליקציה.
+///
+/// **זו הבדיקה היחידה שבוחנת את המערכת ולא את הספרים שלנו.** כל השאר שואל
+/// את הפלאגין כמה הוא חושב שמתוזמן; כאן רואים אם אזעקות בכלל פועלות.
+/// אמורה להתעדכן מדי יום, וחותמת שמתיישנת היא סימן לדיכוי – ידיעה שמגיעה
+/// לפני שאובדת תזכורת ולא אחריה.
+///
+/// מה שהיא אינה מוכיחה: שהתראה הוצגה. הביקורת אינה מציגה התראה.
+class _AlarmCanaryStatus extends ConsumerWidget {
+  const _AlarmCanaryStatus();
+
+  /// מעל יומיים בלי ריצה זה כבר לא פיגור סביר של תזמון.
+  static const int _staleDays = 2;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = Theme.of(context);
+    final at =
+        ref.watch(notificationPermissionProvider).valueOrNull?.canaryLastFired;
+
+    final days = at == null ? null : DateTime.now().difference(at).inDays;
+    final stale = days != null && days > _staleDays;
+
+    return ListTile(
+      leading: const Icon(Icons.alarm_on),
+      title: const Text('מנגנון האזעקות'),
+      subtitle: Text(
+        at == null
+            ? 'טרם נבדק – הבדיקה הראשונה תוך יממה'
+            : stale
+                ? 'לא פעל $days ימים – ייתכן שאנדרואיד מדכא אזעקות'
+                : days! <= 0
+                    ? 'פעל היום'
+                    : 'פעל לפני $days ימים',
+        style: stale
+            ? theme.textTheme.bodySmall
+                ?.copyWith(color: theme.colorScheme.error)
+            : theme.textTheme.bodySmall,
       ),
     );
   }
