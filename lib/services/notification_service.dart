@@ -40,6 +40,9 @@ class PendingRow {
   /// כמה התראות מתוזמנות לאזכרה הזו.
   final int scheduled;
 
+  /// מועד התזכורת הקרובה שלה, או null אם אין מתוזמנת.
+  final DateTime? nextReminder;
+
   /// כמה מהן נצרבו בגרסת תוכן ישנה וממתינות לתזמון מחדש.
   final int stale;
 
@@ -47,6 +50,7 @@ class PendingRow {
     required this.name,
     required this.scheduled,
     required this.stale,
+    this.nextReminder,
   });
 }
 
@@ -893,8 +897,10 @@ class NotificationService {
     await init();
     final requests = await _plugin.pendingNotificationRequests();
 
+    // בסדר התזמון ולא בסדר הרשימה, שהוא לפי מועד יצירה. זו התצוגה היחידה
+    // שממנה אפשר לראות מה ההקצאה באמת עשתה, ובלי המיון היא לא מראה זאת.
     final rows = <PendingRow>[];
-    for (final m in memorials) {
+    for (final m in inReminderOrder(memorials, _calendar)) {
       final id = m.id;
       if (id == null) continue;
 
@@ -904,7 +910,13 @@ class NotificationService {
         scheduled++;
         if (!isCurrentPayload(r.payload)) stale++;
       }
-      rows.add(PendingRow(name: m.name, scheduled: scheduled, stale: stale));
+      final upcoming = _calendar.futureReminderDates(m);
+      rows.add(PendingRow(
+        name: m.name,
+        scheduled: scheduled,
+        stale: stale,
+        nextReminder: upcoming.isEmpty ? null : upcoming.first,
+      ));
     }
 
     final permissions = await permissionStatus();

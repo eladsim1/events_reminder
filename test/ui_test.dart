@@ -2373,16 +2373,24 @@ void main() {
   });
 
   group('the settings screen shows what is actually scheduled', () {
-    testWidgets('both series showing means the memorial is announced twice',
-        (tester) async {
+    testWidgets('the rows read as a schedule, soonest first', (tester) async {
       final (_, notif) = await _pumpApp(tester, seeded: [
         _seed(id: 1, name: 'סבא יעקב', day: 27, month: HebrewMonth.av),
       ]);
-      notif.report = const PendingReport(
+      notif.report = PendingReport(
         rows: [
-          PendingRow(name: 'סבא יעקב', scheduled: 42, stale: 0),
+          PendingRow(
+              name: 'סבתא רחל',
+              scheduled: 2,
+              stale: 0,
+              nextReminder: DateTime(2026, 10, 6, 9)),
+          PendingRow(
+              name: 'סבא יעקב',
+              scheduled: 3,
+              stale: 1,
+              nextReminder: DateTime(2027, 8, 24, 9)),
         ],
-        total: 42,
+        total: 5,
         orphans: 0,
       );
 
@@ -2390,9 +2398,12 @@ void main() {
       await _pumpUntilFound(
           tester, find.text('תזכורות מתוזמנות'), 'the scheduled section');
 
-      expect(find.textContaining('סבא יעקב: 42'), findsOneWidget,
-          reason: 'more than the horizon holds means leftovers are queued');
-      expect(find.textContaining('סה"כ 42'), findsOneWidget);
+      // Date first, because the rows are sorted by it - that is the only
+      // place the allocation's choice is visible at all.
+      expect(find.textContaining('06/10/26 · סבתא רחל (2)'), findsOneWidget);
+      expect(find.textContaining('24/08/27 · סבא יעקב (3) · 1 לרענון'),
+          findsOneWidget);
+      expect(find.textContaining('סה"כ 5'), findsOneWidget);
     });
 
     testWidgets('a scheduling failure is named, not swallowed', (tester) async {

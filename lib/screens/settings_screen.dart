@@ -269,6 +269,21 @@ class _BackgroundRefreshStatus extends ConsumerWidget {
 class _ScheduledReminders extends ConsumerWidget {
   const _ScheduledReminders();
 
+  /// "24/08/27 · סבא יעקב (3)" – מועד, שם, וכמה מתוזמנות.
+  ///
+  /// המועד ראשון בכוונה: השורות ממוינות לפיו, וכך אפשר לקרוא אותן כרשימה
+  /// אחת ולראות מה ההקצאה בחרה לתזמן.
+  String _row(PendingRow r) {
+    final at = r.nextReminder;
+    final when = at == null
+        ? '—'
+        : '${at.day.toString().padLeft(2, '0')}/'
+            '${at.month.toString().padLeft(2, '0')}/'
+            '${(at.year % 100).toString().padLeft(2, '0')}';
+    final stale = r.stale > 0 ? ' · ${r.stale} לרענון' : '';
+    return '$when · ${r.name} (${r.scheduled})$stale';
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final memorials = ref.watch(memorialListProvider).valueOrNull ?? const [];
@@ -295,9 +310,7 @@ class _ScheduledReminders extends ConsumerWidget {
                   [
                     'סה"כ ${report.total}',
                     if (report.orphans > 0) 'ללא אזכרה: ${report.orphans}',
-                    for (final r in report.rows)
-                      '${r.name}: ${r.scheduled}'
-                          '${r.stale > 0 ? ' (ממתינות לרענון ${r.stale})' : ''}',
+                    for (final r in report.rows) _row(r),
                     if (!report.notificationsEnabled) 'הרשאת התראות חסרה',
                     if (!report.exactAlarmsAllowed) 'הרשאת אזעקה מדויקת חסרה',
                     if (!report.batteryExempt)

@@ -486,8 +486,12 @@ old ones look like the bug persisting.
 
 ## Settings shows what is actually scheduled
 
-`pendingReport` counts the queued notifications per memorial, split by series,
-plus anything whose block belongs to no memorial at all. It is surfaced in the
+`pendingReport` counts the queued notifications per memorial, plus anything
+whose block belongs to no memorial at all. Rows come back in
+`inReminderOrder` — **not** the repository's `created_at DESC` — and each
+carries its next reminder date, so the section reads as the schedule itself and
+the allocation's choices are visible. In creation order the same numbers say
+nothing. It is surfaced in the
 settings screen on purpose: when a reminder arrives twice there is otherwise no
 way to tell a queue holding two series from the system re-alerting one, and
 **four separate fixes were shipped blind before this existed**. Treat it as the
