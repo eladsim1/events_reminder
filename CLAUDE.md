@@ -626,6 +626,29 @@ daily noise in the shade would be worse than the problem. The step from "the
 alarm fired" to "a notification appeared" has no measurement, and that is not
 for lack of trying.
 
+## Import replaces or merges, and the safe one is the default button
+
+`ImportMode.replace` is what import always did: delete everything, insert the
+file. `ImportMode.merge` adds only what is missing and deletes nothing.
+
+Identity across devices is `Memorial.identityKey` — **name plus Hebrew date**,
+with whitespace normalised. The row id is meaningless outside the device that
+issued it (import assigns new ones), so the comparison has to be on content.
+The cost is accepted rather than solved: two people with the same name on the
+same date merge into one, and one person written two ways duplicates. There is
+no better key without asking the user row by row.
+
+`mergeAll` also folds duplicates *within* the file — a backup can repeat a
+memorial — by adding each key to the seen set as it inserts.
+
+In the dialog, **merge is the filled button and replace is plain text**, and
+replace names its consequence ("החלפה (מוחק הכול)") rather than saying "ייבוא".
+Of the two only one is irreversible, so it should not be the one that looks
+like the default.
+
+Tested against the real database rather than the in-memory fake: the point is
+the SQL, and the fake would only be testing itself.
+
 ## Photo files were never deleted
 
 Not on deleting a memorial, not on an import that replaces everything. They

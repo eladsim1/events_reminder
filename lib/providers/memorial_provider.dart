@@ -12,6 +12,11 @@ import '../services/notification_service.dart';
 import '../services/reminder_sync.dart';
 import '../services/photo_store.dart';
 
+/// מה עושה ייבוא עם מה שכבר קיים.
+///
+/// [merge] אינו מוחק דבר; [replace] מוחק את הכול ואינו הפיך.
+enum ImportMode { merge, replace }
+
 /// ספקי תשתית (Repository ושירותים).
 final memorialRepositoryProvider = Provider<MemorialRepository>((ref) {
   return MemorialRepository();
@@ -263,6 +268,22 @@ class MemorialNotifier extends AsyncNotifier<List<Memorial>> {
   Future<void> toggleEnabled(Memorial memorial, bool enabled) async {
     final updated = memorial.copyWith(enabled: enabled);
     await updateMemorial(updated);
+  }
+
+  /// מוסיף רק אזכרות שאינן קיימות, ומתזמן מחדש.
+  ///
+  /// המסלול הבטוח מבין השניים: שום דבר קיים אינו נמחק. מחזיר כמה נוספו
+  /// וכמה דולגו, כדי שהמסך יוכל לומר מה קרה במקום "בוצע".
+  Future<({int added, int skipped})> mergeMemorials(
+      List<Memorial> memorials) async {
+    final result = await _repo.mergeAll(memorials);
+    if (result.added > 0) {
+      await syncReminders(_repo, _notifications,
+          owner: 'import', waitForLock: _lockWait);
+    }
+    state = AsyncData(await _repo.getAll());
+    await _cleanUpPhotos();
+    return result;
   }
 
   /// מחליף את כל הנתונים (ייבוא מ-JSON) ומתזמן מחדש.

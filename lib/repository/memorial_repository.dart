@@ -39,6 +39,10 @@ class MemorialRepository {
   Future<({DateTime? lastRun, String? lastError})> backgroundStatus() =>
       _db.backgroundStatus();
 
+  /// מוסיף רק את מה שאינו קיים (ייבוא במצב הוספה).
+  Future<({int added, int skipped})> mergeAll(List<Memorial> memorials) =>
+      _db.mergeAll(memorials);
+
   /// מחליף את כל הנתונים (ייבוא מ-JSON).
   Future<void> replaceAll(List<Memorial> memorials) =>
       _db.replaceAll(memorials);

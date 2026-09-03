@@ -236,6 +236,30 @@ class DatabaseHelper {
   }
 
   /// מוחק את כל הרשומות ומכניס רשימה חדשה (לשימוש בייבוא).
+  /// מוסיף רק אזכרות שאינן קיימות. מחזיר כמה נוספו וכמה דולגו.
+  ///
+  /// ההשוואה על [Memorial.identityKey] ולא על המזהה: המזהה של קובץ גיבוי
+  /// שייך למכשיר אחר ואינו אומר דבר כאן.
+  Future<({int added, int skipped})> mergeAll(List<Memorial> incoming) async {
+    final db = await database;
+    final existing = {for (final m in await getAll()) m.identityKey};
+
+    var added = 0;
+    var skipped = 0;
+    await db.transaction((txn) async {
+      for (final m in incoming) {
+        // גם מול מה שנוסף באותה ריצה: קובץ יכול להכיל כפילות בתוכו.
+        if (!existing.add(m.identityKey)) {
+          skipped++;
+          continue;
+        }
+        await txn.insert(table, m.toMap()..remove('id'));
+        added++;
+      }
+    });
+    return (added: added, skipped: skipped);
+  }
+
   Future<void> replaceAll(List<Memorial> memorials) async {
     final db = await database;
     await db.transaction((txn) async {

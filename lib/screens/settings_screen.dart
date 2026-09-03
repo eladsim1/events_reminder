@@ -133,40 +133,54 @@ class SettingsScreen extends ConsumerWidget {
       // בינתיים, ואז showDialog על context מנותק זורק חריגה.
       if (!context.mounted) return;
 
-      final confirmed = await showDialog<bool>(
+      // ההוספה מודגשת והמחיקה לא, ולא להפך: מבין השתיים רק אחת אינה
+      // הפיכה, והכיתוב שלה אומר מה היא עושה במקום להסתפק ב"ייבוא".
+      final mode = await showDialog<ImportMode>(
         context: context,
         builder: (ctx) => AlertDialog(
           title: const Text('ייבוא נתונים'),
           content: Text(
-            'הייבוא יחליף את כל האזכרות הקיימות ב-${memorials.length} אזכרות מהקובץ. להמשיך?',
+            'בקובץ ${memorials.length} אזכרות. '
+            'להוסיף רק את מה שחסר, או להחליף את כל הקיימות?',
           ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.of(ctx).pop(false),
+              onPressed: () => Navigator.of(ctx).pop(),
               child: const Text('ביטול'),
             ),
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(ImportMode.replace),
+              child: const Text('החלפה (מוחק הכול)'),
+            ),
             FilledButton(
-              onPressed: () => Navigator.of(ctx).pop(true),
-              child: const Text('ייבוא'),
+              onPressed: () => Navigator.of(ctx).pop(ImportMode.merge),
+              child: const Text('הוספה'),
             ),
           ],
         ),
       );
+      if (mode == null) return;
 
-      if (confirmed == true) {
-        await ref
-            .read(memorialListProvider.notifier)
-            .importMemorials(memorials);
-        if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                'יובאו ${memorials.length} אזכרות'
-                '${restoredPhotos > 0 ? ' ו-$restoredPhotos תמונות' : ''}',
-              ),
-            ),
-          );
-        }
+      final notifier = ref.read(memorialListProvider.notifier);
+      final photoNote =
+          restoredPhotos > 0 ? ' ו-$restoredPhotos תמונות' : '';
+
+      final String message;
+      if (mode == ImportMode.replace) {
+        await notifier.importMemorials(memorials);
+        message = 'יובאו ${memorials.length} אזכרות$photoNote';
+      } else {
+        final result = await notifier.mergeMemorials(memorials);
+        message = result.added == 0
+            ? 'כל האזכרות בקובץ כבר קיימות'
+            : 'נוספו ${result.added} אזכרות'
+                '${result.skipped > 0 ? ', ${result.skipped} כבר היו קיימות' : ''}'
+                '$photoNote';
+      }
+
+      if (context.mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(message)));
       }
     } catch (e) {
       if (context.mounted) {

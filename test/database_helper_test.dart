@@ -313,6 +313,63 @@ void main() {
   // Everything above drives DatabaseHelper directly. The app never does —
   // it always goes through MemorialRepository, so exercise that seam too,
   // against the same real database.
+  group('merge adds only what is missing', () {
+    // Against the real database, because the whole point is the SQL: the
+    // in-memory fake would only be testing itself.
+    test('an identical memorial is skipped, a new one is added', () async {
+      await db.insert(_memorial(name: 'סבא יעקב'));
+
+      final result = await db.mergeAll([
+        _memorial(name: 'סבא יעקב'),
+        _memorial(name: 'סבתא רחל'),
+      ]);
+
+      expect(result.added, 1);
+      expect(result.skipped, 1);
+      expect((await db.getAll()).map((m) => m.name),
+          containsAll(['סבא יעקב', 'סבתא רחל']));
+      expect(await db.getAll(), hasLength(2));
+    });
+
+    test('the same name on another date is a different person', () async {
+      await db.insert(_memorial(name: 'סבא יעקב', day: 27));
+
+      final result = await db.mergeAll([_memorial(name: 'סבא יעקב', day: 3)]);
+
+      expect(result.added, 1);
+      expect(await db.getAll(), hasLength(2));
+    });
+
+    test('spacing in the name does not create a duplicate', () async {
+      await db.insert(_memorial(name: 'סבא יעקב'));
+
+      final result = await db.mergeAll([_memorial(name: '  סבא   יעקב ')]);
+
+      expect(result.skipped, 1, reason: 'typing differences are not identity');
+      expect(await db.getAll(), hasLength(1));
+    });
+
+    test('a file that repeats a memorial inside itself adds it once',
+        () async {
+      final result = await db.mergeAll([
+        _memorial(name: 'סבא יעקב'),
+        _memorial(name: 'סבא יעקב'),
+      ]);
+
+      expect(result.added, 1);
+      expect(result.skipped, 1);
+    });
+
+    test('nothing existing is touched', () async {
+      final id = await db.insert(_memorial(name: 'סבא יעקב'));
+      await db.mergeAll([_memorial(name: 'סבתא רחל')]);
+
+      final kept = await db.getById(id);
+      expect(kept, isNotNull, reason: 'merge never deletes');
+      expect(kept!.name, 'סבא יעקב');
+    });
+  });
+
   group('MemorialRepository over real sqlite', () {
     final repo = MemorialRepository();
 
