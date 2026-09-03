@@ -43,6 +43,16 @@ class PendingRow {
   /// מועד התזכורת הקרובה שלה, או null אם אין מתוזמנת.
   final DateTime? nextReminder;
 
+  /// כמה **אמורות** להיות מתוזמנות לפי ההקצאה.
+  ///
+  /// זו הבדיקה היחידה שיש לה משמעות כאן: השורות ממוינות לפי מועד ולכן הן
+  /// תמיד ייראו מסודרות, ומיון אינו יכול לגלות דבר. מה שכן מגלה הוא פער
+  /// בין מה שמתוזמן לבין מה שההקצאה קבעה – אזכרה קרובה בלי אזעקה, או
+  /// שאריות מקונפיגורציה קודמת.
+  final int expected;
+
+  bool get matchesPlan => scheduled == expected;
+
   /// כמה מהן נצרבו בגרסת תוכן ישנה וממתינות לתזמון מחדש.
   final int stale;
 
@@ -50,6 +60,7 @@ class PendingRow {
     required this.name,
     required this.scheduled,
     required this.stale,
+    required this.expected,
     this.nextReminder,
   });
 }
@@ -65,6 +76,10 @@ class PendingReport {
 
   /// כשל התזמון האחרון, אם היה.
   final String? lastError;
+
+  /// האם התור תואם למה שההקצאה קבעה. **זו הבדיקה, לא המיון.**
+  bool get inStep =>
+      orphans == 0 && rows.every((r) => r.matchesPlan && r.stale == 0);
 
   /// שלושת התנאים שבלעדיהם תזכורת לא תגיע: שתי ההרשאות, ופטור מניהול
   /// הסוללה – שבלעדיו אנדרואיד רשאי לעצור את האפליקציה ולמחוק את האזעקות
@@ -899,6 +914,7 @@ class NotificationService {
 
     // בסדר התזמון ולא בסדר הרשימה, שהוא לפי מועד יצירה. זו התצוגה היחידה
     // שממנה אפשר לראות מה ההקצאה באמת עשתה, ובלי המיון היא לא מראה זאת.
+    final allocation = allocateBudget(memorials, _calendar);
     final rows = <PendingRow>[];
     for (final m in inReminderOrder(memorials, _calendar)) {
       final id = m.id;
@@ -915,6 +931,7 @@ class NotificationService {
         name: m.name,
         scheduled: scheduled,
         stale: stale,
+        expected: m.enabled ? (allocation[id] ?? 0) : 0,
         nextReminder: upcoming.isEmpty ? null : upcoming.first,
       ));
     }

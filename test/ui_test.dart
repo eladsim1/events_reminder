@@ -2382,11 +2382,13 @@ void main() {
           PendingRow(
               name: 'סבתא רחל',
               scheduled: 2,
+              expected: 2,
               stale: 0,
               nextReminder: DateTime(2026, 10, 6, 9)),
           PendingRow(
               name: 'סבא יעקב',
               scheduled: 3,
+              expected: 3,
               stale: 1,
               nextReminder: DateTime(2027, 8, 24, 9)),
         ],
@@ -2416,7 +2418,8 @@ void main() {
       ]);
       notif.report = const PendingReport(
         rows: [
-          PendingRow(name: 'סבא יעקב', scheduled: 0, stale: 0),
+          PendingRow(
+              name: 'סבא יעקב', scheduled: 0, expected: 0, stale: 0),
         ],
         total: 0,
         orphans: 0,
@@ -2433,13 +2436,78 @@ void main() {
       expect(find.textContaining('הרשאת אזעקה מדויקת חסרה'), findsOneWidget);
     });
 
+    testWidgets('a queue that does not match the plan is flagged in red',
+        (tester) async {
+      // Sorting cannot reveal anything - the rows are sorted by this code. The
+      // check that means something is scheduled-versus-allocated: a memorial
+      // due soon with no alarm, or leftovers from an earlier configuration.
+      final (_, notif) = await _pumpApp(tester, seeded: [
+        _seed(id: 1, name: 'סבא יעקב', day: 27, month: HebrewMonth.av),
+      ]);
+      notif.report = PendingReport(
+        rows: [
+          PendingRow(
+              name: 'סבא יעקב',
+              scheduled: 1,
+              expected: 3,
+              stale: 0,
+              nextReminder: DateTime(2027, 8, 24, 9)),
+        ],
+        total: 1,
+        orphans: 0,
+      );
+
+      await tester.tap(find.byIcon(Icons.settings_outlined));
+      await _pumpUntilFound(
+          tester, find.text('תזכורות מתוזמנות'), 'the scheduled section');
+
+      // The gap is named, not just coloured - red alone says something is
+      // wrong without saying what.
+      expect(find.textContaining('1 מתוך 3'), findsOneWidget);
+      final text = tester.widget<Text>(find.textContaining('1 מתוך 3'));
+      expect(
+          text.style?.color,
+          Theme.of(tester.element(find.byType(SettingsScreen)))
+              .colorScheme
+              .error);
+      expect(find.byIcon(Icons.refresh), findsOneWidget,
+          reason: 'and there is a way to put it right');
+    });
+
+    testWidgets('a queue that matches shows no refresh button', (tester) async {
+      // A button that is always there invites taps that do nothing: the sync
+      // runs on every launch anyway.
+      final (_, notif) = await _pumpApp(tester, seeded: [
+        _seed(id: 1, name: 'סבא יעקב', day: 27, month: HebrewMonth.av),
+      ]);
+      notif.report = PendingReport(
+        rows: [
+          PendingRow(
+              name: 'סבא יעקב',
+              scheduled: 3,
+              expected: 3,
+              stale: 0,
+              nextReminder: DateTime(2027, 8, 24, 9)),
+        ],
+        total: 3,
+        orphans: 0,
+      );
+
+      await tester.tap(find.byIcon(Icons.settings_outlined));
+      await _pumpUntilFound(
+          tester, find.text('תזכורות מתוזמנות'), 'the scheduled section');
+
+      expect(find.byIcon(Icons.refresh), findsNothing);
+    });
+
     testWidgets('leftovers with no memorial are called out', (tester) async {
       final (_, notif) = await _pumpApp(tester, seeded: [
         _seed(id: 1, name: 'סבא יעקב', day: 27, month: HebrewMonth.av),
       ]);
       notif.report = const PendingReport(
         rows: [
-          PendingRow(name: 'סבא יעקב', scheduled: 21, stale: 0),
+          PendingRow(
+              name: 'סבא יעקב', scheduled: 21, expected: 21, stale: 0),
         ],
         total: 63,
         orphans: 42,

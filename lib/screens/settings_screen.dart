@@ -266,13 +266,22 @@ class _BackgroundRefreshStatus extends ConsumerWidget {
 /// נראה למשתמש בכוונה: כשתזכורת מגיעה פעמיים אין שום דרך אחרת לדעת אם היא
 /// באמת מתוזמנת פעמיים או שהמערכת מציגה אותה שוב. בלי התצוגה הזו כל תיקון
 /// לבאג כזה הוא ניחוש.
-class _ScheduledReminders extends ConsumerWidget {
+class _ScheduledReminders extends ConsumerStatefulWidget {
   const _ScheduledReminders();
+
+  @override
+  ConsumerState<_ScheduledReminders> createState() =>
+      _ScheduledRemindersState();
+}
+
+class _ScheduledRemindersState extends ConsumerState<_ScheduledReminders> {
+  bool _refreshing = false;
 
   /// "24/08/27 · סבא יעקב (3)" – מועד, שם, וכמה מתוזמנות.
   ///
   /// המועד ראשון בכוונה: השורות ממוינות לפיו, וכך אפשר לקרוא אותן כרשימה
-  /// אחת ולראות מה ההקצאה בחרה לתזמן.
+  /// אחת ולראות מה ההקצאה בחרה לתזמן. **התאריך הוא מועד התזכורת, לא מועד
+  /// האזכרה** – ההפרש ביניהם נקבע בהגדרת מועד התזכורת של כל אזכרה.
   String _row(PendingRow r) {
     final at = r.nextReminder;
     final when = at == null
@@ -280,24 +289,39 @@ class _ScheduledReminders extends ConsumerWidget {
         : '${at.day.toString().padLeft(2, '0')}/'
             '${at.month.toString().padLeft(2, '0')}/'
             '${(at.year % 100).toString().padLeft(2, '0')}';
+
+    // כשיש פער, מוצג גם מה היה אמור להיות – בלעדיו האדום מסמן בעיה ולא
+    // אומר מהי.
+    final count =
+        r.matchesPlan ? '${r.scheduled}' : '${r.scheduled} מתוך ${r.expected}';
     final stale = r.stale > 0 ? ' · ${r.stale} לרענון' : '';
-    return '$when · ${r.name} (${r.scheduled})$stale';
+    return '$when · ${r.name} ($count)$stale';
+  }
+
+  Future<void> _refresh() async {
+    setState(() => _refreshing = true);
+    // אותו סנכרון שרץ בפתיחה: הוא מתזמן מחדש כל אזכרה שהתור שלה אינו תואם.
+    await ref.read(memorialListProvider.notifier).syncNotifications();
+    if (mounted) setState(() => _refreshing = false);
   }
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final memorials = ref.watch(memorialListProvider).valueOrNull ?? const [];
+  Widget build(BuildContext context) {
+    final memorials =
+        ref.watch(memorialListProvider).valueOrNull ?? const <Memorial>[];
     final theme = Theme.of(context);
+    final small = theme.textTheme.bodySmall;
+    final bad = small?.copyWith(color: theme.colorScheme.error);
 
     return FutureBuilder<PendingReport>(
-      future: ref
-          .read(notificationServiceProvider)
-          .pendingReport(memorials,
-              batteryExempt: ref
-                      .watch(notificationPermissionProvider)
-                      .valueOrNull
-                      ?.batteryExempt ??
-                  true),
+      future: ref.read(notificationServiceProvider).pendingReport(
+            memorials,
+            batteryExempt: ref
+                    .watch(notificationPermissionProvider)
+                    .valueOrNull
+                    ?.batteryExempt ??
+                true,
+          ),
       builder: (context, snapshot) {
         final report = snapshot.data;
         return ListTile(
@@ -306,22 +330,41 @@ class _ScheduledReminders extends ConsumerWidget {
           isThreeLine: report != null && report.rows.isNotEmpty,
           subtitle: report == null
               ? const Text('נבדק...')
-              : Text(
-                  [
-                    'סה"כ ${report.total}',
-                    if (report.orphans > 0) 'ללא אזכרה: ${report.orphans}',
-                    for (final r in report.rows) _row(r),
-                    if (!report.notificationsEnabled) 'הרשאת התראות חסרה',
-                    if (!report.exactAlarmsAllowed) 'הרשאת אזעקה מדויקת חסרה',
+              : Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('סה"כ ${report.total}', style: small),
+                    if (report.orphans > 0)
+                      Text('ללא אזכרה: ${report.orphans}', style: bad),
+                    for (final r in report.rows)
+                      Text(_row(r),
+                          style: r.matchesPlan && r.stale == 0 ? small : bad),
+                    if (!report.notificationsEnabled)
+                      Text('הרשאת התראות חסרה', style: bad),
+                    if (!report.exactAlarmsAllowed)
+                      Text('הרשאת אזעקה מדויקת חסרה', style: bad),
                     if (!report.batteryExempt)
-                      'ניהול הסוללה פעיל – אנדרואיד רשאי למחוק אזעקות',
-                    if (report.lastError != null) report.lastError!,
-                  ].join('\n'),
-                  style: report.lastError == null
-                      ? theme.textTheme.bodySmall
-                      : theme.textTheme.bodySmall
-                          ?.copyWith(color: theme.colorScheme.error),
+                      Text('ניהול הסוללה פעיל – אנדרואיד רשאי למחוק אזעקות',
+                          style: bad),
+                    if (report.lastError != null)
+                      Text(report.lastError!, style: bad),
+                  ],
                 ),
+          // הכפתור מופיע רק כשיש מה לתקן. הסנכרון רץ ממילא בכל פתיחה, ולכן
+          // כפתור קבוע היה מזמין לחיצות שאינן עושות דבר.
+          trailing: report == null || report.inStep
+              ? null
+              : _refreshing
+                  ? const SizedBox(
+                      width: 24,
+                      height: 24,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : IconButton(
+                      icon: const Icon(Icons.refresh),
+                      tooltip: 'רענון האזעקות',
+                      onPressed: _refresh,
+                    ),
         );
       },
     );

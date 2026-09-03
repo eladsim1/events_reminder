@@ -491,7 +491,18 @@ whose block belongs to no memorial at all. Rows come back in
 `inReminderOrder` — **not** the repository's `created_at DESC` — and each
 carries its next reminder date, so the section reads as the schedule itself and
 the allocation's choices are visible. In creation order the same numbers say
-nothing. It is surfaced in the
+nothing.
+
+The date shown is the **reminder's** firing time, not the memorial's — they
+differ by whatever that memorial's reminder setting says.
+
+**Sorting cannot detect a fault**, since this code does the sorting; rows will
+always look ordered. The check that means something is scheduled-versus-planned:
+`PendingRow.expected` comes from `allocateBudget`, and a row whose count differs
+renders in red and names the gap ("1 מתוך 3") rather than only colouring it.
+`PendingReport.inStep` folds that together with orphans and stale payloads, and
+the refresh button appears only when it is false — the sync runs on every launch
+anyway, so a permanent button would invite taps that do nothing. It is surfaced in the
 settings screen on purpose: when a reminder arrives twice there is otherwise no
 way to tell a queue holding two series from the system re-alerting one, and
 **four separate fixes were shipped blind before this existed**. Treat it as the
