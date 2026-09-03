@@ -22,9 +22,7 @@ Future<void> syncReminders(
   // היא שדה בזיכרון, ולעבודה ברקע יש עותק משלה של כל סטטי – כלומר שתיהן
   // יכולות לרוץ יחד, לקרוא את אותו lastNotifiedAt ולהציג את אותה תזכורת
   // פעמיים, או לשזור ביטול ותזמון זה בזה.
-  if (!await _claim(repo, owner, waitForLock)) return;
-
-  try {
+  await withSyncLock(repo, owner, waitFor: waitForLock, () async {
     final memorials = await repo.getAll();
     if (memorials.isEmpty) return;
 
@@ -38,9 +36,31 @@ Future<void> syncReminders(
       memorials,
       await notifications.rescheduleAll(memorials),
     );
+  });
+}
+
+/// מריץ [work] תחת נעילת הסנכרון, ומחזיר האם היא נתפסה.
+///
+/// **כל נגיעה במאגר ההתראות חייבת לעבור כאן.** הפלאגין מחזיק את כל ההתראות
+/// המתוזמנות ב-JSON יחיד, וכל תזמון או ביטול קורא אותו, משנה וכותב אותו
+/// במלואו. שתי כתיבות מקבילות משני isolates מאבדות אחת מהן – **גם כשהמזהים
+/// זרים לגמרי**, כי הן דורסות זו את זו ברמת הקובץ ולא ברמת הרשומה.
+///
+/// זה מה שהחמיץ התיקון הקודם: הוא הגן על שני מסלולי הסנכרון זה מפני זה,
+/// אבל הוספה, עריכה ומחיקה המשיכו לגעת במאגר בלי נעילה.
+Future<bool> withSyncLock(
+  MemorialRepository repo,
+  String owner,
+  Future<void> Function() work, {
+  Duration? waitFor,
+}) async {
+  if (!await _claim(repo, owner, waitFor)) return false;
+  try {
+    await work();
   } finally {
     await repo.releaseSyncLock();
   }
+  return true;
 }
 
 /// תופס את הנעילה, ואם [wait] ניתן – ממתין לה במקום לוותר.

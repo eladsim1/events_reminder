@@ -638,6 +638,22 @@ and nothing verified it.
 already excluded, and lint fails the release build for excluding a path outside
 the included set — which is how the first attempt was caught.
 
+### Every write to the notification store goes through the lock
+
+The plugin keeps **all** scheduled notifications in a single JSON blob and
+rewrites the whole thing on each `zonedSchedule` and each `cancel`. Two
+concurrent writers therefore lose one of the two **even with completely
+disjoint ids** — they overwrite each other at the file level, not the record
+level.
+
+`withSyncLock` is the single place that rule lives. `syncReminders` uses it,
+and so do add, edit and delete: the first version of the lock guarded the two
+sync paths against each other and left the user-initiated paths touching the
+store unguarded, which is the same bug one layer down. Those callers **wait**
+rather than skip — an edit that was not scheduled is a reminder that will not
+arrive — and a sync holds the lock for seconds while its expiry is ten minutes,
+so the wait cannot hang.
+
 ### Import is the one caller that may not skip the lock
 
 `syncReminders` normally gives up when the lock is held: the sync runs again on

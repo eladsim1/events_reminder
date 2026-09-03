@@ -135,6 +135,12 @@ class MemorialNotifier extends AsyncNotifier<List<Memorial>> {
   /// ריצת סנכרון שכבר פועלת, אם יש כזו.
   Future<void>? _syncing;
 
+  /// כמה להמתין לנעילה בפעולה שאסור לה להידלג עליה.
+  ///
+  /// סנכרון מחזיק אותה לשניות בודדות; התפוגה שלה היא עשר דקות, ולכן המתנה
+  /// כזו אינה יכולה להיתקע.
+  static const Duration _lockWait = Duration(seconds: 15);
+
   /// כל עבודת ההתראות: אתחול, השלמת תזכורות שהוחמצו, ותזמון מחדש.
   ///
   /// אינה חוסמת את ה-UI ואינה מפילה אותו – התזמון אינו דחוף לרגע, וכשל בו
@@ -185,17 +191,23 @@ class MemorialNotifier extends AsyncNotifier<List<Memorial>> {
   }
 
   /// מתזמן אזכרה בודדת ורושם את המועד הקרוב שטופל.
+  ///
+  /// תחת הנעילה, כמו כל נגיעה במאגר ההתראות – ראה withSyncLock. **ממתין**
+  /// ואינו מדלג: הוספה או עריכה שלא תוזמנה היא תזכורת שלא תגיע, וסנכרון
+  /// שמחזיק את הנעילה משחרר אותה תוך שניות.
   Future<void> _scheduleAndRecord(Memorial memorial) async {
     try {
-      // הרשימה כולה נמסרת כדי שהמכסה תיגזר מולה: לאנדרואיד יש תקרת
-      // אזעקות לכל אפליקציה, וחריגה ממנה מפילה את התזמון כולו.
-      final nearest = await _notifications.scheduleForMemorial(
-        memorial,
-        among: state.valueOrNull ?? const [],
-      );
-      if (nearest == null || memorial.lastNotifiedAt == nearest) return;
-      await _repo.update(memorial.copyWith(lastNotifiedAt: nearest));
-      await _refresh();
+      await withSyncLock(_repo, 'edit', waitFor: _lockWait, () async {
+        // הרשימה כולה נמסרת כדי שהמכסה תיגזר מולה: לאנדרואיד יש תקרת
+        // אזעקות לכל אפליקציה, וחריגה ממנה מפילה את התזמון כולו.
+        final nearest = await _notifications.scheduleForMemorial(
+          memorial,
+          among: state.valueOrNull ?? const [],
+        );
+        if (nearest == null || memorial.lastNotifiedAt == nearest) return;
+        await _repo.update(memorial.copyWith(lastNotifiedAt: nearest));
+        await _refresh();
+      });
     } catch (_) {
       // רץ ברקע: הרשימה כבר מוצגת ואין מה להחליף אותה במסך שגיאה.
     }
@@ -224,8 +236,10 @@ class MemorialNotifier extends AsyncNotifier<List<Memorial>> {
     if (memorial.id == null) return;
     await _repo.delete(memorial.id!);
     await _refresh();
-    // ביטול עולה קריאה לכל התראה מתוזמנת – ברקע, כמו התזמון.
-    unawaited(_notifications.cancelForMemorial(memorial.id!));
+    // ביטול עולה קריאה לכל התראה מתוזמנת – ברקע, כמו התזמון, ותחת אותה
+    // נעילה: גם ביטול קורא-משנה-כותב את מאגר ההתראות כולו.
+    unawaited(withSyncLock(_repo, 'delete', waitFor: _lockWait,
+        () => _notifications.cancelForMemorial(memorial.id!)));
   }
 
   /// מפעיל/מכבה התראה של אזכרה קיימת.

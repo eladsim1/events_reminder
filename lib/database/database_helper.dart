@@ -50,14 +50,8 @@ class DatabaseHelper {
 
   /// שדרוג סכימה. חייב להיות אינקרמנטלי – התקנות קיימות מכילות נתונים.
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
-    if (oldVersion < 6) {
-      await _createStateTable(db);
-    }
-    if (oldVersion < 5) {
-      await db.execute(
-        'ALTER TABLE $table ADD COLUMN postponed_reminder_at TEXT',
-      );
-    }
+    // בסדר עולה. הבלוקים כאן עצמאיים זה מזה, אבל סדר יורד מזמין מיגרציה
+    // עתידית שתסתמך על קודמתה ותרוץ לפניה.
     if (oldVersion < 2) {
       await db.execute(
         'ALTER TABLE $table ADD COLUMN last_notified_at TEXT',
@@ -82,6 +76,14 @@ class DatabaseHelper {
       await db.execute(
         'ALTER TABLE $table ADD COLUMN death_hebrew_year INTEGER',
       );
+    }
+    if (oldVersion < 5) {
+      await db.execute(
+        'ALTER TABLE $table ADD COLUMN postponed_reminder_at TEXT',
+      );
+    }
+    if (oldVersion < 6) {
+      await _createStateTable(db);
     }
   }
 

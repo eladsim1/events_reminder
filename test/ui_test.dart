@@ -2771,6 +2771,58 @@ void main() {
     });
   });
 
+  group('every write to the notification store is locked', () {
+    // The plugin keeps all scheduled notifications in one JSON blob and
+    // rewrites the whole thing on each call, so two concurrent writers lose
+    // one of the two - even with completely disjoint ids. The earlier fix
+    // covered the two sync paths and left add, edit and delete unguarded.
+    ProviderContainer containerFor(
+        _InMemoryRepo repo, _FakeNotifications notif) {
+      final c = ProviderContainer(overrides: [
+        memorialRepositoryProvider.overrideWithValue(repo),
+        notificationServiceProvider.overrideWithValue(notif),
+      ]);
+      addTearDown(c.dispose);
+      return c;
+    }
+
+    test('adding one takes the lock and gives it back', () async {
+      final repo = _InMemoryRepo();
+      final notif = _FakeNotifications()
+        ..nearestScheduled = DateTime(2027, 8, 24, 9);
+      final notifier = containerFor(repo, notif)
+          .read(memorialListProvider.notifier);
+      await notifier.load();
+
+      await notifier.addMemorial(
+          _seed(id: 1, name: 'סבא יעקב', day: 27, month: HebrewMonth.av));
+      // The scheduling is fire-and-forget; let it run.
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+
+      expect(repo.lockOwners, contains('edit'));
+      expect(repo.syncLockHeld, isFalse);
+      expect(notif.log, contains('schedule:סבא יעקב'));
+    });
+
+    test('deleting one takes it too', () async {
+      final repo = _InMemoryRepo();
+      final notif = _FakeNotifications();
+      final notifier = containerFor(repo, notif)
+          .read(memorialListProvider.notifier);
+      await notifier.load();
+      await notifier.addMemorial(
+          _seed(id: 1, name: 'סבא יעקב', day: 27, month: HebrewMonth.av));
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      repo.lockOwners.clear();
+
+      await notifier.deleteMemorial(repo.items.single);
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+
+      expect(repo.lockOwners, contains('delete'));
+      expect(repo.syncLockHeld, isFalse);
+    });
+  });
+
   group('import schedules without a gap', () {
     test('nothing is cancelled up front', () async {
       // replaceAll deletes and re-inserts, so the ids change and the old
