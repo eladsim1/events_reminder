@@ -13,7 +13,11 @@ import 'package:path_provider/path_provider.dart';
 /// הקבצים מחזיר הוא נתיב cache שאנדרואיד מוחק, כך שהתמונה הייתה נעלמת
 /// מהכרטיס אחרי זמן מה.
 class PhotoStore {
-  const PhotoStore();
+  /// [directory] גובר על אחסון האפליקציה. קיים כדי שהניקוי ייבדק על קבצים
+  /// אמיתיים בתיקייה זמנית, במקום מול ערוץ פלטפורמה.
+  const PhotoStore({Directory? directory}) : _override = directory;
+
+  final Directory? _override;
 
   static const String _folder = 'memorial_photos';
 
@@ -25,11 +29,44 @@ class PhotoStore {
   static const int maxDimension = 256;
 
   Future<Directory> _photoDir() async {
-    final dir = Directory(
-      p.join((await getApplicationSupportDirectory()).path, _folder),
-    );
+    final dir = _override ??
+        Directory(
+          p.join((await getApplicationSupportDirectory()).path, _folder),
+        );
     if (!dir.existsSync()) await dir.create(recursive: true);
     return dir;
+  }
+
+  /// מוחק קובצי תמונה שאף אזכרה אינה מפנה אליהם. מחזיר כמה נמחקו.
+  ///
+  /// עד כה שום דבר לא מחק תמונות – לא מחיקת אזכרה ולא ייבוא שמחליף את
+  /// הכול – והקבצים נצברו באחסון בלי שאיש מפנה אליהם.
+  ///
+  /// **[grace] הוא הגנה ולא אופטימיזציה.** תמונה שנבחרה בטופס נכתבת לדיסק
+  /// לפני שהאזכרה נשמרת, ובאותו חלון היא יתומה לכל דבר. ניקוי בלי תקופת
+  /// חסד היה מוחק אותה מתחת לידיו של מי שממלא את הטופס.
+  Future<int> deleteOrphans(
+    Iterable<String> keep, {
+    Duration grace = const Duration(days: 1),
+  }) async {
+    final dir = await _photoDir();
+    if (!dir.existsSync()) return 0;
+
+    final kept = keep.toSet();
+    final cutoff = DateTime.now().subtract(grace);
+    var removed = 0;
+
+    for (final entity in dir.listSync()) {
+      if (entity is! File || kept.contains(entity.path)) continue;
+      try {
+        if (entity.statSync().modified.isAfter(cutoff)) continue;
+        entity.deleteSync();
+        removed++;
+      } catch (_) {
+        // קובץ נעול, או שנמחק בינתיים. לא סיבה להפיל ניקוי.
+      }
+    }
+    return removed;
   }
 
   /// פותח בורר תמונות ומחזיר נתיב מקומי קבוע, או null אם המשתמש ביטל.

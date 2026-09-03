@@ -164,6 +164,7 @@ class MemorialNotifier extends AsyncNotifier<List<Memorial>> {
       await syncReminders(_repo, _notifications);
       // הרשימה נטענת מחדש כי שני השלבים עדכנו את lastNotifiedAt.
       state = AsyncData(await _repo.getAll());
+      await _cleanUpPhotos();
     } catch (_) {
       // הרשימה כבר מוצגת; אין מה להחליף אותה במסך שגיאה.
     }
@@ -210,6 +211,22 @@ class MemorialNotifier extends AsyncNotifier<List<Memorial>> {
       });
     } catch (_) {
       // רץ ברקע: הרשימה כבר מוצגת ואין מה להחליף אותה במסך שגיאה.
+    }
+  }
+
+  /// מוחק קובצי תמונה שאיש אינו מפנה אליהם.
+  ///
+  /// כאן ולא בשכבת ההתראות: הרשימה המלאה של מה שבשימוש נמצאת רק כאן.
+  /// כשל בניקוי אינו משנה דבר – הוא היגיינה ולא נכס.
+  Future<void> _cleanUpPhotos() async {
+    try {
+      final all = await _repo.getAll();
+      await ref.read(photoStoreProvider).deleteOrphans([
+        for (final m in all)
+          if (m.photoPath case final path?) path,
+      ]);
+    } catch (_) {
+      // אחסון לא זמין, או תיקייה שאינה קיימת עדיין.
     }
   }
 
@@ -264,6 +281,9 @@ class MemorialNotifier extends AsyncNotifier<List<Memorial>> {
     await syncReminders(_repo, _notifications,
         owner: 'import', waitForLock: const Duration(seconds: 15));
     state = AsyncData(await _repo.getAll());
+    // ייבוא מחליף את הכול, ולכן הוא מייצר את המספר הגדול ביותר של תמונות
+    // יתומות בבת אחת.
+    await _cleanUpPhotos();
   }
 }
 

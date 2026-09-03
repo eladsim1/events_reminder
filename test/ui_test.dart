@@ -12,6 +12,8 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:ui' as ui;
 
+import 'package:path/path.dart' as p;
+
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -37,6 +39,7 @@ import 'package:azkarot_app/services/hebrew_calendar_service.dart';
 import 'package:azkarot_app/services/background_refresh.dart';
 import 'package:azkarot_app/services/delivery_checks.dart';
 import 'package:azkarot_app/services/navigation_launcher.dart';
+import 'package:azkarot_app/services/photo_store.dart';
 import 'package:azkarot_app/services/notification_service.dart';
 import 'package:azkarot_app/services/reminder_sync.dart';
 import 'package:azkarot_app/services/photo_store.dart';
@@ -2951,6 +2954,53 @@ void main() {
 
       expect(notif.log.length, greaterThan(before),
           reason: 'the guard must not latch and block every later sync');
+    });
+  });
+
+  group('orphaned photos are cleaned up', () {
+    // Nothing ever deleted a photo file - not deleting a memorial, not an
+    // import that replaces everything - so they accumulated unreferenced.
+    late Directory dir;
+    late PhotoStore store;
+
+    setUp(() {
+      dir = Directory.systemTemp.createTempSync('azkarot_photos');
+      store = PhotoStore(directory: dir);
+      addTearDown(() => dir.deleteSync(recursive: true));
+    });
+
+    File aged(String name, Duration age) {
+      final file = File(p.join(dir.path, name))..writeAsBytesSync([1, 2, 3]);
+      file.setLastModifiedSync(DateTime.now().subtract(age));
+      return file;
+    }
+
+    test('a file nobody references is removed', () async {
+      final orphan = aged('orphan.jpg', const Duration(days: 3));
+      final kept = aged('kept.jpg', const Duration(days: 3));
+
+      expect(await store.deleteOrphans([kept.path]), 1);
+      expect(orphan.existsSync(), isFalse);
+      expect(kept.existsSync(), isTrue);
+    });
+
+    test('a freshly written file is left alone', () async {
+      // The form writes the photo before the memorial is saved, so in that
+      // window it is an orphan by every measure. Deleting it would take the
+      // picture out from under whoever is filling in the form.
+      final justPicked = aged('fresh.jpg', const Duration(minutes: 5));
+
+      expect(await store.deleteOrphans(const []), 0);
+      expect(justPicked.existsSync(), isTrue);
+    });
+
+    test('the grace period is what decides, not the name', () async {
+      aged('old.jpg', const Duration(days: 3));
+      expect(await store.deleteOrphans(const [], grace: Duration.zero), 1);
+    });
+
+    test('an empty directory is not an error', () async {
+      expect(await store.deleteOrphans(const []), 0);
     });
   });
 

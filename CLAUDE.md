@@ -626,6 +626,24 @@ daily noise in the shade would be worse than the problem. The step from "the
 alarm fired" to "a notification appeared" has no measurement, and that is not
 for lack of trying.
 
+## Photo files were never deleted
+
+Not on deleting a memorial, not on an import that replaces everything. They
+simply accumulated in app support storage with nothing referencing them — small
+each, because of the 256px downscale, but unbounded.
+
+`PhotoStore.deleteOrphans` removes what no memorial points at, and the provider
+runs it after a sync and after an import (which produces the largest batch of
+orphans at once). It lives in the provider because that is the only layer that
+knows the full set of paths in use.
+
+**The grace period is a guard, not a tuning knob.** `MemorialForm` writes the
+picked photo to disk *before* the memorial is saved, and in that window the file
+is an orphan by every test — a cleanup without the delay would delete the
+picture out from under whoever is filling in the form. `PhotoStore` takes an
+optional directory so this is tested against real files in a temp directory
+rather than a mocked channel.
+
 ## Backup is declared, not assumed
 
 `allowBackup`, `fullBackupContent` and `dataExtractionRules` are now explicit,
