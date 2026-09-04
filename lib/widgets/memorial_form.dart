@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 
 import '../models/hebrew_date.dart';
+import '../models/coordinates.dart';
 import '../models/memorial.dart';
 import '../services/hebrew_calendar_service.dart';
 import 'hebrew_date_picker.dart';
@@ -18,6 +19,9 @@ class MemorialFormResult {
   final String? notes;
   final String? cemetery;
   final String? plot;
+
+  /// נקודת הציון שהוקלדה, אחרי פענוח. null אם השדה ריק.
+  final Coordinates? coordinates;
   final String? photoPath;
   final ReminderMode reminderMode;
   final int reminderValue;
@@ -33,6 +37,7 @@ class MemorialFormResult {
     required this.notes,
     required this.cemetery,
     required this.plot,
+    required this.coordinates,
     required this.photoPath,
     required this.reminderMode,
     required this.reminderValue,
@@ -78,6 +83,7 @@ class _MemorialFormState extends State<MemorialForm> {
   late TextEditingController _notesController;
   late TextEditingController _cemeteryController;
   late TextEditingController _plotController;
+  late TextEditingController _coordinatesController;
 
   late int _day;
   late HebrewMonth _month;
@@ -96,6 +102,8 @@ class _MemorialFormState extends State<MemorialForm> {
     _notesController = TextEditingController(text: m?.notes ?? '');
     _cemeteryController = TextEditingController(text: m?.cemetery ?? '');
     _plotController = TextEditingController(text: m?.plot ?? '');
+    _coordinatesController =
+        TextEditingController(text: m?.coordinates?.toString() ?? '');
     _day = m?.hebrewDay ?? 1;
     _month = m?.selectedMonth ?? HebrewMonth.tishrei;
     _time = m != null
@@ -114,6 +122,7 @@ class _MemorialFormState extends State<MemorialForm> {
     _notesController.dispose();
     _cemeteryController.dispose();
     _plotController.dispose();
+    _coordinatesController.dispose();
     super.dispose();
   }
 
@@ -169,6 +178,7 @@ class _MemorialFormState extends State<MemorialForm> {
         notes: _trimmedOrNull(_notesController),
         cemetery: _trimmedOrNull(_cemeteryController),
         plot: _trimmedOrNull(_plotController),
+        coordinates: Coordinates.tryParse(_coordinatesController.text),
         photoPath: _photoPath,
         reminderMode: _reminderMode,
         reminderValue: _reminderValue,
@@ -372,6 +382,31 @@ class _MemorialFormState extends State<MemorialForm> {
               prefixIcon: Icon(Icons.place_outlined),
               border: OutlineInputBorder(),
             ),
+          ),
+          const SizedBox(height: 12),
+
+          // נקודת ציון. שדה טקסט ולא בורר מפה: בורר דורש מפתח API ותלות
+          // כבדה, ובפועל אנשים לא מקלידים קואורדינטות אלא מדביקים אותן.
+          TextFormField(
+            controller: _coordinatesController,
+            keyboardType: TextInputType.text,
+            decoration: const InputDecoration(
+              labelText: 'נקודת ציון',
+              hintText: '31.768300, 35.213700',
+              helperText: 'הדבקה מוויז או מ-Google Maps. מביא לקבר עצמו',
+              helperMaxLines: 2,
+              prefixIcon: Icon(Icons.my_location_outlined),
+              border: OutlineInputBorder(),
+            ),
+            validator: (v) {
+              final text = v?.trim() ?? '';
+              if (text.isEmpty) return null;
+              // שדה לא חובה, אבל ערך שאינו נקרא הוא כפתור ניווט שיוביל
+              // לשום מקום – עדיף לומר זאת כאן.
+              return Coordinates.tryParse(text) == null
+                  ? 'לא זוהתה נקודת ציון'
+                  : null;
+            },
           ),
           const SizedBox(height: 20),
 

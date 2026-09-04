@@ -237,6 +237,23 @@ is done in Dart instead.
 
 ## Features added 2026-08-04
 
+- **A grave has a point, not only a description.** `latitude`/`longitude`
+  (schema v7) sit *beside* `cemetery`/`plot` rather than replacing them: a text
+  search reaches the cemetery gate, a coordinate reaches the grave.
+  `NavigationLauncher.openCoordinates` uses `geo:lat,lng?q=lat,lng(label)` —
+  the repeated `q` with a label matters, because without it some apps centre
+  the map on the point without dropping a pin, leaving nothing to press
+  "navigate" on. The card prefers the point when both exist, and offers
+  navigation when only a point exists.
+
+  The form takes **pasted text**, not a map picker: a picker needs an API key
+  and a heavy dependency, and in practice nobody types coordinates — they copy
+  them. `Coordinates.tryParse` is deliberately forgiving and takes the first
+  pair it finds, so "31.7683, 35.2137", the same without a space, and a whole
+  Google Maps URL all work (in a URL the first pair is the place; what follows
+  is the zoom). It refuses values outside the real ranges, because a field that
+  accepts nonsense is a navigate button that leads nowhere.
+
 - **Burial location** as two fields (`cemetery`, `plot`), joined by
   `Memorial.burialSearchQuery` and opened via `NavigationLauncher` with a
   `geo:0,0?q=` URI so Android offers a chooser (Waze, Maps, …) rather than

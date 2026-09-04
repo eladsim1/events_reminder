@@ -1,3 +1,4 @@
+import 'coordinates.dart';
 import 'hebrew_date.dart';
 
 /// מודל אזכרה יחיד.
@@ -43,6 +44,13 @@ class Memorial {
   final DateTime? postponedReminderAt;
 
   /// שם בית העלמין, למשל "ירקון".
+  /// נקודת ציון של הקבר עצמו.
+  ///
+  /// לצד [cemetery] ו-[plot] ולא במקומם: חיפוש טקסטואלי מביא לשער בית
+  /// העלמין, נקודת ציון מביאה לקבר.
+  final double? latitude;
+  final double? longitude;
+
   final String? cemetery;
 
   /// מיקום הקבר בתוך בית העלמין, למשל "גוש ה', חלקה 12, שורה 4".
@@ -82,6 +90,8 @@ class Memorial {
     required this.createdAt,
     this.lastNotifiedAt,
     this.postponedReminderAt,
+    this.latitude,
+    this.longitude,
     this.cemetery,
     this.plot,
     this.photoPath,
@@ -101,6 +111,17 @@ class Memorial {
   }
 
   /// הטקסט לניווט: בית העלמין ומיקום הקבר יחד, או null אם אין מה לנווט אליו.
+  /// נקודת הציון, אם נשמרה ותקפה.
+  Coordinates? get coordinates {
+    final lat = latitude, lng = longitude;
+    if (lat == null || lng == null) return null;
+    return Coordinates.isValid(lat, lng) ? Coordinates(lat, lng) : null;
+  }
+
+  /// האם יש לאן לנווט – בנקודה או בטקסט.
+  bool get hasBurialLocation =>
+      coordinates != null || burialSearchQuery != null;
+
   String? get burialSearchQuery {
     final parts = [cemetery, plot]
         .map((s) => s?.trim())
@@ -204,6 +225,8 @@ class Memorial {
     bool clearNotes = false,
     DateTime? lastNotifiedAt,
     DateTime? postponedReminderAt,
+    double? latitude,
+    double? longitude,
     String? cemetery,
     String? plot,
     String? photoPath,
@@ -227,6 +250,8 @@ class Memorial {
       lastNotifiedAt: lastNotifiedAt ?? this.lastNotifiedAt,
       postponedReminderAt:
           postponedReminderAt ?? this.postponedReminderAt,
+      latitude: latitude ?? this.latitude,
+      longitude: longitude ?? this.longitude,
       cemetery: cemetery ?? this.cemetery,
       plot: plot ?? this.plot,
       photoPath: clearPhoto ? null : (photoPath ?? this.photoPath),
@@ -245,6 +270,8 @@ class Memorial {
       'hebrew_day': hebrewDay,
       'hebrew_month': hebrewMonth,
       'adar_type': adarType.dbValue,
+      'latitude': latitude,
+      'longitude': longitude,
       'notification_hour': notificationHour,
       'notification_minute': notificationMinute,
       'enabled': enabled ? 1 : 0,
@@ -266,6 +293,9 @@ class Memorial {
       id: map['id'] as int?,
       name: map['name'] as String,
       hebrewDay: map['hebrew_day'] as int,
+      // num ולא double: SQLite מחזיר int לערך שנשמר כשלם.
+      latitude: (map['latitude'] as num?)?.toDouble(),
+      longitude: (map['longitude'] as num?)?.toDouble(),
       hebrewMonth: map['hebrew_month'] as int,
       adarType: AdarType.fromDb(map['adar_type'] as String?),
       notificationHour: map['notification_hour'] as int,

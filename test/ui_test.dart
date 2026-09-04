@@ -27,6 +27,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:azkarot_app/app.dart';
 import 'package:azkarot_app/models/hebrew_date.dart';
+import 'package:azkarot_app/models/coordinates.dart';
 import 'package:azkarot_app/models/memorial.dart';
 import 'package:azkarot_app/models/memorial_filter.dart';
 import 'package:azkarot_app/providers/memorial_provider.dart';
@@ -316,6 +317,14 @@ class _FakeLauncher implements NavigationLauncher {
   @override
   Future<bool> openBurialLocation(String query) async {
     navigated.add(query);
+    return succeeds;
+  }
+
+  final List<String> points = [];
+
+  @override
+  Future<bool> openCoordinates(Coordinates at, {String? label}) async {
+    points.add('$at${label == null ? '' : ' ($label)'}');
     return succeeds;
   }
 }
@@ -3011,6 +3020,105 @@ void main() {
 
     test('an empty directory is not an error', () async {
       expect(await store.deleteOrphans(const []), 0);
+    });
+  });
+
+  group('a grave has a point, not only a description', () {
+    test('coordinates are read out of whatever was pasted', () {
+      // People do not type coordinates, they paste them - and what arrives
+      // depends on where it came from.
+      const point = Coordinates(31.7683, 35.2137);
+      for (final pasted in [
+        '31.7683, 35.2137',
+        '31.7683,35.2137',
+        '31.7683 35.2137',
+        'https://maps.google.com/?q=31.7683,35.2137',
+        'הר המנוחות 31.7683, 35.2137',
+      ]) {
+        final parsed = Coordinates.tryParse(pasted);
+        expect(parsed?.latitude, closeTo(point.latitude, 1e-9), reason: pasted);
+        expect(parsed?.longitude, closeTo(point.longitude, 1e-9),
+            reason: pasted);
+      }
+    });
+
+    test('a Google URL yields the point, not the zoom level', () {
+      // The first pair in such a URL is the place; what follows is zoom.
+      final parsed =
+          Coordinates.tryParse('https://www.google.com/maps/@31.7683,35.2137,17z');
+      expect(parsed?.latitude, closeTo(31.7683, 1e-9));
+      expect(parsed?.longitude, closeTo(35.2137, 1e-9));
+    });
+
+    test('nonsense and out-of-range values are refused', () {
+      for (final bad in [
+        null,
+        '',
+        'הר המנוחות',
+        '31.7683',
+        '95.0, 35.0', // latitude past the pole
+        '31.0, 200.0', // longitude past the antimeridian
+      ]) {
+        expect(Coordinates.tryParse(bad), isNull, reason: '$bad');
+      }
+    });
+
+    test('negative coordinates are a real place, not a typo', () {
+      final parsed = Coordinates.tryParse('-33.8688, 151.2093');
+      expect(parsed?.latitude, closeTo(-33.8688, 1e-9));
+    });
+
+    test('a memorial exposes the point only when both halves are valid', () {
+      final base = _seed(id: 1, name: 'x', day: 1, month: HebrewMonth.av);
+      expect(base.coordinates, isNull);
+      expect(base.copyWith(latitude: 31.7).coordinates, isNull,
+          reason: 'half a point is not a point');
+      expect(base.copyWith(latitude: 31.7, longitude: 35.2).coordinates,
+          const Coordinates(31.7, 35.2));
+    });
+
+    testWidgets('the card navigates to the point in preference to the text',
+        (tester) async {
+      // The text finds the cemetery gate; the point finds the grave.
+      await _pumpApp(tester, seeded: [
+        _seed(id: 1, name: 'סבא יעקב', day: 27, month: HebrewMonth.av)
+            .copyWith(
+                cemetery: 'הר המנוחות', latitude: 31.7683, longitude: 35.2137),
+      ]);
+
+      await tester.tap(find.byTooltip('ניווט'));
+      await tester.pump();
+
+      expect(_lastLauncher!.points, hasLength(1));
+      expect(_lastLauncher!.points.single, contains('31.768300, 35.213700'));
+      expect(_lastLauncher!.points.single, contains('סבא יעקב'),
+          reason: 'the pin is labelled, or there is nothing to tap "navigate" on');
+      expect(_lastLauncher!.navigated, isEmpty);
+    });
+
+    testWidgets('without a point it still navigates by description',
+        (tester) async {
+      await _pumpApp(tester, seeded: [
+        _seed(id: 1, name: 'סבא יעקב', day: 27, month: HebrewMonth.av)
+            .copyWith(cemetery: 'הר המנוחות'),
+      ]);
+
+      await tester.tap(find.byTooltip('ניווט'));
+      await tester.pump();
+
+      expect(_lastLauncher!.navigated, ['הר המנוחות']);
+      expect(_lastLauncher!.points, isEmpty);
+    });
+
+    testWidgets('a point alone is enough to offer navigation', (tester) async {
+      await _pumpApp(tester, seeded: [
+        _seed(id: 1, name: 'סבא יעקב', day: 27, month: HebrewMonth.av)
+            .copyWith(latitude: 31.7683, longitude: 35.2137),
+      ]);
+
+      expect(find.byTooltip('ניווט'), findsOneWidget);
+      expect(find.textContaining('31.768300'), findsOneWidget,
+          reason: 'a navigate button with no visible destination is a puzzle');
     });
   });
 

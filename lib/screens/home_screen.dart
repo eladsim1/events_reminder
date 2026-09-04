@@ -202,11 +202,19 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   /// פותח ניווט אל מיקום הקבר, ומדווח אם לא נמצאה אפליקציית ניווט.
   Future<void> _navigate(
       BuildContext context, WidgetRef ref, Memorial memorial) async {
-    final query = memorial.burialSearchQuery;
-    if (query == null) return;
+    final launcher = ref.read(navigationLauncherProvider);
 
-    final opened =
-        await ref.read(navigationLauncherProvider).openBurialLocation(query);
+    // נקודת ציון קודמת לחיפוש טקסטואלי כשיש שתיהן: הטקסט מביא לשער, הנקודה
+    // מביאה לקבר.
+    final at = memorial.coordinates;
+    final bool opened;
+    if (at != null) {
+      opened = await launcher.openCoordinates(at, label: memorial.name);
+    } else {
+      final query = memorial.burialSearchQuery;
+      if (query == null) return;
+      opened = await launcher.openBurialLocation(query);
+    }
     if (opened || !context.mounted) return;
 
     ScaffoldMessenger.of(context).showSnackBar(
@@ -390,9 +398,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                               .read(memorialListProvider.notifier)
                               .toggleEnabled(m, enabled);
                         },
-                        onNavigate: m.burialSearchQuery == null
-                            ? null
-                            : () => _navigate(context, ref, m),
+                        // נקודת ציון לבדה מספיקה: הכפתור נועד להוביל למקום,
+                        // ותיאור טקסטואלי אינו תנאי לכך.
+                        onNavigate: m.hasBurialLocation
+                            ? () => _navigate(context, ref, m)
+                            : null,
                       );
                     },
                   ),

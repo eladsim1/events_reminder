@@ -73,6 +73,8 @@ class EditMemorialScreen extends ConsumerWidget {
             clearNotes: result.notes == null,
             cemetery: result.cemetery,
             plot: result.plot,
+            latitude: result.coordinates?.latitude,
+            longitude: result.coordinates?.longitude,
             photoPath: result.photoPath,
             clearPhoto: result.photoPath == null,
             reminderMode: result.reminderMode,

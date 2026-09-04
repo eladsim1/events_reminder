@@ -32,6 +32,8 @@ class AddMemorialScreen extends ConsumerWidget {
             notes: result.notes,
             cemetery: result.cemetery,
             plot: result.plot,
+            latitude: result.coordinates?.latitude,
+            longitude: result.coordinates?.longitude,
             photoPath: result.photoPath,
             reminderMode: result.reminderMode,
             reminderValue: result.reminderValue,

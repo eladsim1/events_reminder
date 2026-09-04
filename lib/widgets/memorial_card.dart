@@ -191,12 +191,15 @@ class MemorialCard extends StatelessWidget {
                           : _daysLabel(daysUntil),
                   highlight: memorial.enabled && daysUntil <= 1,
                 ),
-                if (memorial.burialSearchQuery case final query?) ...[
+                if (memorial.hasBurialLocation) ...[
                   const SizedBox(height: 6),
                   _InfoRow(
                     icon: Icons.place_outlined,
                     label: 'מיקום הקבר',
-                    value: query,
+                    // הטקסט אם יש, ואחרת הנקודה עצמה: שורה בלי ערך
+                    // הייתה כפתור ניווט בלי הסבר לאן.
+                    value: memorial.burialSearchQuery ??
+                        memorial.coordinates!.toString(),
                     maxLines: 2,
                     onAction: onNavigate,
                     actionIcon: Icons.navigation_outlined,

@@ -1,5 +1,7 @@
 import 'package:url_launcher/url_launcher.dart';
 
+import '../models/coordinates.dart';
+
 /// פותח אפליקציות חיצוניות – ניווט, חיוג.
 ///
 /// מרוכז כאן ולא ב-UI, כדי שהמסכים לא יתעסקו בסכמות URI, ומוזרק דרך ספק
@@ -15,6 +17,31 @@ class NavigationLauncher {
     final uri = Uri(scheme: 'tel', path: phone);
     if (!await canLaunchUrl(uri)) return false;
     return launchUrl(uri, mode: LaunchMode.externalApplication);
+  }
+
+  /// מנווט אל [at] – הקבר עצמו ולא שער בית העלמין.
+  ///
+  /// גם כאן `geo:` ולא ספק מסוים, כדי שאנדרואיד יציג בורר. הפרמטר `q`
+  /// חוזר על הנקודה עם תווית, כי בלעדיו חלק מהאפליקציות מרכזות את המפה על
+  /// הנקודה בלי לסמן אותה – ואז אין לאן ללחוץ "נווט".
+  Future<bool> openCoordinates(Coordinates at, {String? label}) async {
+    final point = '${at.latitude},${at.longitude}';
+    final marker =
+        label == null ? point : '$point(${Uri.encodeComponent(label)})';
+
+    final candidates = [
+      Uri.parse('geo:$point?q=$marker'),
+      Uri.parse('https://www.google.com/maps/search/?api=1&query=$point'),
+    ];
+
+    for (final uri in candidates) {
+      if (await canLaunchUrl(uri)) {
+        if (await launchUrl(uri, mode: LaunchMode.externalApplication)) {
+          return true;
+        }
+      }
+    }
+    return false;
   }
 
   /// פותח את [query] באפליקציית ניווט.
