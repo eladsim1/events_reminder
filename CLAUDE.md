@@ -254,6 +254,16 @@ is done in Dart instead.
   is the zoom). It refuses values outside the real ranges, because a field that
   accepts nonsense is a navigate button that leads nowhere.
 
+  **Percent-decode before matching.** Waze share links encode the comma as
+  `%2C`, so undecoded they read as two numbers with no separator and parse as
+  nothing — in the very app people use to share a location. Decoding is wrapped
+  in a try, since text pasted mid-string can carry broken encoding and
+  `decodeFull` throws on it.
+
+  Two formats deliberately return null rather than a guess: shortened links
+  (`maps.app.goo.gl/...`) hold nothing but an id and would need a network fetch,
+  and degrees-minutes-seconds (`31°46'05.9"N`) is not parsed at all.
+
 - **Burial location** as two fields (`cemetery`, `plot`), joined by
   `Memorial.burialSearchQuery` and opened via `NavigationLauncher` with a
   `geo:0,0?q=` URI so Android offers a chooser (Waze, Maps, …) rather than

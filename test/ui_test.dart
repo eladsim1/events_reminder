@@ -3042,6 +3042,32 @@ void main() {
       }
     });
 
+    test('a Waze share link works, encoded comma and all', () {
+      // Waze encodes the comma as %2C, so before decoding the link reads as
+      // two numbers with no separator and parses as nothing - in the very app
+      // people use to share a location.
+      for (final link in [
+        'https://waze.com/ul?ll=31.7683%2C35.2137&navigate=yes',
+        'https://ul.waze.com/ul?ll=31.76830%2C35.21370',
+      ]) {
+        final parsed = Coordinates.tryParse(link);
+        expect(parsed?.latitude, closeTo(31.7683, 1e-9), reason: link);
+        expect(parsed?.longitude, closeTo(35.2137, 1e-9), reason: link);
+      }
+    });
+
+    test('a shortened link carries no point, and says so', () {
+      // maps.app.goo.gl holds nothing but an id; resolving it needs the
+      // network. Better to refuse than to invent a location.
+      expect(Coordinates.tryParse('https://maps.app.goo.gl/AbCdEfGh123'),
+          isNull);
+    });
+
+    test('broken percent-encoding does not throw', () {
+      expect(Coordinates.tryParse('%%%bad%% 31.7683, 35.2137'), isNotNull);
+      expect(Coordinates.tryParse('%%%bad%%'), isNull);
+    });
+
     test('a Google URL yields the point, not the zoom level', () {
       // The first pair in such a URL is the place; what follows is zoom.
       final parsed =
