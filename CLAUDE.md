@@ -339,7 +339,7 @@ is done in Dart instead.
   occurrence is the first, third, and so on. It returns null when the death
   year is at or after the occurrence, so a nonsensical count is never shown.
 
-Schema is now **v4**; `_onUpgrade` is incremental and the v3 columns carry SQL
+Schema is now **v8** (see "Two photos per memorial" below for v8); `_onUpgrade` is incremental and the v3 columns carry SQL
 defaults so upgraded installs keep behaving identically.
 
 ### Test harness notes for the form
@@ -1194,3 +1194,43 @@ hands it to any caller that arrives while it is running. Do not "fix" a
 duplicate by moving the `lastNotifiedAt` write earlier — the write is not the
 race, the second reader is. The test drives two overlapping syncs and counts
 deliveries; with the guard removed it reports 2.
+
+## Two photos per memorial, at two sizes
+
+A memorial carries **`photo_path`** (the portrait) and **`grave_photo_path`**
+(the grave), schema v8. They are not variants of one field — they answer
+different questions, and a form with a single picture forced a choice between
+"who was this" and "where is the stone".
+
+The sizes differ for that same reason:
+
+| | `PhotoStore.maxDimension` | `PhotoStore.graveMaxDimension` |
+|---|---|---|
+| portrait | 256 px | |
+| grave | | 800 px |
+
+256 px is fine for a 48 px avatar and useless for reading an inscription in a
+cemetery; 800 px is where a backup holding dozens of memorials still sends over
+WhatsApp, because **every doubling of the side quadruples the file** and photos
+travel base64-embedded in the JSON.
+
+Three consequences, each of which is a silent bug if missed:
+
+- `PhotoStore.pickAndStore` / `storeBytes` / `downscale` take an optional
+  `maxSide`; `restoreFromBase64` takes one too. **Restoring without it
+  re-downscales to 256**, so every export/import cycle would degrade the grave
+  photo a little further. The bytes in the backup are already at their final
+  size — the restore must not "helpfully" shrink them again.
+- Export removes **both** local paths and carries `photo_data` +
+  `grave_photo_data`. A path from another device is meaningless for either.
+- `Memorial.photoPaths` (not `photoPath`) is what the orphan sweep must use.
+  `_cleanUpPhotos` iterating only the portrait would delete every grave photo
+  as unreferenced, on the next sync.
+
+`copyWith` needs `clearGravePhoto` alongside `clearPhoto`, for the same reason
+the original one exists: `null` means "unchanged" in a `copyWith`, so removing
+a picture is not expressible without an explicit flag.
+
+The tile's thumbnail opens the picture full-screen in an `InteractiveViewer`.
+Without that the grave photo is unusable exactly where it is needed — 40 px
+identifies nothing in a cemetery, and the inscription is usually read zoomed.

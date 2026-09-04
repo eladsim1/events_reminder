@@ -233,8 +233,9 @@ class MemorialNotifier extends AsyncNotifier<List<Memorial>> {
     try {
       final all = await _repo.getAll();
       await ref.read(photoStoreProvider).deleteOrphans([
-        for (final m in all)
-          if (m.photoPath case final path?) path,
+        // photoPaths ולא photoPath: לאזכרה יש כמה תמונות, ורשימה חלקית
+        // כאן מוחקת קובץ שנמצא בשימוש.
+        for (final m in all) ...m.photoPaths,
       ]);
     } catch (_) {
       // אחסון לא זמין, או תיקייה שאינה קיימת עדיין.

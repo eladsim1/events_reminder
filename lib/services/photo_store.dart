@@ -28,6 +28,17 @@ class PhotoStore {
   /// התמונה בגיבוי ה-JSON בגודל סביר.
   static const int maxDimension = 256;
 
+  /// רוחב/גובה מרבי לתמונת הקבר.
+  ///
+  /// גדול מזה של הדיוקן, כי התפקיד שונה: דיוקן מוצג כאווטאר בקוטר 48,
+  /// ותמונת קבר נועדה שיסתכלו בה כדי למצוא את הקבר בשטח – 256 פיקסלים
+  /// היו מטושטשים למטרה הזו.
+  ///
+  /// לא גדול מזה: התמונות נוסעות מוטמעות בגיבוי ה-JSON, וכל הכפלה של הצלע
+  /// מרבעת את משקל הקובץ. 800 הוא הגבול שבו גיבוי עם עשרות אזכרות עדיין
+  /// נשלח בוואטסאפ.
+  static const int graveMaxDimension = 800;
+
   Future<Directory> _photoDir() async {
     final dir = _override ??
         Directory(
@@ -70,7 +81,7 @@ class PhotoStore {
   }
 
   /// פותח בורר תמונות ומחזיר נתיב מקומי קבוע, או null אם המשתמש ביטל.
-  Future<String?> pickAndStore() async {
+  Future<String?> pickAndStore({int? maxSide}) async {
     final result = await FilePicker.pickFiles(
       dialogTitle: 'בחירת תמונה',
       type: FileType.image,
@@ -78,12 +89,12 @@ class PhotoStore {
     final source = result?.files.single.path;
     if (source == null) return null;
 
-    return storeBytes(await File(source).readAsBytes());
+    return storeBytes(await File(source).readAsBytes(), maxSide: maxSide);
   }
 
   /// מקטין ושומר [bytes], ומחזיר את הנתיב שנוצר.
-  Future<String> storeBytes(Uint8List bytes) async {
-    final resized = await downscale(bytes);
+  Future<String> storeBytes(Uint8List bytes, {int? maxSide}) async {
+    final resized = await downscale(bytes, maxSide: maxSide);
     final dir = await _photoDir();
 
     // שם לפי תוכן ולא לפי חותמת זמן, כדי שבחירה חוזרת של אותה תמונה לא
@@ -97,7 +108,8 @@ class PhotoStore {
   /// מקטין תמונה כך שצלעה הארוכה לא תעלה על [maxDimension], ומחזיר PNG.
   ///
   /// משתמש ב-dart:ui ולא בחבילת עיבוד תמונה – אין צורך בתלות נוספת.
-  Future<Uint8List> downscale(Uint8List bytes) async {
+  Future<Uint8List> downscale(Uint8List bytes, {int? maxSide}) async {
+    final limit = maxSide ?? maxDimension;
     final descriptor = await ui.ImageDescriptor.encoded(
       await ui.ImmutableBuffer.fromUint8List(bytes),
     );
@@ -107,12 +119,12 @@ class PhotoStore {
         : descriptor.height;
 
     // כבר קטנה מספיק – לא מפענחים ומקודדים מחדש סתם.
-    if (longest <= maxDimension) {
+    if (longest <= limit) {
       descriptor.dispose();
       return bytes;
     }
 
-    final scale = maxDimension / longest;
+    final scale = limit / longest;
     final codec = await descriptor.instantiateCodec(
       targetWidth: (descriptor.width * scale).round(),
       targetHeight: (descriptor.height * scale).round(),
@@ -137,10 +149,13 @@ class PhotoStore {
   }
 
   /// משחזר תמונה מגיבוי ומחזיר את הנתיב החדש, או null אם [data] ריק/פגום.
-  Future<String?> restoreFromBase64(String? data) async {
+  ///
+  /// [maxSide] חייב להיות זה שבו נשמרה התמונה במקור: הבייטים כבר הוקטנו לפני
+  /// הגיבוי, ושחזור בברירת המחדל היה מכווץ תמונת קבר מ-800 ל-256 בכל ייבוא.
+  Future<String?> restoreFromBase64(String? data, {int? maxSide}) async {
     if (data == null || data.isEmpty) return null;
     try {
-      return await storeBytes(base64Decode(data));
+      return await storeBytes(base64Decode(data), maxSide: maxSide);
     } catch (_) {
       // גיבוי פגום לא אמור להפיל את כל הייבוא.
       return null;

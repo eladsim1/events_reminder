@@ -19,7 +19,8 @@ class DatabaseHelper {
   /// 4 -> 5: postponed_reminder_at – דחייה חד-פעמית שהמשתמש ביקש מההתראה.
   /// 5 -> 6: טבלת app_state – נעילת סנכרון ומצב העבודה שרצה ברקע.
   /// 6 -> 7: latitude/longitude – נקודת ציון של הקבר עצמו.
-  static const _databaseVersion = 7;
+  /// 7 -> 8: grave_photo_path – תמונת הקבר, לצד תמונת הנפטר.
+  static const _databaseVersion = 8;
 
   static const table = 'memorials';
 
@@ -89,6 +90,9 @@ class DatabaseHelper {
     if (oldVersion < 7) {
       await db.execute('ALTER TABLE $table ADD COLUMN latitude REAL');
       await db.execute('ALTER TABLE $table ADD COLUMN longitude REAL');
+    }
+    if (oldVersion < 8) {
+      await db.execute('ALTER TABLE $table ADD COLUMN grave_photo_path TEXT');
     }
   }
 
@@ -193,6 +197,7 @@ class DatabaseHelper {
         created_at TEXT NOT NULL,
         last_notified_at TEXT,
         postponed_reminder_at TEXT,
+        grave_photo_path TEXT,
         latitude REAL,
         longitude REAL,
         cemetery TEXT,

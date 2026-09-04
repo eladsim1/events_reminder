@@ -24,6 +24,7 @@ class MemorialFormResult {
   /// נקודת הציון שהוקלדה, אחרי פענוח. null אם השדה ריק.
   final Coordinates? coordinates;
   final String? photoPath;
+  final String? gravePhotoPath;
   final ReminderMode reminderMode;
   final int reminderValue;
   final int? deathHebrewYear;
@@ -40,6 +41,7 @@ class MemorialFormResult {
     required this.plot,
     required this.coordinates,
     required this.photoPath,
+    required this.gravePhotoPath,
     required this.reminderMode,
     required this.reminderValue,
     required this.deathHebrewYear,
@@ -70,6 +72,9 @@ class MemorialForm extends StatefulWidget {
   /// פותח ניווט אל נקודה. מוזרק, ו-null מסתיר את הכפתור.
   final Future<bool> Function(Coordinates at)? navigateTo;
 
+  /// בוחר את תמונת הקבר. נפרד מ-[photoPicker] כי היא נשמרת בגודל אחר.
+  final Future<String?> Function()? gravePhotoPicker;
+
   const MemorialForm({
     super.key,
     this.initial,
@@ -80,6 +85,7 @@ class MemorialForm extends StatefulWidget {
     required this.photoPicker,
     this.locationPicker,
     this.navigateTo,
+    this.gravePhotoPicker,
   });
 
   @override
@@ -103,6 +109,7 @@ class _MemorialFormState extends State<MemorialForm> {
   late ReminderMode _reminderMode;
   late int _reminderValue;
   String? _photoPath;
+  String? _gravePhotoPath;
   int? _deathYear;
 
   @override
@@ -122,6 +129,7 @@ class _MemorialFormState extends State<MemorialForm> {
         : TimeOfDay(hour: widget.defaultHour, minute: widget.defaultMinute);
     _enabled = m?.enabled ?? true;
     _photoPath = m?.photoPath;
+    _gravePhotoPath = m?.gravePhotoPath;
     _reminderMode = m?.reminderMode ?? ReminderMode.weekdayOfPreviousWeek;
     _reminderValue = m?.reminderValue ?? Memorial.defaultReminderWeekday;
     _deathYear = m?.deathHebrewYear;
@@ -202,6 +210,91 @@ class _MemorialFormState extends State<MemorialForm> {
     if (picked != null && mounted) setState(() => _photoPath = picked);
   }
 
+  /// מציג תמונה שמורה במסך מלא.
+  void _viewPhoto(String path, String label) {
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => Dialog(
+        insetPadding: const EdgeInsets.all(16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            AppBar(
+              title: Text(label),
+              automaticallyImplyLeading: false,
+              actions: [
+                IconButton(
+                  tooltip: 'סגירה',
+                  icon: const Icon(Icons.close),
+                  onPressed: () => Navigator.of(ctx).pop(),
+                ),
+              ],
+            ),
+            Flexible(
+              // InteractiveViewer: תמונת קבר נקראת לרוב בזום על הכיתוב.
+              child: InteractiveViewer(
+                maxScale: 5,
+                child: Image.file(File(path), fit: BoxFit.contain),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _pickGravePhoto() async {
+    final picker = widget.gravePhotoPicker;
+    if (picker == null) return;
+    final picked = await picker();
+    if (picked != null && mounted) setState(() => _gravePhotoPath = picked);
+  }
+
+  /// שורת בחירת תמונה. שתי התמונות זהות בהתנהגות ונבדלות רק בכיתוב ובצורת
+  /// התצוגה, ולכן הן חולקות בנייה אחת.
+  Widget _photoTile({
+    required ThemeData theme,
+    required String? path,
+    required String label,
+    required String hint,
+    required bool rounded,
+    required VoidCallback onPick,
+    required VoidCallback onClear,
+  }) {
+    return ListTile(
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(color: theme.colorScheme.outlineVariant),
+      ),
+      // התמונה הקטנה נפתחת בגדול בלחיצה. בלי זה תמונת הקבר הייתה חסרת
+      // תועלת בדיוק ברגע שבו צריך אותה: 40 פיקסלים לא מזהים קבר בשטח.
+      leading: path == null
+          ? const Icon(Icons.add_a_photo_outlined)
+          : InkWell(
+              onTap: () => _viewPhoto(path, label),
+              child: rounded
+                  ? CircleAvatar(
+                      radius: 20, backgroundImage: FileImage(File(path)))
+                  : ClipRRect(
+                      borderRadius: BorderRadius.circular(6),
+                      child: Image.file(File(path),
+                          width: 40, height: 40, fit: BoxFit.cover),
+                    ),
+            ),
+      title: Text(label),
+      subtitle: Text(
+          path == null ? hint : 'הקשה על התמונה לתצוגה מלאה · על השורה להחלפה'),
+      trailing: path == null
+          ? null
+          : IconButton(
+              tooltip: 'הסרת התמונה',
+              icon: const Icon(Icons.delete_outline),
+              onPressed: onClear,
+            ),
+      onTap: onPick,
+    );
+  }
+
   Future<void> _pickTime() async {
     final picked = await showTimePicker(
       context: context,
@@ -246,6 +339,7 @@ class _MemorialFormState extends State<MemorialForm> {
         plot: _trimmedOrNull(_plotController),
         coordinates: Coordinates.tryParse(_coordinatesController.text),
         photoPath: _photoPath,
+        gravePhotoPath: _gravePhotoPath,
         reminderMode: _reminderMode,
         reminderValue: _reminderValue,
         deathHebrewYear: _deathYear,
@@ -456,13 +550,13 @@ class _MemorialFormState extends State<MemorialForm> {
           TextFormField(
             controller: _coordinatesController,
             keyboardType: TextInputType.text,
-            decoration: InputDecoration(
+            decoration: const InputDecoration(
               labelText: 'נקודת ציון',
               hintText: '31.768300, 35.213700',
               helperText: 'הדבקה מוויז או מ-Google Maps. מביא לקבר עצמו',
               helperMaxLines: 2,
-              prefixIcon: const Icon(Icons.my_location_outlined),
-              border: const OutlineInputBorder(),
+              prefixIcon: Icon(Icons.my_location_outlined),
+              border: OutlineInputBorder(),
             ),
             // בלי זה הכפתור לא היה מתעורר בהקלדה: מצבו נגזר מהטקסט.
             onChanged: (_) => setState(() {}),
@@ -513,32 +607,28 @@ class _MemorialFormState extends State<MemorialForm> {
           ],
           const SizedBox(height: 20),
 
-          // תמונת הנפטר.
-          Text('תמונה', style: theme.textTheme.titleMedium),
+          Text('תמונות', style: theme.textTheme.titleMedium),
           const SizedBox(height: 8),
-          ListTile(
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-              side: BorderSide(color: theme.colorScheme.outlineVariant),
-            ),
-            leading: _photoPath == null
-                ? const Icon(Icons.add_a_photo_outlined)
-                : CircleAvatar(
-                    radius: 20,
-                    backgroundImage: FileImage(File(_photoPath!)),
-                  ),
-            title: Text(_photoPath == null ? 'בחירת תמונה' : 'החלפת תמונה'),
-            subtitle: _photoPath == null
-                ? const Text('נשמרת במכשיר בלבד, ואינה נכללת בגיבוי')
-                : null,
-            trailing: _photoPath == null
-                ? null
-                : IconButton(
-                    tooltip: 'הסרת התמונה',
-                    icon: const Icon(Icons.delete_outline),
-                    onPressed: () => setState(() => _photoPath = null),
-                  ),
-            onTap: _pickPhoto,
+          _photoTile(
+            theme: theme,
+            path: _photoPath,
+            label: 'תמונת הנפטר',
+            hint: 'הקשה לבחירה · מוצגת בכרטיס ברשימה',
+            rounded: true,
+            onPick: _pickPhoto,
+            onClear: () => setState(() => _photoPath = null),
+          ),
+          const SizedBox(height: 8),
+          // תמונה שנייה, ולא החלפה של הראשונה: לשתיהן תפקידים שונים – אחת
+          // מזהה את האדם והשנייה מסייעת למצוא את הקבר בשטח.
+          _photoTile(
+            theme: theme,
+            path: _gravePhotoPath,
+            label: 'תמונת הקבר',
+            hint: 'הקשה לבחירה · עוזרת לאתר את הקבר בשטח',
+            rounded: false,
+            onPick: _pickGravePhoto,
+            onClear: () => setState(() => _gravePhotoPath = null),
           ),
           const SizedBox(height: 20),
 

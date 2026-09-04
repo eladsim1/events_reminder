@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/memorial.dart';
 import '../providers/memorial_provider.dart';
+import '../services/photo_store.dart';
 import '../widgets/memorial_form.dart';
 
 /// מסך עריכת אזכרה קיימת. מאפשר שינוי שם, תאריך, שעה,
@@ -59,6 +60,9 @@ class EditMemorialScreen extends ConsumerWidget {
         defaultMinute: memorial.notificationMinute,
         showEnabledToggle: true,
         photoPicker: () => ref.read(photoStoreProvider).pickAndStore(),
+        gravePhotoPicker: () => ref
+            .read(photoStoreProvider)
+            .pickAndStore(maxSide: PhotoStore.graveMaxDimension),
         locationPicker: () => ref.read(locationServiceProvider).current(),
         navigateTo: (at) =>
             ref.read(navigationLauncherProvider).openWaze(at),
@@ -80,6 +84,8 @@ class EditMemorialScreen extends ConsumerWidget {
             longitude: result.coordinates?.longitude,
             photoPath: result.photoPath,
             clearPhoto: result.photoPath == null,
+            gravePhotoPath: result.gravePhotoPath,
+            clearGravePhoto: result.gravePhotoPath == null,
             reminderMode: result.reminderMode,
             reminderValue: result.reminderValue,
             deathHebrewYear: result.deathHebrewYear,

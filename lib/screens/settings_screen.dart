@@ -13,6 +13,7 @@ import '../models/memorial.dart';
 import '../models/merge_plan.dart';
 import '../providers/memorial_provider.dart';
 import '../widgets/import_selection_dialog.dart';
+import '../services/photo_store.dart';
 import '../services/notification_service.dart';
 
 /// מסך הגדרות.
@@ -49,11 +50,17 @@ class SettingsScreen extends ConsumerWidget {
       final map = m.toJson();
       // הנתיב המקומי חסר משמעות במכשיר אחר; התמונה עצמה נוסעת מוטמעת.
       map.remove('photo_path');
+      map.remove('grave_photo_path');
       final data = await photos.readAsBase64(m.photoPath);
+      final graveData = await photos.readAsBase64(m.gravePhotoPath);
       if (data != null) {
         map['photo_data'] = data;
-        withPhoto++;
       }
+      if (graveData != null) {
+        map['grave_photo_data'] = graveData;
+      }
+      if (data != null) withPhoto++;
+      if (graveData != null) withPhoto++;
       jsonList.add(map);
     }
 
@@ -169,11 +176,19 @@ class SettingsScreen extends ConsumerWidget {
 
       for (final entry in decoded.cast<Map<String, dynamic>>()) {
         var memorial = Memorial.fromJson(entry);
-        // התמונה מגיעה מוטמעת; נכתבת מחדש מקומית ומקבלת נתיב של המכשיר הזה.
+        // התמונות מגיעות מוטמעות; נכתבות מחדש מקומית ומקבלות נתיב של
+        // המכשיר הזה. כל אחת בגודל שבו נשמרה.
         final path =
             await photos.restoreFromBase64(entry['photo_data'] as String?);
-        if (path != null) {
-          memorial = memorial.copyWith(photoPath: path);
+        final gravePath = await photos.restoreFromBase64(
+          entry['grave_photo_data'] as String?,
+          maxSide: PhotoStore.graveMaxDimension,
+        );
+        if (path != null || gravePath != null) {
+          memorial = memorial.copyWith(
+            photoPath: path,
+            gravePhotoPath: gravePath,
+          );
         }
         memorials.add(memorial);
       }
@@ -199,7 +214,8 @@ class SettingsScreen extends ConsumerWidget {
       final notifier = ref.read(memorialListProvider.notifier);
       // נספרות רק התמונות של מה שנבחר. הקובץ שוחזר במלואו לדיסק לפני
       // הבחירה, ומה שלא נבחר יתנקה כתמונה יתומה.
-      final photoCount = selected.where((m) => m.photoPath != null).length;
+      final photoCount =
+          selected.fold<int>(0, (sum, m) => sum + m.photoPaths.length);
       final photoNote = photoCount > 0 ? ' ו-$photoCount תמונות' : '';
 
       final String message;

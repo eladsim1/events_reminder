@@ -260,6 +260,69 @@ void main() {
     });
   });
 
+  group('schema v7-v8: grave coordinates and a second photo', () {
+    test('a row written before them reads back with nulls', () async {
+      final id = await db.insert(_memorial(name: 'ברירות מחדל'));
+      final loaded = (await db.getById(id))!;
+
+      expect(loaded.latitude, isNull);
+      expect(loaded.longitude, isNull);
+      expect(loaded.gravePhotoPath, isNull);
+      expect(loaded.coordinates, isNull);
+    });
+
+    test('both round-trip, and are independent of the portrait', () async {
+      final id = await db.insert(_memorial(name: 'מלא'));
+      await db.update((await db.getById(id))!.copyWith(
+        latitude: 31.7683,
+        longitude: 35.2137,
+        photoPath: '/photos/face.jpg',
+        gravePhotoPath: '/photos/grave.jpg',
+      ));
+
+      final loaded = (await db.getById(id))!;
+      expect(loaded.coordinates?.latitude, closeTo(31.7683, 1e-9));
+      expect(loaded.coordinates?.longitude, closeTo(35.2137, 1e-9));
+      expect(loaded.photoPath, '/photos/face.jpg');
+      expect(loaded.gravePhotoPath, '/photos/grave.jpg');
+      // Both files are referenced, so neither may be swept as an orphan.
+      expect(loaded.photoPaths,
+          containsAll(<String>['/photos/face.jpg', '/photos/grave.jpg']));
+    });
+
+    test('clearing one picture leaves the other alone', () async {
+      final id = await db.insert(_memorial(name: 'x'));
+      await db.update((await db.getById(id))!.copyWith(
+        photoPath: '/photos/face.jpg',
+        gravePhotoPath: '/photos/grave.jpg',
+      ));
+
+      await db.update((await db.getById(id))!.copyWith(clearPhoto: true));
+      var loaded = (await db.getById(id))!;
+      expect(loaded.photoPath, isNull);
+      expect(loaded.gravePhotoPath, '/photos/grave.jpg');
+
+      await db.update(loaded.copyWith(clearGravePhoto: true));
+      loaded = (await db.getById(id))!;
+      expect(loaded.gravePhotoPath, isNull);
+    });
+
+    test('a pre-v8 row survives the upgrade path', () async {
+      final database = await db.database;
+      await database.rawInsert(
+        'INSERT INTO ${DatabaseHelper.table} '
+        '(name, hebrew_day, hebrew_month, adar_type, notification_hour, '
+        'notification_minute, enabled, created_at) VALUES (?,?,?,?,?,?,?,?)',
+        ['לפני v8', 14, HebrewMonth.cheshvan.index, 'none', 9, 0, 1,
+          DateTime(2024).toIso8601String()],
+      );
+
+      final loaded = (await db.getAll()).firstWhere((m) => m.name == 'לפני v8');
+      expect(loaded.gravePhotoPath, isNull);
+      expect(loaded.photoPaths, isEmpty);
+    });
+  });
+
   group('schema v4: death_hebrew_year', () {
     test('defaults to null and round-trips', () async {
       final id = await db.insert(_memorial(name: 'ללא שנה'));

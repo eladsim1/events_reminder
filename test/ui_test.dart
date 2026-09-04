@@ -425,6 +425,7 @@ Memorial _seed({
   String? cemetery,
   String? plot,
   String? photoPath,
+  String? gravePhotoPath,
   ReminderMode reminderMode = ReminderMode.weekdayOfPreviousWeek,
   int reminderValue = Memorial.defaultReminderWeekday,
   int? deathHebrewYear,
@@ -443,6 +444,7 @@ Memorial _seed({
     cemetery: cemetery,
     plot: plot,
     photoPath: photoPath,
+    gravePhotoPath: gravePhotoPath,
     reminderMode: reminderMode,
     reminderValue: reminderValue,
     deathHebrewYear: deathHebrewYear,
@@ -1701,6 +1703,70 @@ void main() {
         findsOneWidget,
       );
     });
+
+    testWidgets('the form offers two pictures, and keeps them apart',
+        (tester) async {
+      MemorialFormResult? submitted;
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: MemorialForm(
+            defaultHour: 9,
+            defaultMinute: 0,
+            onSubmit: (r) => submitted = r,
+            photoPicker: () async => r'C:\picked\face.jpg',
+            gravePhotoPicker: () async => r'C:\picked\grave.jpg',
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+
+      // The name goes in first, while the top of the form is still built:
+      // this is a lazy ListView, and scrolling to the pictures unbuilds it.
+      await tester.enterText(find.byType(TextFormField).first, 'פלוני');
+
+      final face = find.text('תמונת הנפטר');
+      final grave = find.text('תמונת הקבר');
+      await _revealInForm(tester, face);
+      expect(face, findsOneWidget);
+      expect(grave, findsOneWidget);
+
+      await tester.tap(face);
+      await tester.pumpAndSettle();
+      await _revealInForm(tester, grave);
+      await tester.tap(grave);
+      await tester.pumpAndSettle();
+
+      final save = find.widgetWithText(FilledButton, 'שמירה');
+      await _revealInForm(tester, save);
+      await tester.tap(save);
+      await tester.pumpAndSettle();
+
+      // One picker per slot: picking a grave photo must not overwrite the
+      // portrait, which is what a single shared field would have done.
+      expect(submitted?.photoPath, r'C:\picked\face.jpg');
+      expect(submitted?.gravePhotoPath, r'C:\picked\grave.jpg');
+    });
+
+    testWidgets('without a grave picker the row does nothing rather than throw',
+        (tester) async {
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: MemorialForm(
+            defaultHour: 9,
+            defaultMinute: 0,
+            onSubmit: (_) {},
+            photoPicker: () async => null,
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+
+      final grave = find.text('תמונת הקבר');
+      await _revealInForm(tester, grave);
+      await tester.tap(grave);
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+    });
   });
 
   group('photos survive a backup round trip', () {
@@ -1772,6 +1838,66 @@ void main() {
         // A corrupt backup must not take the whole import down.
         expect(await store.restoreFromBase64('!!!not base64!!!'), isNull);
       });
+    });
+
+    testWidgets('the grave photo keeps a size the portrait would destroy',
+        (tester) async {
+      await tester.runAsync(() async {
+        const store = PhotoStore();
+        final big = await makePng(1200);
+
+        final portrait = await store.downscale(big);
+        final grave = await store.downscale(big,
+            maxSide: PhotoStore.graveMaxDimension);
+
+        expect((await dimensions(portrait)).width, PhotoStore.maxDimension);
+        // The whole point of the second size: a grave photo is looked at to
+        // find the grave, and 256px cannot be read in a cemetery.
+        expect((await dimensions(grave)).width, PhotoStore.graveMaxDimension);
+      });
+    });
+
+    testWidgets('restoring a grave photo does not silently shrink it',
+        (tester) async {
+      await tester.runAsync(() async {
+        final dir = Directory.systemTemp.createTempSync('azkarot_restore');
+        addTearDown(() => dir.deleteSync(recursive: true));
+        final store = PhotoStore(directory: dir);
+
+        final stored = await store.storeBytes(await makePng(1200),
+            maxSide: PhotoStore.graveMaxDimension);
+        final encoded = (await store.readAsBase64(stored))!;
+
+        // Without maxSide the default 256 applies, and every export/import
+        // cycle would degrade the picture a little further.
+        final restored = await store.restoreFromBase64(encoded,
+            maxSide: PhotoStore.graveMaxDimension);
+        final dims =
+            await dimensions(await File(restored!).readAsBytes());
+        expect(dims.width, PhotoStore.graveMaxDimension);
+      });
+    });
+
+    test('both images travel, and neither local path does', () {
+      final m = _seed(
+        id: 1,
+        name: 'x',
+        day: 1,
+        month: HebrewMonth.tishrei,
+        photoPath: r'C:\device\a\b.png',
+        gravePhotoPath: r'C:\device\a\grave.png',
+      );
+      final exported = m.toJson()
+        ..remove('photo_path')
+        ..remove('grave_photo_path');
+      exported['photo_data'] = 'AAAA';
+      exported['grave_photo_data'] = 'BBBB';
+
+      final restored = Memorial.fromJson(exported);
+      expect(restored.photoPath, isNull);
+      expect(restored.gravePhotoPath, isNull,
+          reason: 'a foreign path must never be trusted, for either image');
+      expect(exported['grave_photo_data'], 'BBBB');
     });
 
     test('export strips the local path and carries the image instead', () {
@@ -3028,6 +3154,25 @@ void main() {
 
     test('an empty directory is not an error', () async {
       expect(await store.deleteOrphans(const []), 0);
+    });
+
+    test('the grave photo counts as referenced too', () async {
+      // photoPaths, not photoPath: a cleanup that knows about one image
+      // deletes the other one out from under a memorial that is using it.
+      final portrait = aged('face.jpg', const Duration(days: 3));
+      final grave = aged('grave.jpg', const Duration(days: 3));
+
+      final m = _seed(
+        id: 1,
+        name: 'x',
+        day: 1,
+        month: HebrewMonth.tishrei,
+        photoPath: portrait.path,
+        gravePhotoPath: grave.path,
+      );
+
+      expect(await store.deleteOrphans(m.photoPaths.toList()), 0);
+      expect(grave.existsSync(), isTrue);
     });
   });
 

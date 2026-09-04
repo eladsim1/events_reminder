@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/memorial.dart';
 import '../providers/memorial_provider.dart';
+import '../services/photo_store.dart';
 import '../widgets/memorial_form.dart';
 
 /// מסך הוספת אזכרה חדשה.
@@ -19,6 +20,10 @@ class AddMemorialScreen extends ConsumerWidget {
         defaultHour: defaultTime.hour,
         defaultMinute: defaultTime.minute,
         photoPicker: () => ref.read(photoStoreProvider).pickAndStore(),
+        // גודל אחר ולא ברירת המחדל: תמונת קבר נועדה שיסתכלו בה בשטח.
+        gravePhotoPicker: () => ref
+            .read(photoStoreProvider)
+            .pickAndStore(maxSide: PhotoStore.graveMaxDimension),
         locationPicker: () => ref.read(locationServiceProvider).current(),
         navigateTo: (at) =>
             ref.read(navigationLauncherProvider).openWaze(at),
@@ -38,6 +43,7 @@ class AddMemorialScreen extends ConsumerWidget {
             latitude: result.coordinates?.latitude,
             longitude: result.coordinates?.longitude,
             photoPath: result.photoPath,
+            gravePhotoPath: result.gravePhotoPath,
             reminderMode: result.reminderMode,
             reminderValue: result.reminderValue,
             deathHebrewYear: result.deathHebrewYear,

@@ -44,6 +44,12 @@ class Memorial {
   final DateTime? postponedReminderAt;
 
   /// שם בית העלמין, למשל "ירקון".
+  /// תמונת הקבר, לצד תמונת הנפטר.
+  ///
+  /// תפקידה אחר: היא נועדה לזהות את הקבר בשטח, ולכן היא נשמרת גדולה יותר
+  /// ואינה מוצגת כאווטאר.
+  final String? gravePhotoPath;
+
   /// נקודת ציון של הקבר עצמו.
   ///
   /// לצד [cemetery] ו-[plot] ולא במקומם: חיפוש טקסטואלי מביא לשער בית
@@ -90,6 +96,7 @@ class Memorial {
     required this.createdAt,
     this.lastNotifiedAt,
     this.postponedReminderAt,
+    this.gravePhotoPath,
     this.latitude,
     this.longitude,
     this.cemetery,
@@ -119,6 +126,10 @@ class Memorial {
   }
 
   /// האם יש לאן לנווט – בנקודה או בטקסט.
+  /// כל הנתיבים שהאזכרה מפנה אליהם. משמש לניקוי תמונות יתומות.
+  Iterable<String> get photoPaths =>
+      [photoPath, gravePhotoPath].whereType<String>();
+
   bool get hasBurialLocation =>
       coordinates != null || burialSearchQuery != null;
 
@@ -193,6 +204,7 @@ class Memorial {
         cemetery: cemetery ?? other.cemetery,
         plot: plot ?? other.plot,
         photoPath: photoPath ?? other.photoPath,
+        gravePhotoPath: gravePhotoPath ?? other.gravePhotoPath,
         deathHebrewYear: deathHebrewYear ?? other.deathHebrewYear,
       );
 
@@ -225,6 +237,8 @@ class Memorial {
     bool clearNotes = false,
     DateTime? lastNotifiedAt,
     DateTime? postponedReminderAt,
+    String? gravePhotoPath,
+    bool clearGravePhoto = false,
     double? latitude,
     double? longitude,
     String? cemetery,
@@ -250,6 +264,8 @@ class Memorial {
       lastNotifiedAt: lastNotifiedAt ?? this.lastNotifiedAt,
       postponedReminderAt:
           postponedReminderAt ?? this.postponedReminderAt,
+      gravePhotoPath:
+          clearGravePhoto ? null : (gravePhotoPath ?? this.gravePhotoPath),
       latitude: latitude ?? this.latitude,
       longitude: longitude ?? this.longitude,
       cemetery: cemetery ?? this.cemetery,
@@ -270,6 +286,7 @@ class Memorial {
       'hebrew_day': hebrewDay,
       'hebrew_month': hebrewMonth,
       'adar_type': adarType.dbValue,
+      'grave_photo_path': gravePhotoPath,
       'latitude': latitude,
       'longitude': longitude,
       'notification_hour': notificationHour,
@@ -293,6 +310,7 @@ class Memorial {
       id: map['id'] as int?,
       name: map['name'] as String,
       hebrewDay: map['hebrew_day'] as int,
+      gravePhotoPath: map['grave_photo_path'] as String?,
       // num ולא double: SQLite מחזיר int לערך שנשמר כשלם.
       latitude: (map['latitude'] as num?)?.toDouble(),
       longitude: (map['longitude'] as num?)?.toDouble(),
