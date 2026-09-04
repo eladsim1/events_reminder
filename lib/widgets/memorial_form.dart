@@ -67,6 +67,9 @@ class MemorialForm extends StatefulWidget {
   /// null מסתיר את הכפתור – מסך שאין לו שירות מיקום לא צריך להציע אותו.
   final Future<LocationResult> Function()? locationPicker;
 
+  /// פותח ניווט אל נקודה. מוזרק, ו-null מסתיר את הכפתור.
+  final Future<bool> Function(Coordinates at)? navigateTo;
+
   const MemorialForm({
     super.key,
     this.initial,
@@ -76,6 +79,7 @@ class MemorialForm extends StatefulWidget {
     required this.onSubmit,
     required this.photoPicker,
     this.locationPicker,
+    this.navigateTo,
   });
 
   @override
@@ -139,6 +143,24 @@ class _MemorialFormState extends State<MemorialForm> {
   }
 
   bool _locating = false;
+
+  /// הנקודה שבשדה כרגע, או null אם אין בו כזו.
+  Coordinates? get _typedPoint =>
+      Coordinates.tryParse(_coordinatesController.text);
+
+  /// בודק את הנקודה שהוקלדה בכך שהוא נוסע אליה.
+  Future<void> _navigateToTyped() async {
+    final at = _typedPoint;
+    final navigate = widget.navigateTo;
+    if (at == null || navigate == null) return;
+
+    final opened = await navigate(at);
+    if (opened || !mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('ווייז אינה זמינה במכשיר')),
+    );
+  }
 
   /// ממלא את שדה נקודת הציון מהמיקום הנוכחי.
   ///
@@ -434,14 +456,26 @@ class _MemorialFormState extends State<MemorialForm> {
           TextFormField(
             controller: _coordinatesController,
             keyboardType: TextInputType.text,
-            decoration: const InputDecoration(
+            decoration: InputDecoration(
               labelText: 'נקודת ציון',
               hintText: '31.768300, 35.213700',
               helperText: 'הדבקה מוויז או מ-Google Maps. מביא לקבר עצמו',
               helperMaxLines: 2,
-              prefixIcon: Icon(Icons.my_location_outlined),
-              border: OutlineInputBorder(),
+              prefixIcon: const Icon(Icons.my_location_outlined),
+              border: const OutlineInputBorder(),
+              // בשדה עצמו: הכפתור בודק את מה שכתוב בו ברגע זה, ולא את מה
+              // שנשמר. מנוטרל כשאין נקודה קריאה, אחרת הוא מבטיח נסיעה
+              // לשום מקום.
+              suffixIcon: widget.navigateTo == null
+                  ? null
+                  : IconButton(
+                      icon: const Icon(Icons.navigation_outlined),
+                      tooltip: 'ניווט בוויז לנקודה',
+                      onPressed: _typedPoint == null ? null : _navigateToTyped,
+                    ),
             ),
+            // בלי זה הכפתור לא היה מתעורר בהקלדה: מצבו נגזר מהטקסט.
+            onChanged: (_) => setState(() {}),
             validator: (v) {
               final text = v?.trim() ?? '';
               if (text.isEmpty) return null;

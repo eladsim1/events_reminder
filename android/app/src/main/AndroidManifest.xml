@@ -117,5 +117,12 @@
             <action android:name="android.intent.action.DIAL"/>
             <data android:scheme="tel"/>
         </intent>
+        <!-- ווייז נפתחת ישירות מכפתור בדיקת נקודת הציון. גם כאן, בלי
+             ההצהרה canLaunchUrl מחזיר false אף שהיא מותקנת. -->
+        <package android:name="com.waze"/>
+        <intent>
+            <action android:name="android.intent.action.VIEW"/>
+            <data android:scheme="waze"/>
+        </intent>
     </queries>
 </manifest>

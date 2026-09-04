@@ -60,6 +60,8 @@ class EditMemorialScreen extends ConsumerWidget {
         showEnabledToggle: true,
         photoPicker: () => ref.read(photoStoreProvider).pickAndStore(),
         locationPicker: () => ref.read(locationServiceProvider).current(),
+        navigateTo: (at) =>
+            ref.read(navigationLauncherProvider).openWaze(at),
         onSubmit: (result) async {
           final storage = result.month.toStorage();
           final updated = memorial.copyWith(

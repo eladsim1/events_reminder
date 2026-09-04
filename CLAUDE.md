@@ -260,6 +260,20 @@ is done in Dart instead.
   in a try, since text pasted mid-string can carry broken encoding and
   `decodeFull` throws on it.
 
+  The field also carries a **navigate button**, which opens Waze straight to
+  whatever is typed *right now* — the point of it is to check a value before
+  committing to it, so it reads the field rather than the saved record, and it
+  is disabled until the text parses. Waze specifically, not the chooser the
+  card uses: a check wants a route, not another question. `navigate=yes` is
+  what starts driving; without it Waze shows the pin and waits. It falls back
+  from `waze://` to the https link, which opens the app if installed and the
+  site if not.
+
+  Both the `waze` scheme **and** `<package android:name="com.waze"/>` are
+  declared in `<queries>`. Third time this trap has bitten here, after `geo:`
+  and `tel:`: without the declaration `canLaunchUrl` returns false however
+  well-formed the link is, and the button silently does nothing.
+
   **"Use my current location"** is the way a grave's point is actually
   captured: you are standing there once a year anyway. `LocationService` wraps
   `geolocator` and reports **why** it failed, not just that it did — a denial

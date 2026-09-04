@@ -20,6 +20,8 @@ class AddMemorialScreen extends ConsumerWidget {
         defaultMinute: defaultTime.minute,
         photoPicker: () => ref.read(photoStoreProvider).pickAndStore(),
         locationPicker: () => ref.read(locationServiceProvider).current(),
+        navigateTo: (at) =>
+            ref.read(navigationLauncherProvider).openWaze(at),
         onSubmit: (result) async {
           final storage = result.month.toStorage();
           final memorial = Memorial(

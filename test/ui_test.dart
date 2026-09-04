@@ -322,6 +322,13 @@ class _FakeLauncher implements NavigationLauncher {
   }
 
   final List<String> points = [];
+  final List<String> waze = [];
+
+  @override
+  Future<bool> openWaze(Coordinates at) async {
+    waze.add(at.toString());
+    return succeeds;
+  }
 
   @override
   Future<bool> openCoordinates(Coordinates at, {String? label}) async {
@@ -3218,6 +3225,86 @@ void main() {
         expect(find.text('32.085300, 34.781800'), findsNothing);
       });
     }
+
+    testWidgets('the field drives to what is typed in it right now',
+        (tester) async {
+      final driven = <String>[];
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: MemorialForm(
+            defaultHour: 9,
+            defaultMinute: 0,
+            onSubmit: (_) {},
+            photoPicker: () async => null,
+            navigateTo: (at) async {
+              driven.add(at.toString());
+              return true;
+            },
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+
+      final field = find.widgetWithText(TextFormField, 'נקודת ציון');
+      await _revealInForm(tester, field);
+
+      // Disabled until there is a point: a button that promises a drive to
+      // nowhere is worse than no button.
+      final button =
+          find.widgetWithIcon(IconButton, Icons.navigation_outlined);
+      expect(tester.widget<IconButton>(button).onPressed, isNull);
+
+      await tester.enterText(field, '32.0853, 34.7818');
+      await tester.pumpAndSettle();
+
+      expect(tester.widget<IconButton>(button).onPressed, isNotNull,
+          reason: 'the button state follows the text, so typing must rebuild');
+      await tester.tap(button);
+      await tester.pumpAndSettle();
+
+      // What is typed, not what is saved - the point of the button is to
+      // check the value before committing to it.
+      expect(driven, ['32.085300, 34.781800']);
+    });
+
+    testWidgets('a device without Waze is told, not left guessing',
+        (tester) async {
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: MemorialForm(
+            defaultHour: 9,
+            defaultMinute: 0,
+            onSubmit: (_) {},
+            photoPicker: () async => null,
+            navigateTo: (at) async => false,
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+
+      final field = find.widgetWithText(TextFormField, 'נקודת ציון');
+      await _revealInForm(tester, field);
+      await tester.enterText(field, '32.0853, 34.7818');
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('ניווט בוויז לנקודה'));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('ווייז אינה זמינה'), findsOneWidget);
+    });
+
+    test('the Waze link asks to drive, not merely to look', () {
+      // Without navigate=yes Waze shows the pin and waits. A test on the
+      // manifest instead of the URL, since canLaunchUrl refuses an
+      // undeclared scheme however well-formed the link is.
+      final manifest =
+          File('android/app/src/main/AndroidManifest.xml').readAsStringSync();
+      expect(manifest, contains('android:scheme="waze"'));
+      expect(manifest, contains('com.waze'));
+
+      final source =
+          File('lib/services/navigation_launcher.dart').readAsStringSync();
+      expect(source, contains('navigate=yes'));
+    });
 
     testWidgets('no picker, no button', (tester) async {
       await pumpForm(tester, picker: null);
