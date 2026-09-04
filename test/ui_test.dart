@@ -1724,6 +1724,27 @@ void main() {
       );
     });
 
+    test('a short year reports the day it actually falls on', () {
+      // The occurrence line carries a year and sits directly under the
+      // Gregorian date, so it must agree with it. It used to print the
+      // STORED day: "ל' בחשוון תשפ״ט" beside 18/11/2028, which is כ"ט.
+      final m = _seed(
+          id: 1, name: 'ל בחשוון', day: 30, month: HebrewMonth.cheshvan);
+
+      // תשפ״ט - Cheshvan runs to 29 days.
+      final short = HebrewCalendarService(now: () => DateTime(2028, 1, 1));
+      expect(short.formatNextMemorialHebrewDate(m), contains("כ\"ט בחשוון"));
+      expect(short.formatNextMemorialHebrewDate(m), isNot(contains("ל' בחשוון")));
+
+      // תשפ״ח - Cheshvan runs to 30, and nothing moves.
+      final full = HebrewCalendarService(now: () => DateTime(2027, 1, 1));
+      expect(full.formatNextMemorialHebrewDate(m), contains("ל' בחשוון"));
+
+      // The recurring anniversary keeps its own name in both: that line is
+      // what the memorial IS, and it carries no year.
+      expect(short.formatHebrewDate(m), "ל' בחשוון");
+    });
+
     testWidgets('the wheel offers thirty days in Cheshvan', (tester) async {
       await tester.pumpWidget(MaterialApp(
         home: Scaffold(

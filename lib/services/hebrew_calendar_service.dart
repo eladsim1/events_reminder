@@ -107,6 +107,13 @@ class HebrewCalendarService {
   /// האם שנה עברית נתונה היא מעוברת.
   bool isLeapYear(int hebrewYear) => _isHebrewLeapYear(hebrewYear);
 
+  /// היום העברי בחודש שבו חל תאריך לועזי נתון.
+  int _hebrewDayOf(DateTime gregorian) {
+    final jd = JewishDate();
+    jd.setDate(gregorian);
+    return jd.getJewishDayOfMonth();
+  }
+
   /// מחזיר את השנה העברית שבה חל תאריך לועזי נתון.
   int _hebrewYearOf(DateTime gregorian) {
     final jd = JewishDate();
@@ -584,14 +591,24 @@ class HebrewCalendarService {
   /// התאריך העברי המלא של המופע הקרוב, כולל שנה.
   /// למשל: כ"ו באב תשפ״ו.
   ///
-  /// שים לב שהחודש הוא זה של המופע בפועל: אזכרה שנשמרה כ"אדר" סתמי מוצגת
-  /// כ"אדר ב'" בשנה מעוברת, בהתאם לחודש שאליו היא נופלת.
+  /// **התאריך הוא של המופע בפועל, לא זה שנשמר** – גם היום וגם החודש.
+  ///
+  /// אזכרה שנשמרה כ"אדר" סתמי מוצגת כ"אדר ב'" בשנה מעוברת. ובאותו אופן,
+  /// אזכרה בל' בחשוון בשנה שבה חשוון בן 29 מוצגת כ-כ"ט בחשוון, כי שם היא
+  /// באמת נופלת: [_memorialGregorianForYear] נסוג ליום האחרון של החודש.
+  ///
+  /// עד כה היום נלקח מהשדה השמור, והשורה סתרה את השורה שמעליה – "ל' בחשוון
+  /// תשפ״ט" לצד 18/11/2028, שהוא כ"ט. השורה הזו היא **המופע**; יום השנה
+  /// החוזר, בלי שנה, מוצג בנפרד ב-[formatHebrewDate] וממשיך לומר ל' בחשוון.
+  ///
+  /// היום נגזר מהתאריך הלועזי שכבר חושב ולא מחושב שוב, כדי שלא יוכל לסטות
+  /// ממנו.
   String? formatNextMemorialHebrewDate(Memorial memorial, {DateTime? from}) {
     final occurrence = nextMemorialOccurrence(memorial, from: from);
     if (occurrence == null) return null;
 
     final year = occurrence.hebrewYear;
-    final dayHeb = HebrewNumerals.dayToHebrew(memorial.hebrewDay);
+    final dayHeb = HebrewNumerals.dayToHebrew(_hebrewDayOf(occurrence.gregorian));
 
     final month = memorial.selectedMonth;
     final monthName = month.isAdar

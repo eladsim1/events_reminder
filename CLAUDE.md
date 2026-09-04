@@ -1339,3 +1339,29 @@ the old golden was right and only the run order was wrong.
   narrow screen would overflow.
 - The photo count in the merge snackbar counts photos in the *selection*, so it
   can overstate when rows are skipped as identical.
+
+### The occurrence line contradicted the date beside it
+
+Found by the user asking the obvious question — "how does it save the 30th of
+Cheshvan in a year that has no 30th?" It does not: a memorial is stored as a
+recurring anniversary (day + month, **no year**), and each year is resolved
+separately. Nothing is ever saved "for" a year.
+
+But the answer exposed a second bug. `formatNextMemorialHebrewDate` promises
+the full Hebrew date **of the coming occurrence** — its own doc says so, and it
+already resolved the month that way (plain Adar shows as Adar II in a leap
+year). The **day** was still taken from the stored field. So the card read:
+
+```
+האזכרה הקרובה   יום שבת, 18/11/2028
+תאריך עברי      ל' בחשוון תשפ״ט        <- 18/11/2028 is כ"ט
+```
+
+Two rows, one card, contradicting each other. The day is now derived from the
+Gregorian date that `_memorialGregorianForYear` already produced, so it cannot
+drift from it.
+
+The recurring line above (`formatHebrewDate`, no year) still says
+`ל' בחשוון` — that is what the memorial *is*, and both facts belong on the
+card. The notification body is unchanged for the same reason: it names the
+yahrzeit, not the occurrence.
