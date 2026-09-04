@@ -8,6 +8,7 @@ import '../models/merge_plan.dart';
 import '../repository/memorial_repository.dart';
 import '../services/delivery_checks.dart';
 import '../services/hebrew_calendar_service.dart';
+import '../services/location_service.dart';
 import '../services/navigation_launcher.dart';
 import '../services/notification_service.dart';
 import '../services/reminder_sync.dart';
@@ -33,6 +34,10 @@ final photoStoreProvider = Provider<PhotoStore>((ref) {
 
 final deliveryChecksProvider = Provider<DeliveryChecks>((ref) {
   return const DeliveryChecks();
+});
+
+final locationServiceProvider = Provider<LocationService>((ref) {
+  return const LocationService();
 });
 
 final hebrewCalendarServiceProvider =

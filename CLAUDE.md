@@ -260,6 +260,27 @@ is done in Dart instead.
   in a try, since text pasted mid-string can carry broken encoding and
   `decodeFull` throws on it.
 
+  **"Use my current location"** is the way a grave's point is actually
+  captured: you are standing there once a year anyway. `LocationService` wraps
+  `geolocator` and reports **why** it failed, not just that it did — a denial
+  is a prompt, a permanent denial is system settings, and GPS being off is
+  neither, so one message for all three would send the user to the wrong
+  screen. It writes into the text field rather than straight into the result,
+  so the reading can be seen, corrected or abandoned before saving, and the
+  button disables itself while reading: a second tap would start a parallel
+  read that could overwrite the newer value.
+
+  The picker is **injected** into `MemorialForm`, like `photoPicker`, so the
+  form never touches a plugin and stays testable; passing null hides the
+  button. `ACCESS_FINE_LOCATION` is requested only on that tap — ordinary use
+  never touches location.
+
+  Two test traps here, both found by failing: the field's `hintText` is a real
+  coordinate, so a test using those same numbers matches the hint and passes
+  without anything being read; and `ScaffoldMessenger` **queues** snackbars, so
+  four failure cases in one loop leave the second and later ones waiting behind
+  the first. One test each.
+
   Two formats deliberately return null rather than a guess: shortened links
   (`maps.app.goo.gl/...`) hold nothing but an id and would need a network fetch,
   and degrees-minutes-seconds (`31°46'05.9"N`) is not parsed at all.

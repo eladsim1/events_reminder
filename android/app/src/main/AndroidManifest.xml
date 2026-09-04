@@ -13,6 +13,10 @@
     <uses-permission
         android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"/>
     <uses-permission android:name="android.permission.VIBRATE"/>
+    <!-- נדרשת רק לכפתור "השתמש במיקום הנוכחי", ונשאלת בזמן הלחיצה. שימוש
+         רגיל באפליקציה אינו נוגע במיקום. -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
 
     <!-- גיבוי מוצהר במפורש. מכשיר חדש או התקנה מחדש הם התרחיש היחיד
          שמאבד את כל הנתונים ולא רק תזכורת אחת, וללא הצהרה שום דבר לא כיוון

@@ -6,6 +6,7 @@ import '../models/hebrew_date.dart';
 import '../models/coordinates.dart';
 import '../models/memorial.dart';
 import '../services/hebrew_calendar_service.dart';
+import '../services/location_service.dart';
 import 'hebrew_date_picker.dart';
 
 /// תוצאת טופס האזכרה שמוחזרת למסך הקורא.
@@ -61,6 +62,11 @@ class MemorialForm extends StatefulWidget {
   /// מוזרק ולא נקרא ישירות, כדי שהטופס לא ייקשר לפלאגין ויישאר ניתן לבדיקה.
   final Future<String?> Function() photoPicker;
 
+  /// קורא את המיקום הנוכחי. מוזרק מאותה סיבה בדיוק.
+  ///
+  /// null מסתיר את הכפתור – מסך שאין לו שירות מיקום לא צריך להציע אותו.
+  final Future<LocationResult> Function()? locationPicker;
+
   const MemorialForm({
     super.key,
     this.initial,
@@ -69,6 +75,7 @@ class MemorialForm extends StatefulWidget {
     this.showEnabledToggle = false,
     required this.onSubmit,
     required this.photoPicker,
+    this.locationPicker,
   });
 
   @override
@@ -130,6 +137,43 @@ class _MemorialFormState extends State<MemorialForm> {
     final t = c.text.trim();
     return t.isEmpty ? null : t;
   }
+
+  bool _locating = false;
+
+  /// ממלא את שדה נקודת הציון מהמיקום הנוכחי.
+  ///
+  /// כותב לשדה ולא ישירות לתוצאה, כדי שהמשתמש יראה מה נקלט ויוכל לתקן או
+  /// לוותר לפני שהוא שומר.
+  Future<void> _useCurrentLocation() async {
+    final picker = widget.locationPicker;
+    if (picker == null || _locating) return;
+
+    setState(() => _locating = true);
+    final result = await picker();
+    if (!mounted) return;
+    setState(() => _locating = false);
+
+    final point = result.point;
+    if (point != null) {
+      setState(() => _coordinatesController.text = point.toString());
+      return;
+    }
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(_locationMessage(result.failure!))),
+    );
+  }
+
+  /// הודעה לכל סוג כשל בנפרד: כל אחד מהם נפתר במקום אחר.
+  String _locationMessage(LocationFailure failure) => switch (failure) {
+        LocationFailure.serviceOff =>
+          'המיקום כבוי במכשיר. יש להפעיל אותו ולנסות שוב',
+        LocationFailure.denied => 'ללא הרשאת מיקום אי אפשר לקרוא נקודת ציון',
+        LocationFailure.deniedForever =>
+          'הרשאת המיקום נדחתה לצמיתות. יש לאשר אותה בהגדרות המכשיר',
+        LocationFailure.unavailable =>
+          'לא הצלחתי לקבל מיקום. בתוך מבנה הקליטה חלשה',
+      };
 
   Future<void> _pickPhoto() async {
     final picked = await widget.photoPicker();
@@ -408,6 +452,27 @@ class _MemorialFormState extends State<MemorialForm> {
                   : null;
             },
           ),
+          if (widget.locationPicker != null) ...[
+            const SizedBox(height: 8),
+            Align(
+              alignment: AlignmentDirectional.centerStart,
+              child: TextButton.icon(
+                // מנוטרל בזמן הקריאה ולא רק מוצג עם מחוון: לחיצה שנייה
+                // הייתה מפעילה קריאה מקבילה שתדרוס את הראשונה.
+                onPressed: _locating ? null : _useCurrentLocation,
+                icon: _locating
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.gps_fixed),
+                label: Text(_locating
+                    ? 'מאתר מיקום...'
+                    : 'השתמש במיקום הנוכחי'),
+              ),
+            ),
+          ],
           const SizedBox(height: 20),
 
           // תמונת הנפטר.

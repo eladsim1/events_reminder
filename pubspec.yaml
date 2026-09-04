@@ -36,6 +36,7 @@ dependencies:
   path_provider: ^2.1.6
   workmanager: ^0.10.9
   share_plus: ^12.0.2
+  geolocator: ^14.0.2
 
   # הרשאות ההתראות מתבקשות דרך flutter_local_notifications עצמו
   # (requestNotificationsPermission / requestExactAlarmsPermission),

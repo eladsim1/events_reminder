@@ -39,6 +39,7 @@ import 'package:azkarot_app/screens/splash_screen.dart';
 import 'package:azkarot_app/services/hebrew_calendar_service.dart';
 import 'package:azkarot_app/services/background_refresh.dart';
 import 'package:azkarot_app/services/delivery_checks.dart';
+import 'package:azkarot_app/services/location_service.dart';
 import 'package:azkarot_app/services/navigation_launcher.dart';
 import 'package:azkarot_app/services/photo_store.dart';
 import 'package:azkarot_app/services/notification_service.dart';
@@ -3145,6 +3146,106 @@ void main() {
       expect(find.byTooltip('ניווט'), findsOneWidget);
       expect(find.textContaining('31.768300'), findsOneWidget,
           reason: 'a navigate button with no visible destination is a puzzle');
+    });
+  });
+
+  group('reading the point from where you are standing', () {
+    Future<void> pumpForm(
+      WidgetTester tester, {
+      required Future<LocationResult> Function()? picker,
+    }) async {
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: MemorialForm(
+            defaultHour: 9,
+            defaultMinute: 0,
+            onSubmit: (_) {},
+            photoPicker: () async => null,
+            locationPicker: picker,
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+    }
+
+    // _revealInForm and not a drag: the form's own list is what has to move,
+    // and a drag starts at the centre of the viewport, which lands on the
+    // date picker's wheels and silently changes the date.
+    Future<void> reveal(WidgetTester tester, Finder target) =>
+        _revealInForm(tester, target);
+
+    testWidgets('a reading lands in the field, in the form it parses back',
+        (tester) async {
+      // Written into the field rather than straight into the result, so it
+      // can be seen, corrected, or abandoned before saving.
+      // Deliberately not the hint's own numbers - that text is on screen
+      // whenever the field is empty, and a test using it would pass without
+      // anything having been read.
+      await pumpForm(tester,
+          picker: () async =>
+              const LocationResult.success(Coordinates(32.0853, 34.7818)));
+
+      await reveal(tester, find.text('השתמש במיקום הנוכחי'));
+      await tester.tap(find.text('השתמש במיקום הנוכחי'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('32.085300, 34.781800'), findsWidgets);
+    });
+
+    // One message for all of them would send the user to the wrong screen: a
+    // denial is a prompt, a permanent denial is system settings, and GPS being
+    // off is neither.
+    //
+    // A test each, not a loop: ScaffoldMessenger queues snackbars, so the
+    // second one in a loop is still waiting behind the first and never
+    // appears.
+    for (final (failure, fragment) in [
+      (LocationFailure.serviceOff, 'המיקום כבוי'),
+      (LocationFailure.denied, 'ללא הרשאת מיקום'),
+      (LocationFailure.deniedForever, 'לצמיתות'),
+      (LocationFailure.unavailable, 'לא הצלחתי לקבל מיקום'),
+    ]) {
+      testWidgets('$failure says where to fix it', (tester) async {
+        await pumpForm(tester,
+            picker: () async => LocationResult.failed(failure));
+
+        await reveal(tester, find.text('השתמש במיקום הנוכחי'));
+        await tester.tap(find.text('השתמש במיקום הנוכחי'));
+        await tester.pumpAndSettle();
+
+        expect(find.textContaining(fragment), findsOneWidget);
+        // The field stays untouched when nothing was read.
+        expect(find.text('32.085300, 34.781800'), findsNothing);
+      });
+    }
+
+    testWidgets('no picker, no button', (tester) async {
+      await pumpForm(tester, picker: null);
+      expect(find.text('השתמש במיקום הנוכחי'), findsNothing);
+    });
+
+    testWidgets('a second tap cannot race the first', (tester) async {
+      // Two overlapping reads would let the slower one overwrite the newer
+      // value.
+      var calls = 0;
+      await pumpForm(tester, picker: () async {
+        calls++;
+        await Future<void>.delayed(const Duration(milliseconds: 300));
+        return const LocationResult.success(Coordinates(32.0853, 34.7818));
+      });
+
+      await reveal(tester, find.text('השתמש במיקום הנוכחי'));
+      await tester.tap(find.text('השתמש במיקום הנוכחי'));
+      await tester.pump();
+
+      expect(find.text('מאתר מיקום...'), findsOneWidget);
+      final button = tester.widget<TextButton>(
+          find.ancestor(
+              of: find.text('מאתר מיקום...'), matching: find.byType(TextButton)));
+      expect(button.onPressed, isNull);
+
+      await tester.pumpAndSettle();
+      expect(calls, 1);
     });
   });
 

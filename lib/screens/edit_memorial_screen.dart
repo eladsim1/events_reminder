@@ -59,6 +59,7 @@ class EditMemorialScreen extends ConsumerWidget {
         defaultMinute: memorial.notificationMinute,
         showEnabledToggle: true,
         photoPicker: () => ref.read(photoStoreProvider).pickAndStore(),
+        locationPicker: () => ref.read(locationServiceProvider).current(),
         onSubmit: (result) async {
           final storage = result.month.toStorage();
           final updated = memorial.copyWith(

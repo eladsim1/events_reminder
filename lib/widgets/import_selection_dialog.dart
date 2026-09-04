@@ -21,6 +21,7 @@ class ImportChoice {
 /// לשאול על התנגשות עם אזכרה שהוחלט לא לייבא.
 class ImportSelectionDialog extends StatefulWidget {
   const ImportSelectionDialog({
+    super.key,
     required this.memorials,
     required this.calendar,
   });
