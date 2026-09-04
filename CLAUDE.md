@@ -1365,3 +1365,21 @@ The recurring line above (`formatHebrewDate`, no year) still says
 `ל' בחשוון` — that is what the memorial *is*, and both facts belong on the
 card. The notification body is unchanged for the same reason: it names the
 yahrzeit, not the occurrence.
+
+### …and then says why
+
+`adjustedDayNote` puts one line on the card in the years where the stored day
+does not exist:
+
+```
+ל' בחשוון אינו קיים בתשפ״ט, ולכן האזכרה בכ"ט
+```
+
+It returns null in every other year, so the card stays quiet when there is
+nothing to explain — a note that always shows is noise rather than help, and a
+test pins both halves. Without it the card simply displayed a different day
+from the one that was entered, with no reason given.
+
+It covers Adar too, and not only the short months: a memorial saved as Adar I
+(thirty days) falls into the single Adar of a non-leap year, which has
+twenty-nine — `ל' באדר אינו קיים בתשפ״ו, ולכן האזכרה בכ"ט`.

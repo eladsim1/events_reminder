@@ -610,14 +610,37 @@ class HebrewCalendarService {
     final year = occurrence.hebrewYear;
     final dayHeb = HebrewNumerals.dayToHebrew(_hebrewDayOf(occurrence.gregorian));
 
-    final month = memorial.selectedMonth;
-    final monthName = month.isAdar
-        ? (_resolveAdarMonth(year, memorial.adarType) == _adarII
-            ? "אדר ב'"
-            : (_isHebrewLeapYear(year) ? "אדר א'" : 'אדר'))
-        : month.hebrewName;
+    return '$dayHeb ב${_monthNameForYear(memorial, year)} '
+        '${formatHebrewYear(year)}';
+  }
 
-    return '$dayHeb ב$monthName ${formatHebrewYear(year)}';
+  /// שם החודש כפי שהוא באותה שנה: "אדר" סתמי הוא אדר ב' בשנה מעוברת.
+  String _monthNameForYear(Memorial memorial, int hebrewYear) {
+    final month = memorial.selectedMonth;
+    if (!month.isAdar) return month.hebrewName;
+    if (_resolveAdarMonth(hebrewYear, memorial.adarType) == _adarII) {
+      return "אדר ב'";
+    }
+    return _isHebrewLeapYear(hebrewYear) ? "אדר א'" : 'אדר';
+  }
+
+  /// משפט הסבר כשהיום שנשמר אינו קיים בשנת המופע, או null כשהוא כן קיים.
+  ///
+  /// ל' בחשוון ובכסלו קיים רק בשנים שבהן החודש בן שלושים, ואז המופע נסוג
+  /// ליום האחרון של החודש. בלי משפט אחד שאומר זאת, הכרטיס נראה כאילו
+  /// התאריך שהוזן שונה מעצמו בלי סיבה – ומי שהזין ל' בחשוון צריך לדעת
+  /// שהתזכורת מגיעה יום קודם, ולמה.
+  String? adjustedDayNote(Memorial memorial, {DateTime? from}) {
+    final occurrence = nextMemorialOccurrence(memorial, from: from);
+    if (occurrence == null) return null;
+
+    final actual = _hebrewDayOf(occurrence.gregorian);
+    if (actual == memorial.hebrewDay) return null;
+
+    final month = _monthNameForYear(memorial, occurrence.hebrewYear);
+    return '${HebrewNumerals.dayToHebrew(memorial.hebrewDay)} ב$month '
+        'אינו קיים ב${formatHebrewYear(occurrence.hebrewYear)}, '
+        'ולכן האזכרה ב${HebrewNumerals.dayToHebrew(actual)}';
   }
 
   /// מפרמט תאריך עברי מתוך יום/חודש גולמיים (עבור ה-picker בזמן אמת).

@@ -93,6 +93,7 @@ class MemorialCard extends StatelessWidget {
     final daysToMemorial = calendar.daysUntilMemorial(memorial);
     final nextDate = calendar.nextMemorialDate(memorial);
     final nextHebrew = calendar.formatNextMemorialHebrewDate(memorial);
+    final adjusted = calendar.adjustedDayNote(memorial);
     final daysUntil = calendar.daysUntilReminder(memorial);
     final postponed = calendar.activePostponement(memorial);
 
@@ -170,6 +171,20 @@ class MemorialCard extends StatelessWidget {
                     icon: Icons.calendar_month_outlined,
                     label: 'תאריך עברי',
                     value: nextHebrew,
+                  ),
+                ],
+                // מוצג רק בשנים שבהן היום שהוזן אינו קיים. בלעדיו נראה
+                // כאילו התאריך שונה בלי סיבה.
+                if (adjusted != null) ...[
+                  const SizedBox(height: 4),
+                  Padding(
+                    padding: const EdgeInsetsDirectional.only(start: 26),
+                    child: Text(
+                      adjusted,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.outline,
+                      ),
+                    ),
                   ),
                 ],
                 if (yahrzeitNumber != null) ...[

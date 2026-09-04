@@ -1745,6 +1745,51 @@ void main() {
       expect(short.formatHebrewDate(m), "ל' בחשוון");
     });
 
+    test('a short year says so, and only a short year does', () {
+      final m = _seed(
+          id: 1, name: 'ל בחשוון', day: 30, month: HebrewMonth.cheshvan);
+
+      // תשפ״ט - Cheshvan is 29 days, so the note has to explain itself.
+      final note = HebrewCalendarService(now: () => DateTime(2028, 1, 1))
+          .adjustedDayNote(m);
+      expect(note, isNotNull);
+      expect(note, contains("ל' בחשוון"));
+      expect(note, contains('אינו קיים'));
+      expect(note, contains("כ\"ט"));
+
+      // תשפ״ח - the day exists, so there is nothing to explain and the card
+      // must stay quiet. A note that always shows is noise, not help.
+      expect(
+        HebrewCalendarService(now: () => DateTime(2027, 1, 1))
+            .adjustedDayNote(m),
+        isNull,
+      );
+
+      // An ordinary date never triggers it in any year.
+      final ordinary = _seed(
+          id: 2, name: 'רגיל', day: 14, month: HebrewMonth.cheshvan);
+      expect(
+        HebrewCalendarService(now: () => DateTime(2028, 1, 1))
+            .adjustedDayNote(ordinary),
+        isNull,
+      );
+    });
+
+    testWidgets('the card explains the day it moved to', (tester) async {
+      _phoneViewport(tester);
+      // A clock inside תשפ״ט, where Cheshvan runs to 29 days.
+      await _pumpApp(
+        tester,
+        seeded: [
+          _seed(id: 1, name: 'סבא יעקב', day: 30, month: HebrewMonth.cheshvan),
+        ],
+        now: DateTime(2028, 1, 1),
+      );
+
+      expect(find.textContaining('אינו קיים'), findsOneWidget);
+      expect(find.textContaining("כ\"ט"), findsWidgets);
+    });
+
     testWidgets('the wheel offers thirty days in Cheshvan', (tester) async {
       await tester.pumpWidget(MaterialApp(
         home: Scaffold(
