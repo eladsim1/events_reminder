@@ -10,9 +10,20 @@ the Hebrew→Gregorian conversion via `kosher_dart`, the
 Tuesday-of-the-week-before rule, `exactAllowWhileIdle` delivery under Doze, and
 the `flutter_local_notifications` 17→22 API migration.
 
-Still unconfirmed on hardware: the 20-year recurrence, the boot-receiver
-restore, the missed-reminder catch-up, and the DST edge case (only reachable
-around the March transition — covered by unit tests only).
+Still unconfirmed on hardware, as of 2026-09-04 — the horizon is two Hebrew
+years now, not twenty:
+
+- the multi-year recurrence (nothing has yet been observed firing in a later
+  year), the boot-receiver restore, and the missed-reminder catch-up;
+- the DST edge case, only reachable around the March transition;
+- everything added since: the weekly `BackgroundRefresh` job, `CanaryReceiver`,
+  the Waze and `geo:` launches, reading the current location, share, and the
+  two photo slots;
+- **the whole Kotlin layer has no automated coverage at all** — `MainActivity`'s
+  method channel and `CanaryReceiver` are exercised by nothing but the device.
+
+That list, and not the Dart defects, is where the real risk sits: the suite can
+only ever check what the app believes about itself.
 
 Flutter app (Android-only platform folder) that reminds about Hebrew-calendar
 yahrzeits on the **Tuesday of the week before** the memorial week.
