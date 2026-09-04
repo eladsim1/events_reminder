@@ -24,8 +24,11 @@ Future<void> syncReminders(
   // פעמיים, או לשזור ביטול ותזמון זה בזה.
   await withSyncLock(repo, owner, waitFor: waitForLock, () async {
     final memorials = await repo.getAll();
-    if (memorials.isEmpty) return;
 
+    // גם ברשימה ריקה – ואולי דווקא בה. rescheduleAll סוחף התראות שאינן
+    // שייכות לאף אזכרה, וכשמחקו את האחרונה כל מה שנשאר בתור הוא כזה:
+    // ביטול שרץ ברקע ולא הספיק משאיר אזעקה שתמשיך לירות לנצח, ויציאה
+    // מוקדמת כאן פירושה שאיש לעולם לא יסחוף אותה.
     await _record(
       repo,
       memorials,
@@ -75,9 +78,21 @@ Future<bool> _claim(
 ) async {
   final deadline = wait == null ? null : DateTime.now().add(wait);
   while (true) {
-    if (await repo.claimSyncLock(owner)) return true;
+    // כשל בתפיסה אינו רק "תפוס": שני isolates שמתנגשים על אותה שורה
+    // מקבלים SQLITE_BUSY, וזו חריגה. בלי התפיסה כאן היא הייתה מבטלת את
+    // לולאת ההמתנה כולה – בדיוק במקרה שבשבילו היא קיימת, הייבוא.
+    if (await _tryClaim(repo, owner)) return true;
     if (deadline == null || !DateTime.now().isBefore(deadline)) return false;
     await Future<void>.delayed(const Duration(milliseconds: 200));
+  }
+}
+
+Future<bool> _tryClaim(MemorialRepository repo, String owner) async {
+  try {
+    return await repo.claimSyncLock(owner);
+  } catch (_) {
+    // התנגשות כתיבה מול ה-isolate האחר. מבחינת הקורא זו נעילה תפוסה.
+    return false;
   }
 }
 

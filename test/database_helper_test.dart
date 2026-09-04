@@ -260,6 +260,30 @@ void main() {
     });
   });
 
+  group('a damaged backup loses a field, not the import', () {
+    test('an unparsable last_notified_at reads as null', () {
+      // parse, not tryParse, used to sit here - while the sibling field one
+      // line above used tryParse. One corrupt value in one row took the whole
+      // file down, for a marker the next sync recomputes anyway.
+      final m = Memorial.fromJson({
+        'id': 1,
+        'name': 'גיבוי פגום',
+        'hebrew_day': 14,
+        'hebrew_month': HebrewMonth.cheshvan.index,
+        'adar_type': 'none',
+        'notification_hour': 9,
+        'notification_minute': 0,
+        'enabled': 1,
+        'created_at': DateTime(2024).toIso8601String(),
+        'last_notified_at': 'לא תאריך',
+        'postponed_reminder_at': 'גם לא',
+      });
+      expect(m.lastNotifiedAt, isNull);
+      expect(m.postponedReminderAt, isNull);
+      expect(m.name, 'גיבוי פגום', reason: 'the row itself must survive');
+    });
+  });
+
   group('schema v7-v8: grave coordinates and a second photo', () {
     test('a row written before them reads back with nulls', () async {
       final id = await db.insert(_memorial(name: 'ברירות מחדל'));

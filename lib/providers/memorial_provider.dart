@@ -261,6 +261,22 @@ class MemorialNotifier extends AsyncNotifier<List<Memorial>> {
     }
   }
 
+  /// מכבה או מפעיל תזכורות לפי מזהה, ומחזיר את השם או null אם אין כזו.
+  ///
+  /// נופל חזרה למסד כשהרשימה עדיין לא נטענה. זה קורה בדיוק בנתיב שבשבילו
+  /// הפונקציה קיימת: פתיחה קרה מלחיצה על "דחיית תזכורת", שבה הדיאלוג עולה
+  /// מיד אחרי הציור הראשון בעוד הטעינה עוד באוויר – ואז המסך היה מודיע
+  /// "האזכרה לא נמצאה" על אזכרה שקיימת.
+  Future<String?> setEnabledById(int memorialId, bool enabled) async {
+    final list = state.valueOrNull ?? await _repo.getAll();
+    for (final m in list) {
+      if (m.id != memorialId) continue;
+      await updateMemorial(m.copyWith(enabled: enabled));
+      return m.name;
+    }
+    return null;
+  }
+
   Future<void> deleteMemorial(Memorial memorial) async {
     if (memorial.id == null) return;
     await _repo.delete(memorial.id!);

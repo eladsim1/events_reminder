@@ -7,8 +7,9 @@ import '../services/hebrew_calendar_service.dart';
 /// בורר תאריך עברי ייעודי (יום + חודש) באמצעות גלגלי גלילה.
 ///
 /// **אין** שימוש ב-DatePicker הלועזי של Flutter.
-/// הווידג'ט מונע בחירת תאריך שאינו קיים (למשל ל' באייר) על ידי
-/// הגבלת מספר הימים לפי החודש הנבחר.
+/// הווידג'ט מונע בחירת תאריך שאינו קיים לעולם (למשל ל' באייר) על ידי
+/// הגבלת מספר הימים לאורך המרבי של החודש הנבחר – המרבי על פני השנים, כי
+/// חשוון וכסלו מתחלפים בין 29 ל-30 ותאריך אינו חדל להתקיים בגללן.
 class HebrewDatePicker extends StatefulWidget {
   final int initialDay;
   final HebrewMonth initialMonth;
@@ -58,9 +59,15 @@ class _HebrewDatePickerState extends State<HebrewDatePicker> {
     super.dispose();
   }
 
+  /// כמה ימים להציע בגלגל.
+  ///
+  /// האורך המרבי על פני השנים ולא אורך החודש השנה: חשוון וכסלו מתחלפים
+  /// בין 29 ל-30, וסינון לפי השנה הנוכחית הסתיר את ל' בחשוון בכל שנה
+  /// קצרה – וגרוע מכך, גלגל עריכה של אזכרה קיימת בתאריך הזה היה מגלגל
+  /// אותה בשקט לכ"ט ומשנה את התאריך בשמירה.
   int _daysInSelectedMonth() {
     final adarType = _selectedMonth.toStorage().adarType;
-    return _calendar.daysInMonth(
+    return _calendar.maxDaysInMonth(
       month: _selectedMonth,
       adarType: adarType,
     );

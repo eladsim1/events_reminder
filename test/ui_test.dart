@@ -50,6 +50,50 @@ import 'package:azkarot_app/widgets/memorial_card.dart';
 import 'package:azkarot_app/widgets/memorial_form.dart';
 
 /// Replaces SQLite so the real repository contract runs on the test VM.
+/// מביא את הלוגו למטמון התמונות לפני צילום golden.
+///
+/// פענוח נכס הוא עבודה אמיתית של המנוע ואינו מסתיים תחת השעון המזויף של
+/// testWidgets. התוצאה הייתה golden שתלוי בסדר: בסבב מלא בדיקה קודמת כבר
+/// חיממה את המטמון והלוגו צויר, ובריצה של הקבוצה לבדה הוא נעדר – 2.2%
+/// פיקסלים הפרש, בלי ששום דבר בקוד השתנה.
+Future<void> _warmLogo(WidgetTester tester) async {
+  await tester.runAsync(() async {
+    const asset = AssetImage('assets/app_icon.png');
+    final done = Completer<void>();
+    asset.resolve(ImageConfiguration.empty).addListener(
+          ImageStreamListener(
+            (_, __) => done.isCompleted ? null : done.complete(),
+            onError: (_, __) => done.isCompleted ? null : done.complete(),
+          ),
+        );
+    await done.future;
+  });
+}
+
+/// מאגר שהטעינה שלו לעולם אינה מסתיימת, ולכן המסך נשאר על ה-Splash.
+///
+/// קיים בשביל צילום ה-Splash בלבד. עם מאגר רגיל הצילום היה מרוץ: הטעינה
+/// מסתיימת אחרי מספר לא מוגדר של תורים, ולכן הצילום תפס פעם את מסך הפתיחה
+/// ופעם את המסך הראשי – תלוי בסדר שבו רצו הבדיקות. תוצאה של golden חייבת
+/// להיות תלויה במסך ולא בתזמון.
+class _NeverLoadsRepo extends _InMemoryRepo {
+  @override
+  Future<List<Memorial>> getAll() => Completer<List<Memorial>>().future;
+}
+
+/// נכשל בתפיסה הראשונה ומצליח בשנייה, כמו התנגשות כתיבה אמיתית.
+class _ThrowsThenClaims extends _InMemoryRepo {
+  int attempts = 0;
+
+  @override
+  Future<bool> claimSyncLock(String owner,
+      {Duration staleAfter = const Duration(minutes: 10)}) async {
+    attempts++;
+    if (attempts == 1) throw Exception('database is locked');
+    return true;
+  }
+}
+
 class _InMemoryRepo extends MemorialRepository {
   final List<Memorial> items = [];
   int _nextId = 1;
@@ -208,6 +252,9 @@ class _FakeNotifications extends NotificationService {
   @override
   Future<Map<int, DateTime>> rescheduleAll(List<Memorial> memorials) async {
     if (failScheduling) throw Exception('scheduling refused');
+    // Recorded even for an empty list: the orphan sweep lives here, and a
+    // caller that skips it leaves stray alarms firing forever.
+    log.add('rescheduleAll:${memorials.length}');
     final out = <int, DateTime>{};
     for (final m in memorials) {
       final at = await scheduleForMemorial(m);
@@ -1640,6 +1687,93 @@ void main() {
     });
   });
 
+  group('a month that is 29 days in some years and 30 in others', () {
+    // The calendar was taught to fall back to the last day of the month
+    // rather than skip the year - but the picker and the validator still
+    // asked the CURRENT year, so in a short year the date could not be
+    // entered at all, and editing an existing one silently rolled it back
+    // to the 29th.
+    final calendar = HebrewCalendarService(now: () => _fixedNow);
+
+    test('Cheshvan and Kislev can reach 30, Iyar never can', () {
+      for (final month in [HebrewMonth.cheshvan, HebrewMonth.kislev]) {
+        expect(
+          calendar.maxDaysInMonth(month: month, adarType: AdarType.none),
+          30,
+          reason: '$month runs to thirty in some years',
+        );
+      }
+      // The other half of the rule, and the part that makes it falsifiable:
+      // a date that exists in no year at all must still be refused.
+      expect(
+        calendar.maxDaysInMonth(month: HebrewMonth.iyar, adarType: AdarType.none),
+        29,
+      );
+    });
+
+    test('the thirtieth is accepted in Cheshvan and refused in Iyar', () {
+      expect(
+        calendar.isDateEverValid(
+            day: 30, month: HebrewMonth.cheshvan, adarType: AdarType.none),
+        isTrue,
+      );
+      expect(
+        calendar.isDateEverValid(
+            day: 30, month: HebrewMonth.iyar, adarType: AdarType.none),
+        isFalse,
+      );
+    });
+
+    testWidgets('the wheel offers thirty days in Cheshvan', (tester) async {
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: HebrewDatePicker(
+            initialDay: 30,
+            initialMonth: HebrewMonth.cheshvan,
+            onChanged: (_, __) {},
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+
+      // The day survives being shown. Before this, initState clamped it to
+      // the current year's length - so opening the edit screen in a short
+      // year quietly changed the memorial's date on the next save.
+      expect(find.text("ל' בחשוון"), findsWidgets);
+    });
+
+    testWidgets('the form saves it instead of rejecting it', (tester) async {
+      MemorialFormResult? submitted;
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: MemorialForm(
+            initial: _seed(
+              id: 1,
+              name: 'ל בחשוון',
+              day: 30,
+              month: HebrewMonth.cheshvan,
+            ),
+            defaultHour: 9,
+            defaultMinute: 0,
+            onSubmit: (r) => submitted = r,
+            photoPicker: () async => null,
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+
+      final save = find.widgetWithText(FilledButton, 'שמירה');
+      await _revealInForm(tester, save);
+      await tester.tap(save);
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('אינו קיים'), findsNothing,
+          reason: 'the calendar schedules this date; the form must accept it');
+      expect(submitted?.day, 30);
+      expect(submitted?.month, HebrewMonth.cheshvan);
+    });
+  });
+
   group('burial location and photo', () {
     test('burialSearchQuery joins the parts, or is null when empty', () {
       Memorial at({String? cemetery, String? plot}) => _seed(
@@ -1875,6 +2009,29 @@ void main() {
         final dims =
             await dimensions(await File(restored!).readAsBytes());
         expect(dims.width, PhotoStore.graveMaxDimension);
+      });
+    });
+
+    testWidgets('the same picture twice is one file, not two',
+        (tester) async {
+      // The name is meant to be content-addressed, and it was not: hashCode
+      // on a Uint8List is identity, not content. So the same picture picked
+      // twice produced two files - and an identity collision at the same byte
+      // length would have returned the OLD path and silently attached the
+      // wrong photo to the memorial.
+      await tester.runAsync(() async {
+        final dir = Directory.systemTemp.createTempSync('azkarot_names');
+        addTearDown(() => dir.deleteSync(recursive: true));
+        final store = PhotoStore(directory: dir);
+
+        final purple = await makePng(64);
+        final a = await store.storeBytes(purple);
+        final b = await store.storeBytes(Uint8List.fromList(purple));
+        final c = await store.storeBytes(await makePng(48));
+
+        expect(b, a, reason: 'identical bytes must resolve to one file');
+        expect(c, isNot(a), reason: 'different bytes must not collide');
+        expect(dir.listSync().length, 2);
       });
     });
 
@@ -2877,10 +3034,17 @@ void main() {
       expect(repo.items.single.lastNotifiedAt, DateTime(2027, 8, 24, 9));
     });
 
-    test('an empty list is not work', () async {
+    test('an empty list is still work, because of what may be left over',
+        () async {
+      // This used to assert the opposite - that an empty list is skipped -
+      // and that assertion WAS the bug. Deleting the last memorial leaves
+      // alarms that belong to no memorial (a background cancel that never
+      // finished, or the pre-block id scheme), and the sweep that removes
+      // them lives inside rescheduleAll. Skipping meant nothing would ever
+      // sweep them, and they would go on firing the text baked into them.
       final notif = _FakeNotifications();
       await syncReminders(_InMemoryRepo(), notif);
-      expect(notif.log, isEmpty);
+      expect(notif.log, contains('rescheduleAll:0'));
     });
   });
 
@@ -3173,6 +3337,61 @@ void main() {
 
       expect(await store.deleteOrphans(m.photoPaths.toList()), 0);
       expect(grave.existsSync(), isTrue);
+    });
+  });
+
+  group('"do not remind again" on a cold launch', () {
+    test('the memorial is found even before the list has loaded', () async {
+      // The screen used to read the provider's cached list, which on a cold
+      // launch from the notification button is still empty - so it reported
+      // "האזכרה לא נמצאה" about a memorial that plainly exists.
+      final repo = _InMemoryRepo()
+        ..items.add(
+            _seed(id: 1, name: 'סבא יעקב', day: 27, month: HebrewMonth.av));
+
+      final container = ProviderContainer(overrides: [
+        memorialRepositoryProvider.overrideWithValue(repo),
+        notificationServiceProvider.overrideWithValue(_FakeNotifications()),
+      ]);
+      addTearDown(container.dispose);
+
+      final notifier = container.read(memorialListProvider.notifier);
+      // Deliberately not awaiting the load first: that is the state the bug
+      // lived in.
+      final name = await notifier.setEnabledById(1, false);
+
+      expect(name, 'סבא יעקב');
+      expect(repo.items.single.enabled, isFalse);
+    });
+
+    test('an id that belongs to nothing still reports honestly', () async {
+      final container = ProviderContainer(overrides: [
+        memorialRepositoryProvider.overrideWithValue(_InMemoryRepo()),
+        notificationServiceProvider.overrideWithValue(_FakeNotifications()),
+      ]);
+      addTearDown(container.dispose);
+
+      expect(
+        await container.read(memorialListProvider.notifier)
+            .setEnabledById(99, false),
+        isNull,
+      );
+    });
+  });
+
+  group('the sync survives the awkward states', () {
+    test('a lock that throws counts as taken, and the wait goes on', () async {
+      // Two isolates hitting the same row get SQLITE_BUSY, which is an
+      // exception rather than a false. Uncaught, it aborted the whole wait
+      // loop - in the one caller that must not skip, the import.
+      final repo = _ThrowsThenClaims();
+
+      final got = await withSyncLock(repo, 'import', () async {},
+          waitFor: const Duration(seconds: 5));
+
+      expect(got, isTrue);
+      expect(repo.attempts, greaterThan(1),
+          reason: 'the first attempt threw; the loop had to try again');
     });
   });
 
@@ -3967,7 +4186,7 @@ void main() {
       await tester.pumpWidget(
         ProviderScope(
           overrides: [
-            memorialRepositoryProvider.overrideWithValue(_InMemoryRepo()),
+            memorialRepositoryProvider.overrideWithValue(_NeverLoadsRepo()),
             notificationServiceProvider.overrideWithValue(_FakeNotifications()),
             hebrewCalendarServiceProvider.overrideWithValue(
               HebrewCalendarService(now: () => _fixedNow),
@@ -3976,14 +4195,21 @@ void main() {
           child: const AzkarotApp(),
         ),
       );
+      // הטעינה לעולם אינה מסתיימת כאן, ולכן המסך אינו מחליף את עצמו תוך כדי.
       await tester.pump();
+      await _warmLogo(tester);
+      await tester.pump();
+
+      // שהצילום באמת של מסך הפתיחה, ולא של מה שבא אחריו: כשזה השתנה,
+      // ההבדל הופיע כפער פיקסלים ולא כשגיאה שאומרת מה קרה.
+      expect(find.byType(SplashScreen), findsOneWidget);
 
       await expectLater(
         find.byType(AzkarotApp),
         matchesGoldenFile('goldens/07_splash.png'),
       );
-
-      await _pumpUntilFound(tester, find.byType(HomeScreen), 'HomeScreen');
+      // אין כאן המתנה למסך הראשי: המאגר הזה לעולם אינו נטען, וזו בדיוק
+      // הנקודה. שהאפליקציה מגיעה למסך הראשי נבדק במקום אחר.
     });
 
     testWidgets('home with data (light)', (tester) async {

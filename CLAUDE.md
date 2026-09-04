@@ -1234,3 +1234,108 @@ a picture is not expressible without an explicit flag.
 The tile's thumbnail opens the picture full-screen in an `InteractiveViewer`.
 Without that the grave photo is unusable exactly where it is needed — 40 px
 identifies nothing in a cemetery, and the inscription is usually read zoomed.
+
+## Code review, 2026-09-04 — what a full pass found
+
+Eight real defects across the whole tree. The pattern worth remembering: **most
+of them were places where one layer was fixed and the layer next to it was
+not**, and every one of them was invisible to `flutter analyze` and to the
+suite as it stood.
+
+### A date the calendar schedules but the form refuses
+
+The thirtieth of Cheshvan and of Kislev exists only in years where the month
+runs to thirty days. The calendar was taught to fall back to the last day of
+the month rather than skip the year — but `MemorialForm._validateHebrewDate`
+and `HebrewDatePicker` still asked `daysInMonth` about the **current** year. In
+5786, where Cheshvan has 29, that means:
+
+- the date cannot be entered at all — the form reports it does not exist;
+- and `HebrewDatePicker.initState` clamps an existing day 30 down to 29, so
+  **opening the edit screen silently changed the memorial's date on the next
+  save.** Data loss on an ordinary edit, in roughly half the years.
+
+`maxDaysInMonth` answers the length over a 19-year scan (the leap cycle, so
+every year type is met) and `isDateEverValid` is what input now asks. Iyar
+still comes back 29, so the thirtieth of Iyar is still refused — that half of
+the rule is what makes it falsifiable. The lengths are derived from
+`kosher_dart` rather than a hardcoded table, so they cannot drift from it.
+
+### Photo file names were never content-addressed
+
+```dart
+final name = 'p${resized.lengthInBytes}_${resized.hashCode.abs()}.png';
+```
+
+The comment said "named by content, so re-picking the same image does not
+create duplicates". **`Uint8List.hashCode` is identity, not content** — lists
+in Dart do not override it. So the same picture picked twice made two files,
+and, in the dangerous direction, two different images with the same length and
+a colliding identity hash would hit `if (!target.existsSync())` and return the
+**old** path — silently attaching the wrong photo. Now an FNV-1a pass over the
+bytes.
+
+### An empty list left orphaned alarms firing forever
+
+`syncReminders` returned early when there were no memorials. But the sweep for
+notifications that belong to no memorial lives inside `rescheduleAll`, and a
+delete whose fire-and-forget cancel never ran leaves exactly that. Delete the
+last memorial and nothing would ever sweep them; they go on firing the text
+baked into them years ago. The test that asserted the old behaviour — "an empty
+list is not work" — *was* the bug, so it was inverted rather than adjusted.
+
+### The cross-isolate lock could throw instead of reporting "taken"
+
+`claimSyncLock` read the row and then wrote it. Two isolates both read "free",
+and the loser got `SQLITE_BUSY` — an **exception**, not `false`. Uncaught, it
+aborted `_claim`'s whole wait loop, in the one caller that may not skip: the
+import. Now the transaction is `exclusive: true` (`BEGIN IMMEDIATE`, taking the
+write lock up front) and `_tryClaim` treats a throw as a held lock.
+
+### Smaller, still real
+
+- **`Memorial.fromMap` used `DateTime.parse` for `last_notified_at`** while the
+  field one line above used `tryParse`. One corrupt value took down a whole
+  import, for a marker the next sync recomputes anyway.
+- **The settings diagnostics built their `Future` inside `build()`.** Every
+  rebuild re-issued `pendingNotificationRequests()` plus a full budget
+  allocation, and the row flashed back to "checking...". Worse, the refresh
+  button "worked" only as a side effect of the rebuild — which is what makes a
+  fix like that fragile. Both futures are now held in fields and reloaded
+  explicitly.
+- **"Do not remind again" could report that the memorial was not found** on a
+  cold launch from the notification button, because the screen read the
+  provider's cached list while it was still loading. `setEnabledById` falls
+  back to the database.
+- **The import row still said it replaces everything** after merge became the
+  default button — it promised destruction that the normal path does not do.
+
+### The splash golden was order-dependent
+
+`07_splash.png` passed in a full run and failed when its group ran alone. Two
+causes, both timing: the repository fake's load completed after an
+indeterminate number of turns, so the capture was sometimes the splash and
+sometimes the home screen; and the logo is an asset, whose decode does not
+complete under `testWidgets`' fake clock unless an earlier test happened to
+warm the image cache.
+
+Fixed by removing the timing from the test rather than by blessing a new
+image — `_NeverLoadsRepo` keeps the splash on screen, `_warmLogo` precaches
+inside `runAsync`, and an `expect(find.byType(SplashScreen), ...)` makes a
+future flip fail with a sentence instead of a pixel count. The regenerated file
+came back **byte-identical** to the committed one, which is the evidence that
+the old golden was right and only the run order was wrong.
+
+### Known and deliberately left alone
+
+- **The Hebrew date conversions are recomputed per build.** `_sorted`,
+  `_filtered`, `_FilterBar`'s counters and every `MemorialCard` call into
+  `kosher_dart` on each frame — so a keystroke in the search field costs one
+  conversion per memorial. Fine at ten, not obviously fine at the three hundred
+  the alarm budget is designed for. Fixing it means memoising in
+  `HebrewCalendarService`, which has an injectable clock and therefore a cache
+  key that is easy to get subtly wrong. Measure before touching it.
+- `_FilterBar` is a plain `Row`; three chips fit the tested viewport but a very
+  narrow screen would overflow.
+- The photo count in the merge snackbar counts photos in the *selection*, so it
+  can overstate when rows are skipped as identical.

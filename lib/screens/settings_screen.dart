@@ -307,7 +307,10 @@ class SettingsScreen extends ConsumerWidget {
           ListTile(
             leading: const Icon(Icons.download),
             title: const Text('ייבוא נתונים'),
-            subtitle: const Text('שחזור מקובץ JSON (מחליף את הקיים)'),
+            // לא "מחליף את הקיים": מאז שהייבוא מציע גם הוספה – והיא כפתור
+            // ברירת המחדל – הכיתוב הזה הבטיח מחיקה שאינה קורית במסלול
+            // המקובל, והרתיע מפעולה בטוחה.
+            subtitle: const Text('שחזור מקובץ JSON – הוספה או החלפה'),
             onTap: () => _import(context, ref),
           ),
           const Divider(),
@@ -465,8 +468,20 @@ class _AlarmCanaryStatus extends ConsumerWidget {
 ///
 /// העבודה רצה ב-isolate נפרד, ולכן שדה בזיכרון לעולם לא יגיע לכאן – ובלי
 /// התצוגה הזו עבודה שנכשלת כל שבוע אינה נראית משום מקום.
-class _BackgroundRefreshStatus extends ConsumerWidget {
+class _BackgroundRefreshStatus extends ConsumerStatefulWidget {
   const _BackgroundRefreshStatus();
+
+  @override
+  ConsumerState<_BackgroundRefreshStatus> createState() =>
+      _BackgroundRefreshStatusState();
+}
+
+class _BackgroundRefreshStatusState
+    extends ConsumerState<_BackgroundRefreshStatus> {
+  /// בשדה ולא בתוך build, מאותה סיבה כמו בדוח שמעל: future שנבנה בכל ציור
+  /// שולח שאילתה חדשה בכל setState של המסך.
+  late final Future<({DateTime? lastRun, String? lastError})> _status =
+      ref.read(memorialRepositoryProvider).backgroundStatus();
 
   String _ago(DateTime at) {
     final days = DateTime.now().difference(at).inDays;
@@ -476,10 +491,10 @@ class _BackgroundRefreshStatus extends ConsumerWidget {
   }
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return FutureBuilder<({DateTime? lastRun, String? lastError})>(
-      future: ref.read(memorialRepositoryProvider).backgroundStatus(),
+      future: _status,
       builder: (context, snapshot) {
         final status = snapshot.data;
         final failed = status?.lastError != null;
@@ -521,6 +536,35 @@ class _ScheduledReminders extends ConsumerStatefulWidget {
 class _ScheduledRemindersState extends ConsumerState<_ScheduledReminders> {
   bool _refreshing = false;
 
+  /// הדוח מוחזק בשדה ואינו נבנה בתוך build.
+  ///
+  /// future שנוצר בתוך build נוצר מחדש בכל ציור – וכאן זה אומר שליפה של כל
+  /// תור ההתראות מהפלטפורמה וחישוב ההקצאה מחדש, בכל הקלדה ובכל setState.
+  /// גם הכיתוב היה חוזר ל"נבדק..." בכל פעם.
+  Future<PendingReport>? _report;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _load());
+  }
+
+  void _load() {
+    if (!mounted) return;
+    final memorials =
+        ref.read(memorialListProvider).valueOrNull ?? const <Memorial>[];
+    final battery = ref
+            .read(notificationPermissionProvider)
+            .valueOrNull
+            ?.batteryExempt ??
+        true;
+    setState(() {
+      _report = ref
+          .read(notificationServiceProvider)
+          .pendingReport(memorials, batteryExempt: battery);
+    });
+  }
+
   /// "24/08/27 · סבא יעקב (3)" – מועד, שם, וכמה מתוזמנות.
   ///
   /// המועד ראשון בכוונה: השורות ממוינות לפיו, וכך אפשר לקרוא אותן כרשימה
@@ -546,26 +590,26 @@ class _ScheduledRemindersState extends ConsumerState<_ScheduledReminders> {
     setState(() => _refreshing = true);
     // אותו סנכרון שרץ בפתיחה: הוא מתזמן מחדש כל אזכרה שהתור שלה אינו תואם.
     await ref.read(memorialListProvider.notifier).syncNotifications();
-    if (mounted) setState(() => _refreshing = false);
+    if (!mounted) return;
+    setState(() => _refreshing = false);
+    // הדוח נטען מחדש במפורש. כשהוא נבנה בתוך build הרענון "עבד" רק כתופעת
+    // לוואי של הציור מחדש, וזה בדיוק מה שהופך תיקון כזה לשביר.
+    _load();
   }
 
   @override
   Widget build(BuildContext context) {
-    final memorials =
-        ref.watch(memorialListProvider).valueOrNull ?? const <Memorial>[];
+    // הרשימה משתנה -> הדוח נטען מחדש. listen ולא watch: הבנייה מחדש עצמה
+    // אינה אמורה לייצר שליפה חדשה, רק שינוי אמיתי בנתונים.
+    ref.listen(memorialListProvider, (_, __) => _load());
+    ref.listen(notificationPermissionProvider, (_, __) => _load());
+
     final theme = Theme.of(context);
     final small = theme.textTheme.bodySmall;
     final bad = small?.copyWith(color: theme.colorScheme.error);
 
     return FutureBuilder<PendingReport>(
-      future: ref.read(notificationServiceProvider).pendingReport(
-            memorials,
-            batteryExempt: ref
-                    .watch(notificationPermissionProvider)
-                    .valueOrNull
-                    ?.batteryExempt ??
-                true,
-          ),
+      future: _report,
       builder: (context, snapshot) {
         final report = snapshot.data;
         return ListTile(

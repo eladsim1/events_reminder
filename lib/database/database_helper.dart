@@ -108,7 +108,10 @@ class DatabaseHelper {
   /// תפוגה הסנכרון היה מושבת לנצח.
   Future<bool> claimSyncLock(String owner, Duration staleAfter) async {
     final db = await database;
-    return db.transaction<bool>((txn) async {
+    // exclusive: הטרנזקציה נפתחת ב-BEGIN IMMEDIATE ותופסת את נעילת הכתיבה
+    // מיד. בלעדיה שני ה-isolates קוראים תחילה, שניהם רואים "פנוי", ורק אז
+    // כותבים – והשני מקבל SQLITE_BUSY אחרי שכבר החליט שהנעילה שלו.
+    return db.transaction<bool>(exclusive: true, (txn) async {
       final rows = await txn.query(stateTable,
           where: 'key = ?', whereArgs: [_syncLockKey]);
       final now = DateTime.now();

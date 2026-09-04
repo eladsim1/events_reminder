@@ -587,7 +587,7 @@ class NotificationService {
         return null;
       }
     }
-    return reminders.isEmpty ? null : reminders.first;
+    return reminders.first;
   }
 
   Future<void> _scheduleAll(
@@ -606,7 +606,6 @@ class NotificationService {
         mode: mode,
       );
     }
-
   }
 
   /// מתזמן התראה אחת, עם טקסט וכפתורי דחייה שמותאמים למופע הספציפי.

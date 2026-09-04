@@ -99,10 +99,28 @@ class PhotoStore {
 
     // שם לפי תוכן ולא לפי חותמת זמן, כדי שבחירה חוזרת של אותה תמונה לא
     // תיצור עותקים כפולים.
-    final name = 'p${resized.lengthInBytes}_${resized.hashCode.abs()}.png';
+    final name = 'p${resized.lengthInBytes}_${_digest(resized)}.png';
     final target = File(p.join(dir.path, name));
     if (!target.existsSync()) await target.writeAsBytes(resized);
     return target.path;
+  }
+
+  /// טביעת אצבע של התוכן, לשם הקובץ.
+  ///
+  /// **hashCode של Uint8List אינו נגזר מהתוכן** – רשימות ב-Dart אינן דורסות
+  /// אותו, וכך התקבל hash של זהות האובייקט. המשמעות הייתה ששתי בחירות של
+  /// אותה תמונה יצרו שני קבצים, בניגוד למה שהשם הזה אמור להבטיח; וגרוע
+  /// מכך, התנגשות בין שני hash של זהות (באותו אורך בייטים) הייתה מחזירה את
+  /// נתיב הקובץ הישן ומצמידה לאזכרה את התמונה הלא נכונה, בשקט.
+  ///
+  /// FNV-1a: דטרמיניסטי, תלוי-תוכן, ומעבר יחיד על הבייטים.
+  static String _digest(Uint8List bytes) {
+    var hash = 0x811c9dc5;
+    for (final b in bytes) {
+      hash ^= b;
+      hash = (hash * 0x01000193) & 0xffffffff;
+    }
+    return hash.toRadixString(16);
   }
 
   /// מקטין תמונה כך שצלעה הארוכה לא תעלה על [maxDimension], ומחזיר PNG.

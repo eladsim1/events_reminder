@@ -43,7 +43,6 @@ class Memorial {
   /// אותו, הוא מפסיק לחול מעצמו.
   final DateTime? postponedReminderAt;
 
-  /// שם בית העלמין, למשל "ירקון".
   /// תמונת הקבר, לצד תמונת הנפטר.
   ///
   /// תפקידה אחר: היא נועדה לזהות את הקבר בשטח, ולכן היא נשמרת גדולה יותר
@@ -57,13 +56,17 @@ class Memorial {
   final double? latitude;
   final double? longitude;
 
+  /// שם בית העלמין, למשל "ירקון".
   final String? cemetery;
 
   /// מיקום הקבר בתוך בית העלמין, למשל "גוש ה', חלקה 12, שורה 4".
   final String? plot;
 
-  /// נתיב מקומי לתמונת הנפטר. נשמר בתיקייה הפרטית של האפליקציה, ולכן
-  /// **אינו נכלל בגיבוי ה-JSON** ונמחק בהסרת האפליקציה.
+  /// נתיב מקומי לתמונת הנפטר, בתיקייה הפרטית של האפליקציה.
+  ///
+  /// **הנתיב** אינו נכלל בגיבוי – הוא חסר משמעות במכשיר אחר – אבל התמונה
+  /// עצמה כן: היא נוסעת מוטמעת כ-base64 תחת photo_data, ומשוחזרת לנתיב
+  /// מקומי חדש בייבוא.
   final String? photoPath;
 
   /// כיצד נגזר מועד ההתראה.
@@ -117,7 +120,6 @@ class Memorial {
     return name.toLowerCase().contains(q);
   }
 
-  /// הטקסט לניווט: בית העלמין ומיקום הקבר יחד, או null אם אין מה לנווט אליו.
   /// נקודת הציון, אם נשמרה ותקפה.
   Coordinates? get coordinates {
     final lat = latitude, lng = longitude;
@@ -125,14 +127,16 @@ class Memorial {
     return Coordinates.isValid(lat, lng) ? Coordinates(lat, lng) : null;
   }
 
-  /// האם יש לאן לנווט – בנקודה או בטקסט.
   /// כל הנתיבים שהאזכרה מפנה אליהם. משמש לניקוי תמונות יתומות.
   Iterable<String> get photoPaths =>
       [photoPath, gravePhotoPath].whereType<String>();
 
+  /// האם יש לאן לנווט – בנקודה או בטקסט.
   bool get hasBurialLocation =>
       coordinates != null || burialSearchQuery != null;
 
+  /// הטקסט לניווט: בית העלמין ומיקום הקבר יחד, או null אם אין מה לנווט
+  /// אליו. מביא לשער בית העלמין, לא לקבר.
   String? get burialSearchQuery {
     final parts = [cemetery, plot]
         .map((s) => s?.trim())
@@ -326,8 +330,10 @@ class Memorial {
         final String s when s.isNotEmpty => DateTime.tryParse(s),
         _ => null,
       },
+      // tryParse ולא parse, כמו בשדה שמעליו: זהו סימון פנימי שמתקן את
+      // עצמו בסנכרון הבא, וערך פגום בגיבוי אינו סיבה להפיל את הייבוא כולו.
       lastNotifiedAt: switch (map['last_notified_at']) {
-        final String s when s.isNotEmpty => DateTime.parse(s),
+        final String s when s.isNotEmpty => DateTime.tryParse(s),
         _ => null,
       },
       cemetery: map['cemetery'] as String?,

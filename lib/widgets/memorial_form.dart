@@ -303,9 +303,14 @@ class _MemorialFormState extends State<MemorialForm> {
     if (picked != null) setState(() => _time = picked);
   }
 
+  /// נבדק מול כל השנים ולא מול השנה הנוכחית.
+  ///
+  /// ל' בחשוון קיים ברוב השנים, ובקצרות התזכורת נסוגה ליום האחרון של
+  /// החודש. בדיקה מול השנה הנוכחית בלבד הייתה חוסמת את התאריך לגמרי בכל
+  /// שנה שנייה, אף שהחישוב תומך בו.
   bool _validateHebrewDate() {
     final adarType = _month.toStorage().adarType;
-    return _calendar.isValidHebrewDate(
+    return _calendar.isDateEverValid(
       day: _day,
       month: _month,
       adarType: adarType,

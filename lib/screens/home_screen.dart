@@ -150,22 +150,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   /// הפעולה הפיכה – אותו מתג שברשימה – ולכן אין כאן אישור נוסף: הבחירה
   /// מתוך רשימה כבר מפורשת דיה, ואישור עליה היה רעש.
   Future<void> _stopReminding(ReminderChoiceRequest request) async {
-    final memorialId =
-        Memorial.memorialIdForNotification(request.notificationId);
-    Memorial? target;
-    final list =
-        ref.read(memorialListProvider).valueOrNull ?? const <Memorial>[];
-    for (final m in list) {
-      if (m.id == memorialId) target = m;
-    }
-    if (target == null) {
+    final name = await ref.read(memorialListProvider.notifier).setEnabledById(
+          Memorial.memorialIdForNotification(request.notificationId),
+          false,
+        );
+    if (!mounted) return;
+    if (name == null) {
       _tell('האזכרה לא נמצאה');
       return;
     }
-
-    await ref.read(memorialListProvider.notifier).toggleEnabled(target, false);
-    if (!mounted) return;
-    _tell('התזכורות עבור ${target.name} כובו. אפשר להחזיר מהרשימה.');
+    _tell('התזכורות עבור $name כובו. אפשר להחזיר מהרשימה.');
   }
 
   void _tell(String message) {
@@ -548,8 +542,6 @@ class _PermissionWarning extends ConsumerWidget {
   }
 }
 
-/// מסך ריק. מבדיל בין "אין אזכרות בכלל" לבין "אין בחלון שנבחר" – אחרת
-/// סינון פעיל נראה כאילו הנתונים נעלמו.
 /// מסך ריק. מבדיל בין שלושה מצבים שונים לגמרי – אין אזכרות בכלל, החיפוש
 /// לא מצא, או שאין בחלון שנבחר – אחרת המשתמש לא יודע מה לשנות.
 class _EmptyView extends StatelessWidget {
