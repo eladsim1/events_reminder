@@ -3248,16 +3248,19 @@ void main() {
       final field = find.widgetWithText(TextFormField, 'נקודת ציון');
       await _revealInForm(tester, field);
 
+      // Labelled, not an icon with a tooltip: a tooltip is not discoverable
+      // by touch, so nothing said what the button did.
+      final button = find.widgetWithText(FilledButton, 'נסיעה לנקודה בוויז');
+      expect(find.text('נסיעה לנקודה בוויז'), findsOneWidget);
+
       // Disabled until there is a point: a button that promises a drive to
       // nowhere is worse than no button.
-      final button =
-          find.widgetWithIcon(IconButton, Icons.navigation_outlined);
-      expect(tester.widget<IconButton>(button).onPressed, isNull);
+      expect(tester.widget<FilledButton>(button).onPressed, isNull);
 
       await tester.enterText(field, '32.0853, 34.7818');
       await tester.pumpAndSettle();
 
-      expect(tester.widget<IconButton>(button).onPressed, isNotNull,
+      expect(tester.widget<FilledButton>(button).onPressed, isNotNull,
           reason: 'the button state follows the text, so typing must rebuild');
       await tester.tap(button);
       await tester.pumpAndSettle();
@@ -3286,7 +3289,7 @@ void main() {
       await _revealInForm(tester, field);
       await tester.enterText(field, '32.0853, 34.7818');
       await tester.pumpAndSettle();
-      await tester.tap(find.byTooltip('ניווט בוויז לנקודה'));
+      await tester.tap(find.text('נסיעה לנקודה בוויז'));
       await tester.pumpAndSettle();
 
       expect(find.textContaining('ווייז אינה זמינה'), findsOneWidget);

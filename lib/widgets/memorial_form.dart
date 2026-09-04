@@ -463,16 +463,6 @@ class _MemorialFormState extends State<MemorialForm> {
               helperMaxLines: 2,
               prefixIcon: const Icon(Icons.my_location_outlined),
               border: const OutlineInputBorder(),
-              // בשדה עצמו: הכפתור בודק את מה שכתוב בו ברגע זה, ולא את מה
-              // שנשמר. מנוטרל כשאין נקודה קריאה, אחרת הוא מבטיח נסיעה
-              // לשום מקום.
-              suffixIcon: widget.navigateTo == null
-                  ? null
-                  : IconButton(
-                      icon: const Icon(Icons.navigation_outlined),
-                      tooltip: 'ניווט בוויז לנקודה',
-                      onPressed: _typedPoint == null ? null : _navigateToTyped,
-                    ),
             ),
             // בלי זה הכפתור לא היה מתעורר בהקלדה: מצבו נגזר מהטקסט.
             onChanged: (_) => setState(() {}),
@@ -486,25 +476,39 @@ class _MemorialFormState extends State<MemorialForm> {
                   : null;
             },
           ),
-          if (widget.locationPicker != null) ...[
+          if (widget.locationPicker != null || widget.navigateTo != null) ...[
             const SizedBox(height: 8),
-            Align(
-              alignment: AlignmentDirectional.centerStart,
-              child: TextButton.icon(
-                // מנוטרל בזמן הקריאה ולא רק מוצג עם מחוון: לחיצה שנייה
-                // הייתה מפעילה קריאה מקבילה שתדרוס את הראשונה.
-                onPressed: _locating ? null : _useCurrentLocation,
-                icon: _locating
-                    ? const SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.gps_fixed),
-                label: Text(_locating
-                    ? 'מאתר מיקום...'
-                    : 'השתמש במיקום הנוכחי'),
-              ),
+            // Wrap ולא Row: שני כפתורים מתויגים בעברית אינם נכנסים בשורה
+            // אחת במסך צר, ו-Row היה גולש.
+            Wrap(
+              spacing: 8,
+              runSpacing: 4,
+              children: [
+                if (widget.locationPicker != null)
+                  TextButton.icon(
+                    // מנוטרל בזמן הקריאה ולא רק מוצג עם מחוון: לחיצה שנייה
+                    // הייתה מפעילה קריאה מקבילה שתדרוס את הראשונה.
+                    onPressed: _locating ? null : _useCurrentLocation,
+                    icon: _locating
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.gps_fixed),
+                    label: Text(
+                        _locating ? 'מאתר מיקום...' : 'השתמש במיקום הנוכחי'),
+                  ),
+                if (widget.navigateTo != null)
+                  // כפתור מתויג ומודגש, ולא אייקון בתוך השדה: אייקון עם
+                  // tooltip אינו ניתן לגילוי במגע, ולכן שום דבר לא אמר מה
+                  // הוא עושה. הכיתוב אומר גם לאן וגם באיזו אפליקציה.
+                  FilledButton.tonalIcon(
+                    onPressed: _typedPoint == null ? null : _navigateToTyped,
+                    icon: const Icon(Icons.navigation),
+                    label: const Text('נסיעה לנקודה בוויז'),
+                  ),
+              ],
             ),
           ],
           const SizedBox(height: 20),

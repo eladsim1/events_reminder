@@ -260,7 +260,13 @@ is done in Dart instead.
   in a try, since text pasted mid-string can carry broken encoding and
   `decodeFull` throws on it.
 
-  The field also carries a **navigate button**, which opens Waze straight to
+  Below the field sits a **labelled** navigate button — "נסיעה לנקודה בוויז" —
+  rather than an icon inside it. An icon with a tooltip is not discoverable by
+  touch: nothing on screen said what it did or which app it opened. It sits in
+  a `Wrap` beside the location button, because two labelled Hebrew buttons do
+  not fit one row on a narrow screen and a `Row` overflows.
+
+  It opens Waze straight to
   whatever is typed *right now* — the point of it is to check a value before
   committing to it, so it reads the field rather than the saved record, and it
   is disabled until the text parses. Waze specifically, not the chooser the
