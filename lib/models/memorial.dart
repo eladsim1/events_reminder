@@ -157,6 +157,24 @@ class Memorial {
     return '$normalised|$hebrewDay|$hebrewMonth|${adarType.dbValue}';
   }
 
+  /// התאריך העברי בלבד, בלי השם.
+  ///
+  /// שני אנשים באותו תאריך הם המקרה שבו כדאי לשאול, לא להכריע.
+  String get dateKey => '$hebrewDay|$hebrewMonth|${adarType.dbValue}';
+
+  /// עותק שבו שדות ריקים מולאו מ-[other].
+  ///
+  /// **אינו דורס דבר.** מה שכבר קיים כאן נשאר כפי שהוא, וזה מה שהופך את
+  /// "אותו אדם" לפעולה שאינה יכולה לאבד מידע: היא רק מוסיפה למה שחסר.
+  /// השם, התאריך והתזכורת של הרשומה הקיימת נשארים שלה.
+  Memorial filledFrom(Memorial other) => copyWith(
+        notes: notes ?? other.notes,
+        cemetery: cemetery ?? other.cemetery,
+        plot: plot ?? other.plot,
+        photoPath: photoPath ?? other.photoPath,
+        deathHebrewYear: deathHebrewYear ?? other.deathHebrewYear,
+      );
+
   /// האזכרה שאליה שייך [notificationId].
   ///
   /// מאפשר למסך למצוא את האזכרה מתוך התראה, בלי לשאת את המזהה שלה בנפרד.

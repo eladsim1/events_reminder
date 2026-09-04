@@ -1,5 +1,6 @@
 import '../database/database_helper.dart';
 import '../models/memorial.dart';
+import '../models/merge_plan.dart';
 
 /// שכבת גישה לנתונים.
 ///
@@ -42,6 +43,40 @@ class MemorialRepository {
   /// מוסיף רק את מה שאינו קיים (ייבוא במצב הוספה).
   Future<({int added, int skipped})> mergeAll(List<Memorial> memorials) =>
       _db.mergeAll(memorials);
+
+  /// מחשב מה ייבוא במצב הוספה יעשה, בלי לגעת בנתונים.
+  ///
+  /// מופרד מהביצוע כדי שאפשר יהיה לשאול על המקרים הדומים לפני שמשנים משהו.
+  Future<MergePlan> planMerge(List<Memorial> incoming) async {
+    final existing = await getAll();
+    final byIdentity = {for (final m in existing) m.identityKey: m};
+    final byDate = <String, Memorial>{};
+    for (final m in existing) {
+      byDate.putIfAbsent(m.dateKey, () => m);
+    }
+
+    final toAdd = <Memorial>[];
+    final candidates = <MergeCandidate>[];
+    var identical = 0;
+    // גם מול מה שכבר נבחר באותה ריצה: קובץ יכול להכיל כפילות בתוכו.
+    final seen = byIdentity.keys.toSet();
+
+    for (final m in incoming) {
+      if (!seen.add(m.identityKey)) {
+        identical++;
+        continue;
+      }
+      final sameDate = byDate[m.dateKey];
+      if (sameDate != null) {
+        candidates.add(MergeCandidate(incoming: m, existing: sameDate));
+      } else {
+        toAdd.add(m);
+      }
+    }
+
+    return MergePlan(
+        toAdd: toAdd, identical: identical, candidates: candidates);
+  }
 
   /// מחליף את כל הנתונים (ייבוא מ-JSON).
   Future<void> replaceAll(List<Memorial> memorials) =>

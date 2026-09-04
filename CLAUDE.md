@@ -638,6 +638,26 @@ The cost is accepted rather than solved: two people with the same name on the
 same date merge into one, and one person written two ways duplicates. There is
 no better key without asking the user row by row.
 
+### Similar is asked about, never decided
+
+Exact matches on `identityKey` are skipped silently. **The same Hebrew date
+under a different name is a `MergeCandidate`** and the user is asked: the date
+is precise and rarely collides, so it is almost always one person written two
+ways — but almost is not always. The same name on a *different* date is not a
+candidate; two people can share a name, and guessing on names would be noise
+rather than help.
+
+`planMerge` computes all of this and touches nothing, so the question comes
+before the data does. A test pins that.
+
+Confirming "same person" keeps the **existing** record and fills only its empty
+fields from the file (`Memorial.filledFrom`). It cannot lose information: name,
+date and reminder rule stay with the record that was already there, and only
+gaps are filled. The dialog defaults every candidate to **not** the same
+person — a wrong merge discards a record from the file and cannot be undone,
+while a wrong split adds a duplicate that is one tap to delete. Between two
+mistakes, take the one that can be corrected.
+
 `mergeAll` also folds duplicates *within* the file — a backup can repeat a
 memorial — by adding each key to the seen set as it inserts.
 

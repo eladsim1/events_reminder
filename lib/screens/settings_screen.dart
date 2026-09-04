@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/memorial.dart';
+import '../models/merge_plan.dart';
 import '../providers/memorial_provider.dart';
 import '../services/notification_service.dart';
 
@@ -17,8 +18,7 @@ import '../services/notification_service.dart';
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
 
-  Future<void> _pickDefaultTime(
-      BuildContext context, WidgetRef ref) async {
+  Future<void> _pickDefaultTime(BuildContext context, WidgetRef ref) async {
     final current = ref.read(defaultReminderTimeProvider);
     final picked = await showTimePicker(
       context: context,
@@ -32,8 +32,7 @@ class SettingsScreen extends ConsumerWidget {
 
   Future<void> _export(BuildContext context, WidgetRef ref) async {
     try {
-      final memorials =
-          await ref.read(memorialRepositoryProvider).getAll();
+      final memorials = await ref.read(memorialRepositoryProvider).getAll();
       final photos = ref.read(photoStoreProvider);
 
       final jsonList = <Map<String, dynamic>>[];
@@ -162,20 +161,48 @@ class SettingsScreen extends ConsumerWidget {
       if (mode == null) return;
 
       final notifier = ref.read(memorialListProvider.notifier);
-      final photoNote =
-          restoredPhotos > 0 ? ' ו-$restoredPhotos תמונות' : '';
+      final photoNote = restoredPhotos > 0 ? ' ו-$restoredPhotos תמונות' : '';
 
       final String message;
       if (mode == ImportMode.replace) {
         await notifier.importMemorials(memorials);
         message = 'יובאו ${memorials.length} אזכרות$photoNote';
       } else {
-        final result = await notifier.mergeMemorials(memorials);
-        message = result.added == 0
+        final plan = await notifier.planMerge(memorials);
+
+        // מקרים דומים – אותו תאריך עברי בשם אחר – אינם ניתנים להכרעה
+        // אוטומטית, ולכן נשאלים לפני שנוגעים בנתונים.
+        var sameAs = const <MergeCandidate>[];
+        if (plan.needsDecision) {
+          if (!context.mounted) return;
+          final chosen = await showDialog<List<MergeCandidate>>(
+            context: context,
+            builder: (ctx) => _SimilarMemorialsDialog(plan.candidates),
+          );
+          if (chosen == null) return; // ביטול – לא נגענו בכלום
+          sameAs = chosen;
+        }
+
+        final separate = [
+          ...plan.toAdd,
+          for (final c in plan.candidates)
+            if (!sameAs.contains(c)) c.incoming,
+        ];
+
+        final result = await notifier.applyMerge(
+          toAdd: separate,
+          sameAs: sameAs,
+          skipped: plan.identical,
+        );
+
+        message = result.added == 0 && result.merged == 0
             ? 'כל האזכרות בקובץ כבר קיימות'
-            : 'נוספו ${result.added} אזכרות'
-                '${result.skipped > 0 ? ', ${result.skipped} כבר היו קיימות' : ''}'
-                '$photoNote';
+            : [
+                  if (result.added > 0) 'נוספו ${result.added}',
+                  if (result.merged > 0) 'מוזגו ${result.merged}',
+                  if (result.skipped > 0) '${result.skipped} כבר היו קיימות',
+                ].join(', ') +
+                photoNote;
       }
 
       if (context.mounted) {
@@ -205,8 +232,8 @@ class SettingsScreen extends ConsumerWidget {
             leading: const Icon(Icons.access_time),
             title: const Text('שעת ברירת מחדל להתראות'),
             subtitle: const Text('משמשת עבור אזכרות חדשות'),
-            trailing: Text(timeLabel,
-                style: Theme.of(context).textTheme.titleMedium),
+            trailing:
+                Text(timeLabel, style: Theme.of(context).textTheme.titleMedium),
             onTap: () => _pickDefaultTime(context, ref),
           ),
           const Divider(),
@@ -230,6 +257,73 @@ class SettingsScreen extends ConsumerWidget {
           const _AlarmCanaryStatus(),
         ],
       ),
+    );
+  }
+}
+
+/// שואל אילו מהאזכרות הדומות הן אותו אדם.
+///
+/// **ברירת המחדל היא "לא".** סימון שגוי כ"אותו אדם" מוותר על רשומה מהקובץ
+/// ואינו הפיך; אי-סימון שגוי מוסיף כפילות שאפשר למחוק בלחיצה. בין שתי
+/// טעויות, בוחרים את זו שניתן לתקן.
+class _SimilarMemorialsDialog extends StatefulWidget {
+  const _SimilarMemorialsDialog(this.candidates);
+
+  final List<MergeCandidate> candidates;
+
+  @override
+  State<_SimilarMemorialsDialog> createState() =>
+      _SimilarMemorialsDialogState();
+}
+
+class _SimilarMemorialsDialogState extends State<_SimilarMemorialsDialog> {
+  final Set<MergeCandidate> _same = {};
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('אזכרות דומות'),
+      contentPadding: const EdgeInsets.fromLTRB(8, 12, 8, 0),
+      content: SizedBox(
+        width: double.maxFinite,
+        child: SingleChildScrollView(
+          child: ListBody(
+            children: [
+              const Padding(
+                padding: EdgeInsets.fromLTRB(16, 0, 16, 8),
+                child: Text(
+                  'אלה חלות באותו תאריך עברי בשם אחר. סמן את אלה שהם אותו '
+                  'אדם – הן ימוזגו לרשומה הקיימת. השאר ייווספו בנפרד.',
+                ),
+              ),
+              for (final c in widget.candidates)
+                CheckboxListTile(
+                  value: _same.contains(c),
+                  onChanged: (on) => setState(() {
+                    if (on == true) {
+                      _same.add(c);
+                    } else {
+                      _same.remove(c);
+                    }
+                  }),
+                  title: Text(c.incoming.name),
+                  subtitle: Text('קיים: ${c.existing.name}'),
+                ),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('ביטול'),
+        ),
+        FilledButton(
+          onPressed: () =>
+              Navigator.of(context).pop(_same.toList(growable: false)),
+          child: const Text('אישור'),
+        ),
+      ],
     );
   }
 }

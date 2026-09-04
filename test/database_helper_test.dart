@@ -370,6 +370,74 @@ void main() {
     });
   });
 
+  group('the merge plan separates the obvious from the doubtful', () {
+    final repo = MemorialRepository();
+
+    test('same name and date is identical; a new date is simply added',
+        () async {
+      await db.insert(_memorial(name: 'סבא יעקב', day: 27));
+
+      final plan = await repo.planMerge([
+        _memorial(name: 'סבא יעקב', day: 27),
+        _memorial(name: 'סבתא רחל', day: 3),
+      ]);
+
+      expect(plan.identical, 1);
+      expect(plan.toAdd.map((m) => m.name), ['סבתא רחל']);
+      expect(plan.candidates, isEmpty);
+    });
+
+    test('the same date under another name is asked about, not decided',
+        () async {
+      // The Hebrew date is precise and rarely collides, so this is almost
+      // always one person written two ways - but almost is not always.
+      await db.insert(_memorial(name: 'סבא יעקב', day: 27));
+
+      final plan = await repo.planMerge([_memorial(name: 'יעקב כהן', day: 27)]);
+
+      expect(plan.needsDecision, isTrue);
+      expect(plan.candidates.single.incoming.name, 'יעקב כהן');
+      expect(plan.candidates.single.existing.name, 'סבא יעקב');
+      expect(plan.toAdd, isEmpty, reason: 'nothing is added behind the ask');
+    });
+
+    test('the same name on another date is not a candidate', () async {
+      // Two people can share a name; guessing on names would be noise.
+      await db.insert(_memorial(name: 'סבא יעקב', day: 27));
+
+      final plan = await repo.planMerge([_memorial(name: 'סבא יעקב', day: 3)]);
+
+      expect(plan.candidates, isEmpty);
+      expect(plan.toAdd, hasLength(1));
+    });
+
+    test('planning changes nothing on its own', () async {
+      await db.insert(_memorial(name: 'סבא יעקב', day: 27));
+      await repo.planMerge([_memorial(name: 'יעקב כהן', day: 27)]);
+
+      expect(await db.getAll(), hasLength(1),
+          reason: 'the ask comes before the data is touched');
+    });
+  });
+
+  group('filling from a merged twin never overwrites', () {
+    test('only the empty fields are taken', () async {
+      final existing = _memorial(name: 'סבא יעקב', notes: 'הערה קיימת')
+          .copyWith(cemetery: 'הר המנוחות');
+      final incoming = _memorial(name: 'יעקב כהן', notes: 'הערה מהקובץ')
+          .copyWith(plot: 'חלקה ז', deathHebrewYear: 5784);
+
+      final filled = existing.filledFrom(incoming);
+
+      expect(filled.notes, 'הערה קיימת', reason: 'what is here stays');
+      expect(filled.cemetery, 'הר המנוחות');
+      expect(filled.plot, 'חלקה ז', reason: 'what was missing is taken');
+      expect(filled.deathHebrewYear, 5784);
+      expect(filled.name, 'סבא יעקב',
+          reason: 'the kept record keeps its own name and date');
+    });
+  });
+
   group('MemorialRepository over real sqlite', () {
     final repo = MemorialRepository();
 

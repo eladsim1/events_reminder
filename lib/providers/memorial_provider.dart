@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/memorial.dart';
 import '../models/memorial_filter.dart';
+import '../models/merge_plan.dart';
 import '../repository/memorial_repository.dart';
 import '../services/delivery_checks.dart';
 import '../services/hebrew_calendar_service.dart';
@@ -270,20 +271,45 @@ class MemorialNotifier extends AsyncNotifier<List<Memorial>> {
     await updateMemorial(updated);
   }
 
-  /// מוסיף רק אזכרות שאינן קיימות, ומתזמן מחדש.
+  /// מה ייבוא במצב הוספה יעשה, בלי לגעת בנתונים.
+  Future<MergePlan> planMerge(List<Memorial> memorials) =>
+      _repo.planMerge(memorials);
+
+  /// מבצע את התוכנית, אחרי שהוכרעו המקרים הדומים.
   ///
-  /// המסלול הבטוח מבין השניים: שום דבר קיים אינו נמחק. מחזיר כמה נוספו
-  /// וכמה דולגו, כדי שהמסך יוכל לומר מה קרה במקום "בוצע".
-  Future<({int added, int skipped})> mergeMemorials(
-      List<Memorial> memorials) async {
-    final result = await _repo.mergeAll(memorials);
-    if (result.added > 0) {
+  /// [sameAs] הם הזוגות שהמשתמש אישר כאותו אדם: הרשומה הקיימת נשמרת ורק
+  /// שדות ריקים בה מתמלאים מהקובץ, כך שהפעולה אינה יכולה לאבד מידע.
+  ///
+  /// המסלול הבטוח מבין השניים: שום דבר קיים אינו נמחק.
+  Future<({int added, int merged, int skipped})> applyMerge({
+    required List<Memorial> toAdd,
+    required List<MergeCandidate> sameAs,
+    int skipped = 0,
+  }) async {
+    for (final pair in sameAs) {
+      final filled = pair.existing.filledFrom(pair.incoming);
+      if (filled.toMap().toString() == pair.existing.toMap().toString()) {
+        continue; // לא היה מה להשלים
+      }
+      await _repo.update(filled);
+    }
+
+    final result = toAdd.isEmpty
+        ? (added: 0, skipped: 0)
+        : await _repo.mergeAll(toAdd);
+
+    if (result.added > 0 || sameAs.isNotEmpty) {
       await syncReminders(_repo, _notifications,
           owner: 'import', waitForLock: _lockWait);
     }
     state = AsyncData(await _repo.getAll());
     await _cleanUpPhotos();
-    return result;
+
+    return (
+      added: result.added,
+      merged: sameAs.length,
+      skipped: skipped + result.skipped,
+    );
   }
 
   /// מחליף את כל הנתונים (ייבוא מ-JSON) ומתזמן מחדש.
