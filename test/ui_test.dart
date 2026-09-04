@@ -2567,7 +2567,12 @@ void main() {
 
       await tester.tap(find.byIcon(Icons.settings_outlined));
       await _pumpUntilFound(
-          tester, find.text('מנגנון האזעקות'), 'the canary row');
+          tester, find.byType(SettingsScreen), 'SettingsScreen');
+      // The settings body is a lazy ListView, so a row below the fold is not
+      // built at all - it has to be scrolled to, not merely searched for.
+      await tester.scrollUntilVisible(
+          find.text('מנגנון האזעקות'), 120,
+          scrollable: find.byType(Scrollable).first);
 
       expect(find.textContaining('לא פעל 6 ימים'), findsOneWidget);
     });
@@ -2581,7 +2586,12 @@ void main() {
 
       await tester.tap(find.byIcon(Icons.settings_outlined));
       await _pumpUntilFound(
-          tester, find.text('מנגנון האזעקות'), 'the canary row');
+          tester, find.byType(SettingsScreen), 'SettingsScreen');
+      // The settings body is a lazy ListView, so a row below the fold is not
+      // built at all - it has to be scrolled to, not merely searched for.
+      await tester.scrollUntilVisible(
+          find.text('מנגנון האזעקות'), 120,
+          scrollable: find.byType(Scrollable).first);
 
       expect(find.textContaining('פעל היום'), findsOneWidget);
     });
@@ -3000,6 +3010,31 @@ void main() {
 
     test('an empty directory is not an error', () async {
       expect(await store.deleteOrphans(const []), 0);
+    });
+  });
+
+  group('sharing and exporting produce the same file', () {
+    testWidgets('both rows are offered', (tester) async {
+      await _pumpApp(tester, seeded: [
+        _seed(id: 1, name: 'סבא יעקב', day: 27, month: HebrewMonth.av),
+      ]);
+
+      await tester.tap(find.byIcon(Icons.settings_outlined));
+      await _pumpUntilFound(
+          tester, find.text('ייצוא הנתונים'), 'the export row');
+
+      // Two different jobs: export saves a copy the user keeps, share hands
+      // the file to another app.
+      expect(find.text('שיתוף הנתונים'), findsOneWidget);
+      expect(find.textContaining('וואטסאפ'), findsOneWidget);
+    });
+
+    test('the backup content is built in one place', () {
+      // Two separate builders would drift apart silently the moment one of
+      // them changed, and the difference would only show up in a restore.
+      final source = File('lib/screens/settings_screen.dart').readAsStringSync();
+      expect('_buildBackup('.allMatches(source).length, 3,
+          reason: 'one declaration, one call from export, one from share');
     });
   });
 

@@ -3,6 +3,9 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -30,39 +33,87 @@ class SettingsScreen extends ConsumerWidget {
     }
   }
 
+  /// בונה את תוכן הגיבוי. משותף לשמירה לקובץ ולשיתוף.
+  ///
+  /// מופרד כדי ששני המסלולים יפיקו **בדיוק** את אותו קובץ; שתי בנייה נפרדות
+  /// היו נפרדות זו מזו בשקט ברגע שאחת מהן משתנה.
+  Future<({String json, int count, int withPhoto})> _buildBackup(
+      WidgetRef ref) async {
+    final memorials = await ref.read(memorialRepositoryProvider).getAll();
+    final photos = ref.read(photoStoreProvider);
+
+    final jsonList = <Map<String, dynamic>>[];
+    var withPhoto = 0;
+    for (final m in memorials) {
+      final map = m.toJson();
+      // הנתיב המקומי חסר משמעות במכשיר אחר; התמונה עצמה נוסעת מוטמעת.
+      map.remove('photo_path');
+      final data = await photos.readAsBase64(m.photoPath);
+      if (data != null) {
+        map['photo_data'] = data;
+        withPhoto++;
+      }
+      jsonList.add(map);
+    }
+
+    return (
+      json: const JsonEncoder.withIndent('  ').convert(jsonList),
+      count: memorials.length,
+      withPhoto: withPhoto,
+    );
+  }
+
+  /// שם קובץ עם חותמת זמן, כדי ששיתופים עוקבים לא ידרסו זה את זה.
+  String _backupFileName() {
+    final ts =
+        DateTime.now().toIso8601String().replaceAll(':', '-').split('.').first;
+    return 'azkarot_backup_$ts.json';
+  }
+
+  /// שולח את הגיבוי דרך בורר השיתוף של אנדרואיד.
+  ///
+  /// הקובץ נכתב לתיקיית ה-cache ולא לאחסון המשתמש: הוא זמני ומיועד למסירה
+  /// לאפליקציה אחרת, ואנדרואיד מנקה אותו בעצמו. מי שרוצה עותק שמור ישתמש
+  /// ב"ייצוא".
+  Future<void> _share(BuildContext context, WidgetRef ref) async {
+    try {
+      final backup = await _buildBackup(ref);
+      final file = File(
+        p.join((await getTemporaryDirectory()).path, _backupFileName()),
+      );
+      await file.writeAsString(backup.json);
+
+      if (!context.mounted) return;
+      await SharePlus.instance.share(
+        ShareParams(
+          files: [XFile(file.path, mimeType: 'application/json')],
+          subject: 'גיבוי תזכורת אזכרות',
+          text: '${backup.count} אזכרות'
+              '${backup.withPhoto > 0 ? ' · ${backup.withPhoto} תמונות' : ''}',
+        ),
+      );
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('שגיאה בשיתוף: $e')),
+        );
+      }
+    }
+  }
+
   Future<void> _export(BuildContext context, WidgetRef ref) async {
     try {
-      final memorials = await ref.read(memorialRepositoryProvider).getAll();
-      final photos = ref.read(photoStoreProvider);
-
-      final jsonList = <Map<String, dynamic>>[];
-      var withPhoto = 0;
-      for (final m in memorials) {
-        final map = m.toJson();
-        // הנתיב המקומי חסר משמעות במכשיר אחר; התמונה עצמה נוסעת מוטמעת.
-        map.remove('photo_path');
-        final data = await photos.readAsBase64(m.photoPath);
-        if (data != null) {
-          map['photo_data'] = data;
-          withPhoto++;
-        }
-        jsonList.add(map);
-      }
-      final jsonStr = const JsonEncoder.withIndent('  ').convert(jsonList);
+      final backup = await _buildBackup(ref);
+      final jsonStr = backup.json;
 
       // חובה לתת למשתמש לבחור את היעד דרך דיאלוג המערכת.
       // getApplicationDocumentsDirectory מחזיר תיקייה פרטית לאפליקציה
       // (‎/data/user/0/<package>/app_flutter), שבורר הקבצים של אנדרואיד אינו
       // יכול לראות – כלומר הגיבוי לא היה ניתן לאיתור, לשיתוף, או לייבוא,
       // והיה נמחק עם הסרת האפליקציה.
-      final ts = DateTime.now()
-          .toIso8601String()
-          .replaceAll(':', '-')
-          .split('.')
-          .first;
       final saved = await FilePicker.saveFile(
         dialogTitle: 'שמירת גיבוי',
-        fileName: 'azkarot_backup_$ts.json',
+        fileName: _backupFileName(),
         bytes: Uint8List.fromList(utf8.encode(jsonStr)),
       );
 
@@ -73,8 +124,8 @@ class SettingsScreen extends ConsumerWidget {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            '${memorials.length} אזכרות נשמרו לגיבוי'
-            '${withPhoto > 0 ? ' (כולל $withPhoto תמונות)' : ''}'
+            '${backup.count} אזכרות נשמרו לגיבוי'
+            '${backup.withPhoto > 0 ? ' (כולל ${backup.withPhoto} תמונות)' : ''}'
             ' · $sizeKb KB',
           ),
         ),
@@ -242,6 +293,12 @@ class SettingsScreen extends ConsumerWidget {
             title: const Text('ייצוא הנתונים'),
             subtitle: const Text('שמירת גיבוי לקובץ JSON'),
             onTap: () => _export(context, ref),
+          ),
+          ListTile(
+            leading: const Icon(Icons.share_outlined),
+            title: const Text('שיתוף הנתונים'),
+            subtitle: const Text('שליחה בוואטסאפ, במייל, או לכל אפליקציה'),
+            onTap: () => _share(context, ref),
           ),
           ListTile(
             leading: const Icon(Icons.download),

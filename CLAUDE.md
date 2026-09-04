@@ -198,6 +198,28 @@ The pre-existing "ההתראה תמיד ביום שלישי" test only scanned 6
 2027-01-01, so it never reached March and never saw this. `test/ui_test.dart`
 now scans four full years plus the specific spring-forward weeks.
 
+## Share and export are different jobs, one file
+
+**Export** saves a copy the user keeps, through the system save dialog.
+**Share** hands the file to another app - WhatsApp, mail, anything - through
+Android's share sheet, writing to the **cache** directory rather than user
+storage: it is a temporary handoff and Android cleans it up. Anyone who wants a
+copy on disk uses export.
+
+`_buildBackup` produces the content for both. Two separate builders would drift
+apart silently the moment one changed, and the difference would only surface in
+a restore; a test counts the call sites to keep it that way.
+
+`share_plus` 12.0.2 builds against the pinned AGP 8.13.2 / Kotlin 2.1.20 set,
+which was the risk worth taking deliberately - the alternative was a
+hand-written `FileProvider`, which is more surface to get subtly wrong than a
+channel that only makes system calls.
+
+Note for the widget tests: the settings body is a **lazy `ListView`**, so each
+row added pushes the ones below it out of the built range entirely. A test that
+looks for a row below the fold has to `scrollUntilVisible` rather than merely
+search - two canary tests broke exactly this way when the share row was added.
+
 ## Export must go through the system save dialog
 
 `getApplicationDocumentsDirectory()` maps to `PathUtils.getDataDirectory` on
