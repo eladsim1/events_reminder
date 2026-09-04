@@ -12,6 +12,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/memorial.dart';
 import '../models/merge_plan.dart';
 import '../providers/memorial_provider.dart';
+import '../widgets/import_selection_dialog.dart';
 import '../services/notification_service.dart';
 
 /// מסך הגדרות.
@@ -165,7 +166,6 @@ class SettingsScreen extends ConsumerWidget {
 
       final photos = ref.read(photoStoreProvider);
       final memorials = <Memorial>[];
-      var restoredPhotos = 0;
 
       for (final entry in decoded.cast<Map<String, dynamic>>()) {
         var memorial = Memorial.fromJson(entry);
@@ -174,7 +174,6 @@ class SettingsScreen extends ConsumerWidget {
             await photos.restoreFromBase64(entry['photo_data'] as String?);
         if (path != null) {
           memorial = memorial.copyWith(photoPath: path);
-          restoredPhotos++;
         }
         memorials.add(memorial);
       }
@@ -183,43 +182,32 @@ class SettingsScreen extends ConsumerWidget {
       // בינתיים, ואז showDialog על context מנותק זורק חריגה.
       if (!context.mounted) return;
 
-      // ההוספה מודגשת והמחיקה לא, ולא להפך: מבין השתיים רק אחת אינה
-      // הפיכה, והכיתוב שלה אומר מה היא עושה במקום להסתפק ב"ייבוא".
-      final mode = await showDialog<ImportMode>(
+      // בחירה ומצב באותו דיאלוג ולא בשניים: שלושה מסכים ברצף על פעולה
+      // אחת הם עייפות, לא זהירות.
+      final choice = await showDialog<ImportChoice>(
         context: context,
-        builder: (ctx) => AlertDialog(
-          title: const Text('ייבוא נתונים'),
-          content: Text(
-            'בקובץ ${memorials.length} אזכרות. '
-            'להוסיף רק את מה שחסר, או להחליף את כל הקיימות?',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(ctx).pop(),
-              child: const Text('ביטול'),
-            ),
-            TextButton(
-              onPressed: () => Navigator.of(ctx).pop(ImportMode.replace),
-              child: const Text('החלפה (מוחק הכול)'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.of(ctx).pop(ImportMode.merge),
-              child: const Text('הוספה'),
-            ),
-          ],
+        builder: (ctx) => ImportSelectionDialog(
+          memorials: memorials,
+          calendar: ref.read(hebrewCalendarServiceProvider),
         ),
       );
-      if (mode == null) return;
+      if (choice == null || choice.selected.isEmpty) return;
+
+      final mode = choice.mode;
+      final selected = choice.selected;
 
       final notifier = ref.read(memorialListProvider.notifier);
-      final photoNote = restoredPhotos > 0 ? ' ו-$restoredPhotos תמונות' : '';
+      // נספרות רק התמונות של מה שנבחר. הקובץ שוחזר במלואו לדיסק לפני
+      // הבחירה, ומה שלא נבחר יתנקה כתמונה יתומה.
+      final photoCount = selected.where((m) => m.photoPath != null).length;
+      final photoNote = photoCount > 0 ? ' ו-$photoCount תמונות' : '';
 
       final String message;
       if (mode == ImportMode.replace) {
-        await notifier.importMemorials(memorials);
-        message = 'יובאו ${memorials.length} אזכרות$photoNote';
+        await notifier.importMemorials(selected);
+        message = 'יובאו ${selected.length} אזכרות$photoNote';
       } else {
-        final plan = await notifier.planMerge(memorials);
+        final plan = await notifier.planMerge(selected);
 
         // מקרים דומים – אותו תאריך עברי בשם אחר – אינם ניתנים להכרעה
         // אוטומטית, ולכן נשאלים לפני שנוגעים בנתונים.

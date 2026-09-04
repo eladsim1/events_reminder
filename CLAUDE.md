@@ -660,6 +660,28 @@ The cost is accepted rather than solved: two people with the same name on the
 same date merge into one, and one person written two ways duplicates. There is
 no better key without asking the user row by row.
 
+### Import asks what to bring in, before it compares anything
+
+`ImportSelectionDialog` lists every memorial in the file with a checkbox,
+**all ticked**: importing the whole file is the normal case, and a list that
+started empty would make the expected behaviour the one that costs work. A
+tristate "הכול" row toggles them together, and both actions are disabled when
+nothing is ticked.
+
+The mode buttons live in that same dialog rather than a second one. Three
+screens in a row for one action is fatigue, not care.
+
+Everything downstream — the identical/candidate/new analysis — runs on the
+**selection**, not the file. There is no sense asking about a clash with a
+memorial that was deliberately left out.
+
+It lives in `lib/widgets/` rather than inside the settings screen because it
+carries real behaviour worth testing: the default, the tristate, the disabled
+actions, and what it hands back. Note the shape of that test — the dialog is
+still open when the helper that opens it returns, so a result read there is
+always null and the test would assert nothing. The value has to be captured
+outside and checked after the dialog closes.
+
 ### Similar is asked about, never decided
 
 Exact matches on `identityKey` are skipped silently. **The same Hebrew date

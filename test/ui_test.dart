@@ -42,6 +42,7 @@ import 'package:azkarot_app/services/navigation_launcher.dart';
 import 'package:azkarot_app/services/photo_store.dart';
 import 'package:azkarot_app/services/notification_service.dart';
 import 'package:azkarot_app/services/reminder_sync.dart';
+import 'package:azkarot_app/widgets/import_selection_dialog.dart';
 import 'package:azkarot_app/widgets/hebrew_date_picker.dart';
 import 'package:azkarot_app/widgets/memorial_card.dart';
 import 'package:azkarot_app/widgets/memorial_form.dart';
@@ -3010,6 +3011,117 @@ void main() {
 
     test('an empty directory is not an error', () async {
       expect(await store.deleteOrphans(const []), 0);
+    });
+  });
+
+  group('choosing what to import', () {
+    final cal = HebrewCalendarService(now: () => _fixedNow);
+    final file = [
+      _seed(id: 1, name: 'סבא יעקב', day: 27, month: HebrewMonth.av),
+      _seed(id: 2, name: 'סבתא רחל', day: 3, month: HebrewMonth.tishrei),
+      _seed(id: 3, name: 'דוד משה', day: 11, month: HebrewMonth.adar),
+    ];
+
+    // Held outside the helper: the dialog is still open when open() returns,
+    // so a value returned from there is always null and a test reading it
+    // would assert nothing.
+    ImportChoice? result;
+
+    setUp(() => result = null);
+
+    Future<void> open(WidgetTester tester) async {
+      await tester.pumpWidget(MaterialApp(
+        locale: const Locale('he'),
+        home: Builder(
+          builder: (context) => TextButton(
+            onPressed: () async {
+              result = await showDialog<ImportChoice>(
+                context: context,
+                builder: (_) =>
+                    ImportSelectionDialog(memorials: file, calendar: cal),
+              );
+            },
+            child: const Text('open'),
+          ),
+        ),
+      ));
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('everything starts selected', (tester) async {
+      // Importing the whole file is the normal case; a list that starts empty
+      // would make the expected behaviour the one that costs work.
+      await open(tester);
+
+      final boxes = tester
+          .widgetList<CheckboxListTile>(find.byType(CheckboxListTile))
+          .toList();
+      // One per memorial plus the "all" row.
+      expect(boxes, hasLength(file.length + 1));
+      expect(boxes.every((b) => b.value == true), isTrue);
+    });
+
+    testWidgets('only what was ticked comes back', (tester) async {
+      await open(tester);
+
+      await tester.tap(find.text('סבתא רחל'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('הוספה'));
+      await tester.pumpAndSettle();
+
+      // What is dropped here is never compared against anything later, which
+      // is the whole point of asking before the analysis.
+      expect(result, isNotNull);
+      expect(result!.mode, ImportMode.merge);
+      expect(result!.selected.map((m) => m.name),
+          ['סבא יעקב', 'דוד משה']);
+    });
+
+    testWidgets('replace carries the same selection', (tester) async {
+      await open(tester);
+      await tester.tap(find.text('דוד משה'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('החלפה (מוחק הכול)'));
+      await tester.pumpAndSettle();
+
+      expect(result!.mode, ImportMode.replace);
+      expect(result!.selected, hasLength(2));
+    });
+
+    testWidgets('cancelling returns nothing at all', (tester) async {
+      await open(tester);
+      await tester.tap(find.text('ביטול'));
+      await tester.pumpAndSettle();
+
+      expect(result, isNull);
+    });
+
+    testWidgets('unticking everything disables both actions', (tester) async {
+      await open(tester);
+
+      await tester.tap(find.text('הכול'));
+      await tester.pumpAndSettle();
+
+      final add = tester.widget<FilledButton>(
+          find.widgetWithText(FilledButton, 'הוספה'));
+      final replace = tester.widget<TextButton>(
+          find.widgetWithText(TextButton, 'החלפה (מוחק הכול)'));
+      expect(add.onPressed, isNull, reason: 'nothing to import');
+      expect(replace.onPressed, isNull,
+          reason: 'and replacing with nothing would just wipe the list');
+    });
+
+    testWidgets('the all row toggles back on', (tester) async {
+      await open(tester);
+      await tester.tap(find.text('הכול'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('הכול'));
+      await tester.pumpAndSettle();
+
+      final boxes =
+          tester.widgetList<CheckboxListTile>(find.byType(CheckboxListTile));
+      expect(boxes.every((b) => b.value == true), isTrue);
     });
   });
 
