@@ -1394,3 +1394,44 @@ from the one that was entered, with no reason given.
 It covers Adar too, and not only the short months: a memorial saved as Adar I
 (thirty days) falls into the single Adar of a non-leap year, which has
 twenty-nine — `ל' באדר אינו קיים בתשפ״ו, ולכן האזכרה בכ"ט`.
+
+### The per-build conversions, measured — and then fixed
+
+The review left this one open on the grounds that it needed measuring first.
+It did. Measured on the desktop VM (JIT, so indicative rather than a device
+number) by pumping the real home screen and timing a keystroke in the search
+field, which re-filters, re-counts and re-sorts the whole list:
+
+```
+              boot     keystroke (median)
+ 10 names     600 ms      33.8 ms
+ 50 names     122 ms      33.5 ms
+300 names     220 ms      86.0 ms
+```
+
+So the constant ~33 ms is widget rebuilding and is not the interesting part.
+The growth is: at the default filter each keystroke costs about **three**
+`nextMemorialDate` calls per memorial — `_sorted`, plus two of `_FilterBar`'s
+three counters — and 300 cold conversions alone measure ~20 ms.
+
+The cache went in at `_memorialGregorianForYear`, **not** at
+`nextMemorialOccurrence**. That placement is the whole safety argument: the
+former is a pure function of day, month, adar type and Hebrew year, with no
+reference to the clock at all, so there is nothing to expire and a key holding
+those four cannot return someone else's answer. The latter depends on
+`_now()`, and an injectable clock is exactly the cache key that is easy to get
+subtly wrong. The cache is per instance, so a test that builds its own service
+starts clean.
+
+```
+              boot     keystroke (median)
+ 10 names     587 ms      29.1 ms
+ 50 names     109 ms      24.1 ms
+300 names     140 ms      41.2 ms      <- was 86.0
+```
+
+Two tests hold the property rather than the numbers: a service that has been
+asked about every day of every month must agree with a fresh service asked
+about one; and two memorials differing in everything except the Hebrew date
+must share an entry and still be right, while one differing in the date must
+not.

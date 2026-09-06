@@ -1745,6 +1745,58 @@ void main() {
       expect(short.formatHebrewDate(m), "ל' בחשוון");
     });
 
+    test('a service that has answered other questions answers the same', () {
+      // The Hebrew conversion is memoised, which is only safe because it is
+      // pure - the result depends on day, month, adar type and the Hebrew
+      // year, and on nothing else. This is the property that says so: one
+      // service asked about everything must agree with a fresh service asked
+      // about one thing.
+      final shared = HebrewCalendarService(now: () => _fixedNow);
+
+      final dates = <Memorial>[
+        for (final month in HebrewMonth.values)
+          for (final day in [1, 14, 29, 30])
+            _seed(id: 1, name: 'x', day: day, month: month),
+      ];
+
+      // Warm it on everything first, so every later answer is a cache hit.
+      for (final m in dates) {
+        shared.nextMemorialDate(m);
+      }
+
+      for (final m in dates) {
+        final fresh = HebrewCalendarService(now: () => _fixedNow);
+        expect(shared.nextMemorialDate(m), fresh.nextMemorialDate(m),
+            reason: 'day ${m.hebrewDay} of ${m.selectedMonth}');
+        expect(shared.formatNextMemorialHebrewDate(m),
+            fresh.formatNextMemorialHebrewDate(m));
+      }
+    });
+
+    test('the fields outside the key really are outside it', () {
+      // Two memorials that differ in everything EXCEPT the Hebrew date must
+      // share a cache entry and still be right - and one that differs in the
+      // date must not.
+      final c = HebrewCalendarService(now: () => _fixedNow);
+
+      final a = _seed(id: 1, name: 'א', day: 14, month: HebrewMonth.cheshvan);
+      final b = _seed(
+        id: 2,
+        name: 'ב',
+        day: 14,
+        month: HebrewMonth.cheshvan,
+        enabled: false,
+        reminderMode: ReminderMode.fixedDaysBefore,
+        reminderValue: 3,
+        deathHebrewYear: 5780,
+      );
+      final other =
+          _seed(id: 3, name: 'ג', day: 15, month: HebrewMonth.cheshvan);
+
+      expect(c.nextMemorialDate(b), c.nextMemorialDate(a));
+      expect(c.nextMemorialDate(other), isNot(c.nextMemorialDate(a)));
+    });
+
     test('a short year says so, and only a short year does', () {
       final m = _seed(
           id: 1, name: 'ל בחשוון', day: 30, month: HebrewMonth.cheshvan);
