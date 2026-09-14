@@ -1894,9 +1894,101 @@ void main() {
     });
   });
 
-  group('who gets Kaddish and who does not', () {
-    testWidgets('the two are told apart on the list, and the unmarked stays'
-        ' quiet', (tester) async {
+  group('categories', () {
+    List<Memorial> threeKinds() => [
+          _seed(
+            id: 1,
+            name: 'סבא יעקב',
+            day: 14,
+            month: HebrewMonth.cheshvan,
+            kind: MemorialKind.family,
+          ),
+          _seed(
+            id: 2,
+            name: 'הרב מבריסק',
+            day: 3,
+            month: HebrewMonth.nisan,
+            kind: MemorialKind.tzadik,
+          ),
+          _seed(id: 3, name: 'לא סומן', day: 10, month: HebrewMonth.av),
+        ];
+
+    testWidgets('each category carries its own icon and name', (tester) async {
+      _phoneViewport(tester);
+      await _pumpApp(tester, seeded: threeKinds());
+
+      // The icon is the marker at a glance; the name beside it means no
+      // legend is needed to read one.
+      expect(
+        find.descendant(
+          of: find.byType(MemorialCard),
+          matching: find.byIcon(Icons.family_restroom),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: find.byType(MemorialCard),
+          matching: find.byIcon(Icons.auto_stories),
+        ),
+        findsOneWidget,
+      );
+      // An unmarked memorial was never asked, so its card claims nothing.
+      expect(
+        find.descendant(
+          of: find.byType(MemorialCard),
+          matching: find.byIcon(Icons.remove_circle_outline),
+        ),
+        findsNothing,
+      );
+      expect(find.byType(MemorialCard), findsNWidgets(3));
+    });
+
+    testWidgets('the list can be narrowed to one category', (tester) async {
+      _phoneViewport(tester);
+      await _pumpApp(tester, seeded: threeKinds());
+
+      expect(find.byType(MemorialCard), findsNWidgets(3));
+
+      final chip = find.widgetWithText(FilterChip, 'צדיקים (1)');
+      await tester.ensureVisible(chip);
+      await tester.pumpAndSettle();
+      await tester.tap(chip);
+      await tester.pumpAndSettle();
+
+      expect(find.byType(MemorialCard), findsOneWidget);
+      expect(find.text('הרב מבריסק'), findsOneWidget);
+      expect(find.text('סבא יעקב'), findsNothing);
+
+      // Tapping the same chip again clears it - a filter you cannot undo
+      // from the chip you set it with is a trap.
+      await tester.ensureVisible(chip);
+      await tester.pumpAndSettle();
+      await tester.tap(chip);
+      await tester.pumpAndSettle();
+      expect(find.byType(MemorialCard), findsNWidgets(3));
+    });
+
+    testWidgets('the category row is hidden until something is marked',
+        (tester) async {
+      _phoneViewport(tester);
+      await _pumpApp(tester, seeded: [
+        _seed(id: 1, name: 'לא סומן', day: 10, month: HebrewMonth.av),
+      ]);
+
+      // Nothing is marked, so the row would be permanent noise above the
+      // list for someone who never uses categories.
+      expect(find.textContaining('כל הקטגוריות'), findsNothing);
+    });
+
+    testWidgets('and appears once something is', (tester) async {
+      _phoneViewport(tester);
+      await _pumpApp(tester, seeded: threeKinds());
+      expect(find.textContaining('כל הקטגוריות'), findsOneWidget);
+    });
+
+    testWidgets('an empty category says which one, not just "empty"',
+        (tester) async {
       _phoneViewport(tester);
       await _pumpApp(tester, seeded: [
         _seed(
@@ -1906,19 +1998,26 @@ void main() {
           month: HebrewMonth.cheshvan,
           kind: MemorialKind.family,
         ),
-        _seed(
-          id: 2,
-          name: 'הרב מבריסק',
-          day: 3,
-          month: HebrewMonth.nisan,
-          kind: MemorialKind.tzadik,
-        ),
-        _seed(id: 3, name: 'לא סומן', day: 10, month: HebrewMonth.av),
+        _seed(id: 2, name: 'לא סומן', day: 10, month: HebrewMonth.av),
       ]);
 
-      // The chip says what to do, not what the person was: no legend needed.
-      expect(find.text('אומרים קדיש'), findsOneWidget);
-      expect(find.text('ללא קדיש'), findsOneWidget);
+      final empty = find.widgetWithText(FilterChip, 'צדיקים (0)');
+      await tester.ensureVisible(empty);
+      await tester.pumpAndSettle();
+      await tester.tap(empty);
+      await tester.pumpAndSettle();
+
+      expect(find.text('אין אזכרות בקטגוריה "צדיקים"'), findsOneWidget);
+      expect(find.byType(MemorialCard), findsNothing);
+    });
+
+    testWidgets('the two are told apart on the list, and the unmarked stays'
+        ' quiet', (tester) async {
+      _phoneViewport(tester);
+      await _pumpApp(tester, seeded: threeKinds());
+
+      expect(find.text('משפחה'), findsWidgets);
+      expect(find.text('צדיקים'), findsWidgets);
       // An unmarked memorial was never asked, so it must not claim either.
       expect(find.byType(MemorialCard), findsNWidgets(3));
     });
@@ -3341,7 +3440,14 @@ void main() {
       // built at all - it has to be scrolled to, not merely searched for.
       await tester.scrollUntilVisible(
           find.text('מנגנון האזעקות'), 120,
-          scrollable: find.byType(Scrollable).first);
+          // Scoped to SettingsScreen: the home screen stays mounted beneath
+          // the pushed route, and since the filter bar scrolls horizontally
+          // *its* Scrollable is now the first one in the tree. A bare .first
+          // dragged the wrong thing sideways and found nothing.
+          scrollable: find.descendant(
+            of: find.byType(SettingsScreen),
+            matching: find.byType(Scrollable),
+          ).first);
 
       expect(find.textContaining('לא פעל 6 ימים'), findsOneWidget);
     });
@@ -3360,7 +3466,14 @@ void main() {
       // built at all - it has to be scrolled to, not merely searched for.
       await tester.scrollUntilVisible(
           find.text('מנגנון האזעקות'), 120,
-          scrollable: find.byType(Scrollable).first);
+          // Scoped to SettingsScreen: the home screen stays mounted beneath
+          // the pushed route, and since the filter bar scrolls horizontally
+          // *its* Scrollable is now the first one in the tree. A bare .first
+          // dragged the wrong thing sideways and found nothing.
+          scrollable: find.descendant(
+            of: find.byType(SettingsScreen),
+            matching: find.byType(Scrollable),
+          ).first);
 
       expect(find.textContaining('פעל היום'), findsOneWidget);
     });
@@ -4801,6 +4914,13 @@ void main() {
       expect(find.byType(HomeScreen), findsOneWidget);
       expect(find.byType(HebrewDatePicker), findsNothing);
       expect(find.text("א' בתשרי"), findsOneWidget);
+
+      // Same trap as the splash golden: the app-bar logo is an asset, and
+      // its decode does not finish under the fake clock unless an earlier
+      // test happened to warm the image cache - so the capture depended on
+      // the run order rather than on the screen.
+      await _warmLogo(tester);
+      await tester.pump();
 
       await expectLater(
         find.byType(AzkarotApp),

@@ -8,6 +8,7 @@ import '../models/memorial.dart';
 import '../services/hebrew_calendar_service.dart';
 import '../services/location_service.dart';
 import 'hebrew_date_picker.dart';
+import 'memorial_card.dart';
 
 /// מבקש שנה עברית בהקלדה, לשנים שאינן ברשימה.
 ///
@@ -523,11 +524,10 @@ class _MemorialFormState extends State<MemorialForm> {
           const SizedBox(height: 20),
 
           // מיד אחרי השם: זו שאלה על מי הנפטר, לא על מתי להזכיר.
-          Text('אמירת קדיש', style: theme.textTheme.titleMedium),
+          Text('קטגוריה', style: theme.textTheme.titleMedium),
           const SizedBox(height: 8),
-          // רשימה אנכית ולא SegmentedButton: התוויות אומרות את הכלל עצמו
-          // ("משפחה — אומרים קדיש") ואינן נכנסות בשלושה מקטעים במסך צר,
-          // ולקצר אותן לקטגוריה בלבד היה מחזיר את הצורך במקרא.
+          // האייקון של כל שורה הוא זה שיופיע על הכרטיס, כדי שמי שבוחר
+          // כאן יזהה אחר כך את הסימון ברשימה בלי ללמוד אותו מחדש.
           // RadioGroup ולא groupValue/onChanged על כל שורה: אלה הוצאו
           // משימוש אחרי 3.32, והאזהרה הזו הופכת לשגיאה בגרסה כלשהי.
           RadioGroup<MemorialKind>(
@@ -538,7 +538,14 @@ class _MemorialFormState extends State<MemorialForm> {
                 for (final k in MemorialKind.values)
                   RadioListTile<MemorialKind>(
                     value: k,
-                    title: Text(k.label),
+                    title: Row(
+                      children: [
+                        Icon(MemorialCard.kindIcon(k),
+                            size: 18, color: theme.colorScheme.outline),
+                        const SizedBox(width: 8),
+                        Text(k.label),
+                      ],
+                    ),
                     contentPadding: EdgeInsets.zero,
                     dense: true,
                   ),

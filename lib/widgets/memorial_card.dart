@@ -19,6 +19,9 @@ class MemorialCard extends StatelessWidget {
   /// נקרא בהקשה על מיקום הקבר. null מסתיר את כפתור הניווט.
   final VoidCallback? onNavigate;
 
+  /// האייקון של קטגוריה. חשוף כדי שהטופס ושורת הסינון ישתמשו באותו אחד.
+  static IconData kindIcon(MemorialKind kind) => _KindChip.iconFor(kind);
+
   const MemorialCard({
     super.key,
     required this.memorial,
@@ -276,24 +279,31 @@ class _Portrait extends StatelessWidget {
   }
 }
 
-/// שבב שאומר האם אומרים קדיש.
+/// שבב הקטגוריה: אייקון ושם.
 ///
-/// הכיתוב הוא הפעולה ולא הקטגוריה — "אומרים קדיש" נקרא במבט אחד, בעוד
-/// ש"משפחה" מחייב לזכור מה הוא אומר. הצבע מבדיל, אבל אינו נושא את המידע
-/// לבדו: מקרא צבעים שאיש אינו רואה אינו סימון.
+/// האייקון הוא המזהה במבט על הרשימה – משפחה מול ספר – והכיתוב לצדו כדי
+/// שלא יידרש מקרא. צבע מבדיל בין השניים אך אינו נושא את המידע לבדו.
 class _KindChip extends StatelessWidget {
   const _KindChip({required this.kind});
 
   final MemorialKind kind;
 
+  /// האייקון של כל קטגוריה. מקום אחד, כדי שהרשימה, הסינון והכרטיס לא
+  /// יציגו שלושה דברים שונים לאותה קטגוריה.
+  static IconData iconFor(MemorialKind kind) => switch (kind) {
+        MemorialKind.none => Icons.remove_circle_outline,
+        MemorialKind.family => Icons.family_restroom,
+        MemorialKind.tzadik => Icons.auto_stories,
+      };
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final says = kind == MemorialKind.family;
-    final bg = says
+    final family = kind == MemorialKind.family;
+    final bg = family
         ? theme.colorScheme.primaryContainer
         : theme.colorScheme.tertiaryContainer;
-    final fg = says
+    final fg = family
         ? theme.colorScheme.onPrimaryContainer
         : theme.colorScheme.onTertiaryContainer;
 
@@ -306,11 +316,10 @@ class _KindChip extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(says ? Icons.groups_outlined : Icons.auto_stories_outlined,
-              size: 13, color: fg),
+          Icon(iconFor(kind), size: 14, color: fg),
           const SizedBox(width: 4),
           Text(
-            kind.chip,
+            kind.label,
             style: theme.textTheme.labelSmall?.copyWith(color: fg),
           ),
         ],

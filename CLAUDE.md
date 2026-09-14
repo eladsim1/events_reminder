@@ -1511,3 +1511,50 @@ field it touches — so a merge cannot silently reclassify a memorial.
 
 Note `RadioListTile`'s `groupValue`/`onChanged` are deprecated after 3.32; the
 group value belongs on a `RadioGroup` ancestor now.
+
+### Categories, not rulings — and a filter for them
+
+The labels are now bare categories: **ללא · משפחה · צדיקים**. The earlier
+wording spelled out the rule on every card ("משפחה — אומרים קדיש"); the user
+asked that it not, and that is their call. The meaning is known to whoever set
+the marking, and the app has no business restating a halachic conclusion on
+each row.
+
+Each category has an icon — `family_restroom` and `auto_stories` — defined once
+in `MemorialCard.kindIcon` and used by the card, the form's radio rows and the
+filter chips, so the three can never show different things for the same
+category. The name sits beside the icon, so no legend is needed to read one.
+`none` still shows nothing at all on a card: a marking that appears on
+everything marks nothing.
+
+`memorialKindFilterProvider` is a **second, independent dimension** from
+`memorialFilterProvider` — one is a time window, the other a category, and they
+intersect. Two consequences worth keeping:
+
+- The category row appears **only when something is actually marked**,
+  otherwise it is permanent noise above the list for anyone who does not use
+  categories.
+- Tapping the selected chip clears it. A filter that can only be undone from a
+  different chip than the one that set it is a trap.
+
+`_EmptyView` gained a fourth case, because "there are memorials, and some are
+in the window, but none in this category" looks exactly like an empty list
+unless it says so.
+
+**Both chip rows scroll horizontally now** — the overflow risk flagged during
+the review is real once there are seven chips, and a chip that overflows is a
+filter the user cannot reach.
+
+Two test traps this created, both worth remembering:
+
+- **A horizontal scroller on the home screen broke two settings tests.** They
+  used `find.byType(Scrollable).first`, and the home screen stays mounted
+  beneath the pushed settings route — so *its* scroller became the first one in
+  the tree and the drag went sideways into nothing. Scope the finder to
+  `SettingsScreen`, the same rule `_revealInForm` already follows.
+- A chip beyond the viewport needs `ensureVisible` before a tap; `widgetWithText`
+  finds it either way, and the tap then lands on the clip.
+
+`06_after_add.png` turned out to have the **same order-dependent logo** as the
+splash golden, exposed by this change rather than caused by it. Same fix:
+`_warmLogo` before the capture, verified in both run orders.

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../models/hebrew_date.dart';
 import '../models/memorial.dart';
 import '../models/memorial_filter.dart';
 import '../providers/memorial_provider.dart';
@@ -236,6 +237,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     return [for (final e in keyed) e.memorial];
   }
 
+  /// מסנן לפי קטגוריה. null אינו מסנן.
+  List<Memorial> _ofKind(List<Memorial> list, MemorialKind? kind) {
+    if (kind == null) return list;
+    return [
+      for (final m in list)
+        if (m.kind == kind) m,
+    ];
+  }
+
   /// מסנן לפי חלון הימים של [filter]. [MemorialFilter.all] אינו מסנן.
   List<Memorial> _filtered(
     List<Memorial> list,
@@ -350,14 +360,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                 }
 
                 final filter = ref.watch(memorialFilterProvider);
+                final kind = ref.watch(memorialKindFilterProvider);
                 final query = ref.watch(memorialSearchProvider);
 
                 final matched = [
                   for (final m in memorials)
                     if (m.matchesQuery(query)) m
                 ];
-                final sorted =
-                    _sorted(_filtered(matched, filter, calendar), calendar);
+                final sorted = _sorted(
+                    _ofKind(_filtered(matched, filter, calendar), kind),
+                    calendar);
 
                 if (sorted.isEmpty) {
                   // מבדיל בין "החיפוש לא מצא" לבין "אין בחלון" – אחרת
@@ -365,6 +377,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                   return _EmptyView(
                     filter: filter,
                     query: matched.isEmpty ? query : '',
+                    kind: kind,
                   );
                 }
 
@@ -441,20 +454,71 @@ class _FilterBar extends ConsumerWidget {
                 .length,
     };
 
+    // שורת הקטגוריות מוצגת רק כשיש בכלל אזכרה מסומנת: למי שלא משתמש
+    // בקטגוריות היא רעש קבוע מעל הרשימה.
+    final anyMarked = memorials.any((m) => m.kind != MemorialKind.none);
+    final selectedKind = ref.watch(memorialKindFilterProvider);
+    final kindCounts = {
+      for (final k in MemorialKind.values)
+        k: visible.where((m) => m.kind == k).length,
+    };
+
     return Padding(
       padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          for (final f in MemorialFilter.values)
-            Padding(
-              padding: const EdgeInsetsDirectional.only(end: 8),
-              child: FilterChip(
-                label: Text('${f.label} (${counts[f]})'),
-                selected: selected == f,
-                onSelected: (_) =>
-                    ref.read(memorialFilterProvider.notifier).state = f,
+          // גלילה אופקית: שלושה שבבים נכנסים במסך שנבדק, אבל מסך צר או
+          // גופן מוגדל מגלישים Row חשוף – וגלישה כאן מסתירה אפשרות סינון.
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
+                for (final f in MemorialFilter.values)
+                  Padding(
+                    padding: const EdgeInsetsDirectional.only(end: 8),
+                    child: FilterChip(
+                      label: Text('${f.label} (${counts[f]})'),
+                      selected: selected == f,
+                      onSelected: (_) =>
+                          ref.read(memorialFilterProvider.notifier).state = f,
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          if (anyMarked) ...[
+            const SizedBox(height: 6),
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  Padding(
+                    padding: const EdgeInsetsDirectional.only(end: 8),
+                    child: FilterChip(
+                      label: Text('כל הקטגוריות (${visible.length})'),
+                      selected: selectedKind == null,
+                      onSelected: (_) => ref
+                          .read(memorialKindFilterProvider.notifier)
+                          .state = null,
+                    ),
+                  ),
+                  for (final k in MemorialKind.values)
+                    Padding(
+                      padding: const EdgeInsetsDirectional.only(end: 8),
+                      child: FilterChip(
+                        avatar: Icon(MemorialCard.kindIcon(k), size: 16),
+                        label: Text('${k.label} (${kindCounts[k]})'),
+                        selected: selectedKind == k,
+                        onSelected: (_) => ref
+                            .read(memorialKindFilterProvider.notifier)
+                            .state = selectedKind == k ? null : k,
+                      ),
+                    ),
+                ],
               ),
             ),
+          ],
         ],
       ),
     );
@@ -550,7 +614,11 @@ class _EmptyView extends StatelessWidget {
   /// כשאינו ריק, אף אזכרה לא התאימה לחיפוש הזה.
   final String query;
 
-  const _EmptyView({required this.filter, this.query = ''});
+  /// הקטגוריה שסוננה, אם סוננה. מצב רביעי: יש אזכרות, יש בחלון, אבל אין
+  /// בקטגוריה – ובלי לומר זאת נראה כאילו הרשימה התרוקנה.
+  final MemorialKind? kind;
+
+  const _EmptyView({required this.filter, this.query = '', this.kind});
 
   @override
   Widget build(BuildContext context) {
@@ -558,10 +626,14 @@ class _EmptyView extends StatelessWidget {
     final noSearchMatch = query.trim().isNotEmpty;
     final isFiltered = filter != MemorialFilter.all;
 
-    final (title, hint) = switch ((noSearchMatch, isFiltered)) {
-      (true, _) => ('לא נמצאה אזכרה בשם "${query.trim()}"', 'נסה שם אחר'),
-      (false, true) => (filter.emptyMessage, 'בחר "הכל" כדי לראות הכל'),
-      (false, false) => (
+    final (title, hint) = switch ((noSearchMatch, isFiltered, kind)) {
+      (true, _, _) => ('לא נמצאה אזכרה בשם "${query.trim()}"', 'נסה שם אחר'),
+      (false, _, final k?) => (
+          'אין אזכרות בקטגוריה "${k.label}"',
+          'בחר "כל הקטגוריות" כדי לראות הכל',
+        ),
+      (false, true, _) => (filter.emptyMessage, 'בחר "הכל" כדי לראות הכל'),
+      (false, false, _) => (
           filter.emptyMessage,
           'הוסף אזכרה כדי לקבל תזכורת בשבוע שלפני',
         ),

@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../models/hebrew_date.dart';
 import '../models/memorial.dart';
 import '../models/memorial_filter.dart';
 import '../models/merge_plan.dart';
@@ -58,6 +59,13 @@ final notificationServiceProvider = Provider<NotificationService>((ref) {
 final memorialFilterProvider = StateProvider<MemorialFilter>((ref) {
   return MemorialFilter.all;
 });
+
+/// הקטגוריה שמוצגת, או null לכולן.
+///
+/// ממד נפרד מ-[memorialFilterProvider]: זה חלון זמן וזו קטגוריה, והם
+/// נחתכים. מתאפס בכל הפעלה מאותה סיבה – פתיחה עם סינון ישן נראית כאילו
+/// חצי מהרשימה נעלמה.
+final memorialKindFilterProvider = StateProvider<MemorialKind?>((ref) => null);
 
 /// שאילתת החיפוש הפעילה. ריק = ללא חיפוש.
 final memorialSearchProvider = StateProvider<String>((ref) => '');
