@@ -1,16 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'providers/memorial_provider.dart';
 import 'screens/splash_screen.dart';
 
 /// שורש האפליקציה. מגדיר Material 3, RTL מלא, עברית, ותמיכה במצב כהה.
-class AzkarotApp extends StatelessWidget {
+class AzkarotApp extends ConsumerWidget {
   const AzkarotApp({super.key});
 
-  static const _seedColor = Color(0xFF5B4B8A);
-
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final seedColor = ref.watch(themeSeedProvider).color;
     return MaterialApp(
       title: 'תזכורת אזכרות',
       debugShowCheckedModeBanner: false,
@@ -33,13 +34,13 @@ class AzkarotApp extends StatelessWidget {
       themeMode: ThemeMode.system,
       theme: ThemeData(
         useMaterial3: true,
-        colorScheme: ColorScheme.fromSeed(seedColor: _seedColor),
+        colorScheme: ColorScheme.fromSeed(seedColor: seedColor),
         cardTheme: const CardThemeData(clipBehavior: Clip.antiAlias),
       ),
       darkTheme: ThemeData(
         useMaterial3: true,
         colorScheme: ColorScheme.fromSeed(
-          seedColor: _seedColor,
+          seedColor: seedColor,
           brightness: Brightness.dark,
         ),
         cardTheme: const CardThemeData(clipBehavior: Clip.antiAlias),

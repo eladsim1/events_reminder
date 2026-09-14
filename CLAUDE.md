@@ -1617,3 +1617,39 @@ deletion.
 card's `InkWell`, so a search by text returns both, and picking between them by
 finder order is exactly the kind of brittleness that is invisible until it
 breaks.
+
+## The colour is a choice, in Settings
+
+`ThemeSeed` holds eight seeds; Material 3 derives the whole scheme — surfaces,
+cards, chips, both brightnesses — from one of them. That is why the choice is a
+single hue rather than a colour per component: a derived scheme keeps contrast
+correct in every combination, while per-component picking produces unreadable
+pairs that nobody notices until a user is squinting at one.
+
+The hues are deliberately muted. This is an app about memorials, and a
+saturated colour would shout.
+
+**`ThemeSeed.fallback` is the purple the app already had**, so an existing
+install does not change appearance because a picker was added, and an unknown
+stored value falls back rather than throwing — a theme is a preference, never a
+reason to fail to start. A test pins both.
+
+Stored in `app_state`, the same key/value table that already holds the sync
+lock and the background-job status; it exists for exactly this kind of value.
+
+**Loaded asynchronously, not before the first frame.** Reading it before
+`runApp` would block startup — and opening the database also runs migrations —
+which is precisely the work that was taken out of the splash screen. The cost,
+stated plainly: on a cold start the splash is painted once in the default and
+then changes. The *choice* is instant, because the state is set before the
+write.
+
+The picker is swatches, not a list of names: the decision is entirely visual
+and the name of a hue says less than the hue. The name survives as a tooltip
+and a semantics label. The selected one is marked with a ring and a check, not
+by colour alone — two adjacent hues look alike, and a marking that relies on
+the colour it is marking is not a marking.
+
+Note for the test fakes: `_InMemoryRepo` had to gain `readSetting`/
+`writeSetting`, or every settings read falls through to real sqflite and dies
+on a platform channel that does not exist under test.

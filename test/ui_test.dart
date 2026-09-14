@@ -30,6 +30,7 @@ import 'package:azkarot_app/models/hebrew_date.dart';
 import 'package:azkarot_app/models/coordinates.dart';
 import 'package:azkarot_app/models/memorial.dart';
 import 'package:azkarot_app/models/memorial_filter.dart';
+import 'package:azkarot_app/models/theme_seed.dart';
 import 'package:azkarot_app/providers/memorial_provider.dart';
 import 'package:azkarot_app/repository/memorial_repository.dart';
 import 'package:azkarot_app/screens/edit_memorial_screen.dart';
@@ -97,6 +98,17 @@ class _ThrowsThenClaims extends _InMemoryRepo {
 
 class _InMemoryRepo extends MemorialRepository {
   final List<Memorial> items = [];
+
+  /// app_state, ללא מסד. בלעדיו כל קריאת הגדרה מגיעה ל-sqflite האמיתי
+  /// ונופלת על ערוץ פלטפורמה שאינו קיים בבדיקה.
+  final Map<String, String> settings = {};
+
+  @override
+  Future<String?> readSetting(String key) async => settings[key];
+
+  @override
+  Future<void> writeSetting(String key, String value) async =>
+      settings[key] = value;
   int _nextId = 1;
 
   @override
@@ -1902,6 +1914,60 @@ void main() {
           reason: 'the calendar schedules this date; the form must accept it');
       expect(submitted?.day, 30);
       expect(submitted?.month, HebrewMonth.cheshvan);
+    });
+  });
+
+  group('the colour of the app', () {
+    test('an unknown value falls back rather than throwing', () {
+      // A backup from a newer build, or a corrupted row. A theme is a
+      // preference, never a reason to fail to start.
+      expect(ThemeSeed.fromDb(null), ThemeSeed.fallback);
+      expect(ThemeSeed.fromDb('chartreuse'), ThemeSeed.fallback);
+      expect(ThemeSeed.fromDb(ThemeSeed.teal.dbValue), ThemeSeed.teal);
+    });
+
+    test('the default is the colour the app already had', () {
+      // Existing installs must not change appearance because a picker was
+      // added.
+      expect(ThemeSeed.fallback.color, const Color(0xFF5B4B8A));
+    });
+
+    testWidgets('choosing one repaints the app and stores it', (tester) async {
+      _phoneViewport(tester);
+      final (repo, _) = await _pumpApp(tester, seeded: [
+        _seed(id: 1, name: 'סבא יעקב', day: 27, month: HebrewMonth.av),
+      ]);
+
+      await tester.tap(find.byIcon(Icons.settings_outlined));
+      await _pumpUntilFound(
+          tester, find.byType(SettingsScreen), 'SettingsScreen');
+
+      final before = Theme.of(
+              tester.element(find.byType(SettingsScreen)))
+          .colorScheme
+          .primary;
+
+      final swatch = find.byKey(const ValueKey('seed-teal'));
+      await tester.scrollUntilVisible(swatch, 120,
+          scrollable: find
+              .descendant(
+                of: find.byType(SettingsScreen),
+                matching: find.byType(Scrollable),
+              )
+              .first);
+      await tester.tap(swatch);
+      await tester.pumpAndSettle();
+
+      final after = Theme.of(
+              tester.element(find.byType(SettingsScreen)))
+          .colorScheme
+          .primary;
+      expect(after, isNot(before), reason: 'the whole theme is derived');
+
+      // Stored, or it would be back to purple on the next launch - which is
+      // the whole point of a preference.
+      expect(await repo.readSetting(ThemeSeedNotifier.storageKey),
+          ThemeSeed.teal.dbValue);
     });
   });
 

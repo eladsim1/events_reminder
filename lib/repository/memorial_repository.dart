@@ -34,6 +34,11 @@ class MemorialRepository {
 
   Future<void> releaseSyncLock() => _db.releaseSyncLock();
 
+  Future<String?> readSetting(String key) => _db.readSetting(key);
+
+  Future<void> writeSetting(String key, String value) =>
+      _db.writeSetting(key, value);
+
   Future<void> recordBackgroundRun(DateTime at, String? error) =>
       _db.recordBackgroundRun(at, error);
 

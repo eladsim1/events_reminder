@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/hebrew_date.dart';
 import '../models/memorial.dart';
 import '../models/memorial_filter.dart';
+import '../models/theme_seed.dart';
 import '../models/merge_plan.dart';
 import '../repository/memorial_repository.dart';
 import '../services/delivery_checks.dart';
@@ -108,6 +109,45 @@ final notificationPermissionProvider = FutureProvider<
     canaryLastFired: await checks.canaryLastFired(),
   );
 });
+
+/// צבע הבסיס של האפליקציה, נשמר בין הפעלות.
+///
+/// **נטען אסינכרונית ולא לפני הציור הראשון.** קריאה מהמסד לפני runApp
+/// הייתה חוסמת את העלייה – ופתיחת המסד מריצה גם מיגרציות – וזו בדיוק
+/// העבודה שהוצאה ממסך הפתיחה. המחיר: בהפעלה קרה מסך הפתיחה מצויר רגע
+/// בברירת המחדל ואז מתחלף. הבחירה עצמה מיידית, כי המצב נקבע לפני השמירה.
+class ThemeSeedNotifier extends Notifier<ThemeSeed> {
+  static const String storageKey = 'theme_seed';
+
+  @override
+  ThemeSeed build() {
+    _load();
+    return ThemeSeed.fallback;
+  }
+
+  Future<void> _load() async {
+    try {
+      final saved =
+          await ref.read(memorialRepositoryProvider).readSetting(storageKey);
+      final seed = ThemeSeed.fromDb(saved);
+      if (seed != state) state = seed;
+    } catch (_) {
+      // אין מסד (שולחן עבודה, בדיקות). ערכה היא העדפה ולא סיבה להיכשל.
+    }
+  }
+
+  Future<void> choose(ThemeSeed seed) async {
+    state = seed; // קודם המסך, אחר כך הדיסק
+    try {
+      await ref
+          .read(memorialRepositoryProvider)
+          .writeSetting(storageKey, seed.dbValue);
+    } catch (_) {}
+  }
+}
+
+final themeSeedProvider =
+    NotifierProvider<ThemeSeedNotifier, ThemeSeed>(ThemeSeedNotifier.new);
 
 /// שעת ברירת מחדל להתראות (שעה, דקה). ניתנת לשינוי במסך ההגדרות.
 class DefaultReminderTime {

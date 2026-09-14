@@ -11,6 +11,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/memorial.dart';
 import '../models/merge_plan.dart';
+import '../models/theme_seed.dart';
 import '../providers/memorial_provider.dart';
 import '../widgets/import_selection_dialog.dart';
 import '../services/photo_store.dart';
@@ -291,6 +292,7 @@ class SettingsScreen extends ConsumerWidget {
                 Text(timeLabel, style: Theme.of(context).textTheme.titleMedium),
             onTap: () => _pickDefaultTime(context, ref),
           ),
+          const _ThemePicker(),
           const Divider(),
           ListTile(
             leading: const Icon(Icons.upload_file),
@@ -320,6 +322,71 @@ class SettingsScreen extends ConsumerWidget {
           const _BackgroundRefreshStatus(),
           const _AlarmCanaryStatus(),
         ],
+      ),
+    );
+  }
+}
+
+/// בורר צבע הבסיס של האפליקציה.
+///
+/// עיגולי צבע ולא רשימת שמות: הבחירה כאן היא ויזואלית לחלוטין, ושם של
+/// גוון אומר פחות מהגוון עצמו. השם נשאר כ-tooltip ולנגישות.
+class _ThemePicker extends ConsumerWidget {
+  const _ThemePicker();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final current = ref.watch(themeSeedProvider);
+    final theme = Theme.of(context);
+
+    return ListTile(
+      leading: const Icon(Icons.palette_outlined),
+      title: const Text('צבע האפליקציה'),
+      subtitle: Padding(
+        padding: const EdgeInsets.only(top: 8),
+        // Wrap ולא Row: שמונה עיגולים אינם נכנסים בשורה אחת במסך צר,
+        // ו-Row היה גולש ומסתיר חלק מהבחירות.
+        child: Wrap(
+          spacing: 10,
+          runSpacing: 10,
+          children: [
+            for (final seed in ThemeSeed.values)
+              Tooltip(
+                message: seed.label,
+                child: Semantics(
+                  label: seed.label,
+                  selected: seed == current,
+                  button: true,
+                  child: InkWell(
+                    key: ValueKey('seed-${seed.name}'),
+                    onTap: () =>
+                        ref.read(themeSeedProvider.notifier).choose(seed),
+                    customBorder: const CircleBorder(),
+                    child: Container(
+                      width: 34,
+                      height: 34,
+                      decoration: BoxDecoration(
+                        color: seed.color,
+                        shape: BoxShape.circle,
+                        // הנבחר מסומן בטבעת ולא רק בצבע: שני גוונים סמוכים
+                        // נראים דומים, וסימון שנשען על הצבע עצמו אינו סימון.
+                        border: Border.all(
+                          color: seed == current
+                              ? theme.colorScheme.onSurface
+                              : theme.colorScheme.outlineVariant,
+                          width: seed == current ? 3 : 1,
+                        ),
+                      ),
+                      child: seed == current
+                          ? const Icon(Icons.check,
+                              size: 18, color: Colors.white)
+                          : null,
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }
