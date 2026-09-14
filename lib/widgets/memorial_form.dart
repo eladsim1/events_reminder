@@ -118,6 +118,7 @@ class MemorialFormResult {
   final ReminderMode reminderMode;
   final int reminderValue;
   final int? deathHebrewYear;
+  final MemorialKind kind;
 
   const MemorialFormResult({
     required this.name,
@@ -135,6 +136,7 @@ class MemorialFormResult {
     required this.reminderMode,
     required this.reminderValue,
     required this.deathHebrewYear,
+    required this.kind,
   });
 }
 
@@ -201,6 +203,7 @@ class _MemorialFormState extends State<MemorialForm> {
   String? _photoPath;
   String? _gravePhotoPath;
   int? _deathYear;
+  late MemorialKind _kind;
 
   @override
   void initState() {
@@ -223,6 +226,7 @@ class _MemorialFormState extends State<MemorialForm> {
     _reminderMode = m?.reminderMode ?? ReminderMode.weekdayOfPreviousWeek;
     _reminderValue = m?.reminderValue ?? Memorial.defaultReminderWeekday;
     _deathYear = m?.deathHebrewYear;
+    _kind = m?.kind ?? MemorialKind.none;
   }
 
   @override
@@ -481,6 +485,7 @@ class _MemorialFormState extends State<MemorialForm> {
         reminderMode: _reminderMode,
         reminderValue: _reminderValue,
         deathHebrewYear: _deathYear,
+        kind: _kind,
       ),
     );
   }
@@ -514,6 +519,31 @@ class _MemorialFormState extends State<MemorialForm> {
               }
               return null;
             },
+          ),
+          const SizedBox(height: 20),
+
+          // מיד אחרי השם: זו שאלה על מי הנפטר, לא על מתי להזכיר.
+          Text('אמירת קדיש', style: theme.textTheme.titleMedium),
+          const SizedBox(height: 8),
+          // רשימה אנכית ולא SegmentedButton: התוויות אומרות את הכלל עצמו
+          // ("משפחה — אומרים קדיש") ואינן נכנסות בשלושה מקטעים במסך צר,
+          // ולקצר אותן לקטגוריה בלבד היה מחזיר את הצורך במקרא.
+          // RadioGroup ולא groupValue/onChanged על כל שורה: אלה הוצאו
+          // משימוש אחרי 3.32, והאזהרה הזו הופכת לשגיאה בגרסה כלשהי.
+          RadioGroup<MemorialKind>(
+            groupValue: _kind,
+            onChanged: (v) => setState(() => _kind = v ?? MemorialKind.none),
+            child: Column(
+              children: [
+                for (final k in MemorialKind.values)
+                  RadioListTile<MemorialKind>(
+                    value: k,
+                    title: Text(k.label),
+                    contentPadding: EdgeInsets.zero,
+                    dense: true,
+                  ),
+              ],
+            ),
           ),
           const SizedBox(height: 20),
 

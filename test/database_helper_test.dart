@@ -284,6 +284,33 @@ void main() {
     });
   });
 
+  group('schema v9: who gets Kaddish', () {
+    test('an existing row upgrades to "not asked", not to a guess', () async {
+      final database = await db.database;
+      await database.rawInsert(
+        'INSERT INTO ${DatabaseHelper.table} '
+        '(name, hebrew_day, hebrew_month, adar_type, notification_hour, '
+        'notification_minute, enabled, created_at) VALUES (?,?,?,?,?,?,?,?)',
+        ['לפני v9', 14, HebrewMonth.cheshvan.index, 'none', 9, 0, 1,
+          DateTime(2024).toIso8601String()],
+      );
+
+      final loaded = (await db.getAll()).firstWhere((m) => m.name == 'לפני v9');
+      // The SQL default is what keeps an upgraded install behaving the same.
+      expect(loaded.kind, MemorialKind.none);
+    });
+
+    test('both markings round-trip through real sqlite', () async {
+      final id = await db.insert(_memorial(name: 'סבא'));
+      expect((await db.getById(id))!.kind, MemorialKind.none);
+
+      for (final k in MemorialKind.values) {
+        await db.update((await db.getById(id))!.copyWith(kind: k));
+        expect((await db.getById(id))!.kind, k, reason: k.name);
+      }
+    });
+  });
+
   group('schema v7-v8: grave coordinates and a second photo', () {
     test('a row written before them reads back with nulls', () async {
       final id = await db.insert(_memorial(name: 'ברירות מחדל'));

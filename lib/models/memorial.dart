@@ -43,6 +43,9 @@ class Memorial {
   /// אותו, הוא מפסיק לחול מעצמו.
   final DateTime? postponedReminderAt;
 
+  /// האם אומרים על הנפטר קדיש. ראה [MemorialKind].
+  final MemorialKind kind;
+
   /// תמונת הקבר, לצד תמונת הנפטר.
   ///
   /// תפקידה אחר: היא נועדה לזהות את הקבר בשטח, ולכן היא נשמרת גדולה יותר
@@ -99,6 +102,7 @@ class Memorial {
     required this.createdAt,
     this.lastNotifiedAt,
     this.postponedReminderAt,
+    this.kind = MemorialKind.none,
     this.gravePhotoPath,
     this.latitude,
     this.longitude,
@@ -209,6 +213,8 @@ class Memorial {
         plot: plot ?? other.plot,
         photoPath: photoPath ?? other.photoPath,
         gravePhotoPath: gravePhotoPath ?? other.gravePhotoPath,
+        // רק כשכאן לא נאמר דבר: סימון קיים לא נדרס בייבוא.
+        kind: kind == MemorialKind.none ? other.kind : kind,
         deathHebrewYear: deathHebrewYear ?? other.deathHebrewYear,
       );
 
@@ -241,6 +247,7 @@ class Memorial {
     bool clearNotes = false,
     DateTime? lastNotifiedAt,
     DateTime? postponedReminderAt,
+    MemorialKind? kind,
     String? gravePhotoPath,
     bool clearGravePhoto = false,
     double? latitude,
@@ -268,6 +275,7 @@ class Memorial {
       lastNotifiedAt: lastNotifiedAt ?? this.lastNotifiedAt,
       postponedReminderAt:
           postponedReminderAt ?? this.postponedReminderAt,
+      kind: kind ?? this.kind,
       gravePhotoPath:
           clearGravePhoto ? null : (gravePhotoPath ?? this.gravePhotoPath),
       latitude: latitude ?? this.latitude,
@@ -290,6 +298,7 @@ class Memorial {
       'hebrew_day': hebrewDay,
       'hebrew_month': hebrewMonth,
       'adar_type': adarType.dbValue,
+      'kind': kind.dbValue,
       'grave_photo_path': gravePhotoPath,
       'latitude': latitude,
       'longitude': longitude,
@@ -314,6 +323,8 @@ class Memorial {
       id: map['id'] as int?,
       name: map['name'] as String,
       hebrewDay: map['hebrew_day'] as int,
+      // חסר בגיבויים שנוצרו לפני גרסה 9 של הסכימה.
+      kind: MemorialKind.fromDb(map['kind'] as String?),
       gravePhotoPath: map['grave_photo_path'] as String?,
       // num ולא double: SQLite מחזיר int לערך שנשמר כשלם.
       latitude: (map['latitude'] as num?)?.toDouble(),

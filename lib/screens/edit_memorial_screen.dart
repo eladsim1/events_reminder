@@ -90,6 +90,7 @@ class EditMemorialScreen extends ConsumerWidget {
             reminderValue: result.reminderValue,
             deathHebrewYear: result.deathHebrewYear,
             clearDeathYear: result.deathHebrewYear == null,
+            kind: result.kind,
           );
 
           try {

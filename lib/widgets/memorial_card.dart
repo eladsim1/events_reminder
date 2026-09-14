@@ -141,6 +141,13 @@ class MemorialCard extends StatelessWidget {
                         color: theme.colorScheme.primary,
                       ),
                     ),
+                    // הסימון צמוד לתאריך העברי ולא לשם: הוא מאפיין את
+                    // האזכרה, ובמבט על הרשימה הוא נקרא באותה שורה שבה
+                    // קוראים מתי היא.
+                    if (memorial.kind != MemorialKind.none) ...[
+                      const SizedBox(width: 8),
+                      _KindChip(kind: memorial.kind),
+                    ],
                     if (memorial.deathHebrewYear case final year?) ...[
                       const SizedBox(width: 8),
                       Text(
@@ -265,6 +272,49 @@ class _Portrait extends StatelessWidget {
       radius: 24,
       backgroundColor: theme.colorScheme.primaryContainer,
       child: Text('🕯', style: theme.textTheme.titleLarge),
+    );
+  }
+}
+
+/// שבב שאומר האם אומרים קדיש.
+///
+/// הכיתוב הוא הפעולה ולא הקטגוריה — "אומרים קדיש" נקרא במבט אחד, בעוד
+/// ש"משפחה" מחייב לזכור מה הוא אומר. הצבע מבדיל, אבל אינו נושא את המידע
+/// לבדו: מקרא צבעים שאיש אינו רואה אינו סימון.
+class _KindChip extends StatelessWidget {
+  const _KindChip({required this.kind});
+
+  final MemorialKind kind;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final says = kind == MemorialKind.family;
+    final bg = says
+        ? theme.colorScheme.primaryContainer
+        : theme.colorScheme.tertiaryContainer;
+    final fg = says
+        ? theme.colorScheme.onPrimaryContainer
+        : theme.colorScheme.onTertiaryContainer;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(says ? Icons.groups_outlined : Icons.auto_stories_outlined,
+              size: 13, color: fg),
+          const SizedBox(width: 4),
+          Text(
+            kind.chip,
+            style: theme.textTheme.labelSmall?.copyWith(color: fg),
+          ),
+        ],
+      ),
     );
   }
 }

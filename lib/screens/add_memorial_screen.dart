@@ -47,6 +47,7 @@ class AddMemorialScreen extends ConsumerWidget {
             reminderMode: result.reminderMode,
             reminderValue: result.reminderValue,
             deathHebrewYear: result.deathHebrewYear,
+            kind: result.kind,
             createdAt: DateTime.now(),
           );
 

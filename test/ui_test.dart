@@ -473,6 +473,7 @@ Memorial _seed({
   String? plot,
   String? photoPath,
   String? gravePhotoPath,
+  MemorialKind kind = MemorialKind.none,
   ReminderMode reminderMode = ReminderMode.weekdayOfPreviousWeek,
   int reminderValue = Memorial.defaultReminderWeekday,
   int? deathHebrewYear,
@@ -492,6 +493,7 @@ Memorial _seed({
     plot: plot,
     photoPath: photoPath,
     gravePhotoPath: gravePhotoPath,
+    kind: kind,
     reminderMode: reminderMode,
     reminderValue: reminderValue,
     deathHebrewYear: deathHebrewYear,
@@ -1889,6 +1891,151 @@ void main() {
           reason: 'the calendar schedules this date; the form must accept it');
       expect(submitted?.day, 30);
       expect(submitted?.month, HebrewMonth.cheshvan);
+    });
+  });
+
+  group('who gets Kaddish and who does not', () {
+    testWidgets('the two are told apart on the list, and the unmarked stays'
+        ' quiet', (tester) async {
+      _phoneViewport(tester);
+      await _pumpApp(tester, seeded: [
+        _seed(
+          id: 1,
+          name: 'סבא יעקב',
+          day: 14,
+          month: HebrewMonth.cheshvan,
+          kind: MemorialKind.family,
+        ),
+        _seed(
+          id: 2,
+          name: 'הרב מבריסק',
+          day: 3,
+          month: HebrewMonth.nisan,
+          kind: MemorialKind.tzadik,
+        ),
+        _seed(id: 3, name: 'לא סומן', day: 10, month: HebrewMonth.av),
+      ]);
+
+      // The chip says what to do, not what the person was: no legend needed.
+      expect(find.text('אומרים קדיש'), findsOneWidget);
+      expect(find.text('ללא קדיש'), findsOneWidget);
+      // An unmarked memorial was never asked, so it must not claim either.
+      expect(find.byType(MemorialCard), findsNWidgets(3));
+    });
+
+    testWidgets('picking one saves it', (tester) async {
+      MemorialFormResult? submitted;
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: MemorialForm(
+            defaultHour: 9,
+            defaultMinute: 0,
+            onSubmit: (r) => submitted = r,
+            photoPicker: () async => null,
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+
+      await tester.enterText(find.byType(TextFormField).first, 'הרב מבריסק');
+
+      final choice = find.text(MemorialKind.tzadik.label);
+      await _revealInForm(tester, choice);
+      await tester.ensureVisible(choice);
+      await tester.pumpAndSettle();
+      await tester.tap(choice);
+      await tester.pumpAndSettle();
+
+      final save = find.widgetWithText(FilledButton, 'שמירה');
+      await _revealInForm(tester, save);
+      await tester.ensureVisible(save);
+      await tester.pumpAndSettle();
+      await tester.tap(save);
+      await tester.pumpAndSettle();
+
+      expect(submitted?.kind, MemorialKind.tzadik);
+    });
+
+    testWidgets('an existing marking opens already chosen', (tester) async {
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: MemorialForm(
+            initial: _seed(
+              id: 1,
+              name: 'סבא יעקב',
+              day: 14,
+              month: HebrewMonth.cheshvan,
+              kind: MemorialKind.family,
+            ),
+            defaultHour: 9,
+            defaultMinute: 0,
+            onSubmit: (_) {},
+            photoPicker: () async => null,
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+
+      final group = find.byType(RadioGroup<MemorialKind>);
+      await _revealInForm(tester, group);
+      expect(
+        tester.widget<RadioGroup<MemorialKind>>(group).groupValue,
+        MemorialKind.family,
+      );
+    });
+
+    test('the default is "not asked", and it survives a backup', () {
+      // Guessing here would assert something halachic that nobody said.
+      expect(
+        _seed(id: 1, name: 'x', day: 1, month: HebrewMonth.tishrei).kind,
+        MemorialKind.none,
+      );
+
+      // A backup written before the column existed has no such key.
+      final old = Memorial.fromJson({
+        'id': 1,
+        'name': 'גיבוי ישן',
+        'hebrew_day': 14,
+        'hebrew_month': HebrewMonth.cheshvan.index,
+        'adar_type': 'none',
+        'notification_hour': 9,
+        'notification_minute': 0,
+        'enabled': 1,
+        'created_at': DateTime(2024).toIso8601String(),
+      });
+      expect(old.kind, MemorialKind.none);
+
+      // And an unknown value from a newer build degrades, never throws.
+      expect(MemorialKind.fromDb('something_else'), MemorialKind.none);
+    });
+
+    test('a marking travels in the backup', () {
+      final m = _seed(
+        id: 1,
+        name: 'הרב מבריסק',
+        day: 3,
+        month: HebrewMonth.nisan,
+        kind: MemorialKind.tzadik,
+      );
+      expect(Memorial.fromJson(m.toJson()).kind, MemorialKind.tzadik);
+    });
+
+    test('merging fills a marking in but never overwrites one', () {
+      final marked = _seed(
+        id: 1, name: 'x', day: 1, month: HebrewMonth.tishrei,
+        kind: MemorialKind.family,
+      );
+      final other = _seed(
+        id: 2, name: 'x', day: 1, month: HebrewMonth.tishrei,
+        kind: MemorialKind.tzadik,
+      );
+      final blank =
+          _seed(id: 3, name: 'x', day: 1, month: HebrewMonth.tishrei);
+
+      // What is already here wins - the merge may only fill gaps.
+      expect(marked.filledFrom(other).kind, MemorialKind.family);
+      // And a gap is filled.
+      expect(blank.filledFrom(other).kind, MemorialKind.tzadik);
     });
   });
 

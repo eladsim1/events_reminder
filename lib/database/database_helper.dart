@@ -20,7 +20,8 @@ class DatabaseHelper {
   /// 5 -> 6: טבלת app_state – נעילת סנכרון ומצב העבודה שרצה ברקע.
   /// 6 -> 7: latitude/longitude – נקודת ציון של הקבר עצמו.
   /// 7 -> 8: grave_photo_path – תמונת הקבר, לצד תמונת הנפטר.
-  static const _databaseVersion = 8;
+  /// 8 -> 9: kind – משפחה שאומרים עליה קדיש מול רב/צדיק שלא.
+  static const _databaseVersion = 9;
 
   static const table = 'memorials';
 
@@ -93,6 +94,14 @@ class DatabaseHelper {
     }
     if (oldVersion < 8) {
       await db.execute('ALTER TABLE $table ADD COLUMN grave_photo_path TEXT');
+    }
+    if (oldVersion < 9) {
+      // ברירת מחדל 'none' ולא 'family': אזכרה קיימת מעולם לא נשאלה, וניחוש
+      // כאן היה טוען משהו הלכתי שאיש לא אמר.
+      await db.execute(
+        "ALTER TABLE $table ADD COLUMN kind TEXT NOT NULL "
+        "DEFAULT '${MemorialKind.none.dbValue}'",
+      );
     }
   }
 
@@ -201,6 +210,7 @@ class DatabaseHelper {
         last_notified_at TEXT,
         postponed_reminder_at TEXT,
         grave_photo_path TEXT,
+        kind TEXT NOT NULL DEFAULT '${MemorialKind.none.dbValue}',
         latitude REAL,
         longitude REAL,
         cemetery TEXT,

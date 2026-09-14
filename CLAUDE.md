@@ -1480,3 +1480,34 @@ Two traps worth keeping:
   `state.didChange`, which sets the internal value *and* calls `onChanged` — so
   calling that one method is exactly a real tap, and the items list is asserted
   separately off the inner `DropdownButton`.
+
+## Who gets Kaddish, and who does not
+
+`MemorialKind` (schema v9) holds three states, and the third one is the point:
+
+```
+none     never asked — the default, and what every existing row upgrades to
+family   a relative       — אומרים קדיש
+tzadik   a rav or tzadik  — ללא קדיש
+```
+
+**`none` is not "no".** Defaulting an upgraded row to `family` would assert
+something halachic that nobody said, so the column carries a SQL default of
+`none` and an unmarked memorial claims neither. The card shows nothing for it —
+a marking that appears on everything marks nothing.
+
+The chip says **what to do, not who the person was**: "אומרים קדיש" reads at a
+glance, where "משפחה" would need the reader to remember what it implies. Colour
+distinguishes the two but never carries the meaning alone — a colour legend
+nobody can see is not a marking. In the form the labels are longer and state
+the rule in full, because that is the moment of choosing.
+
+The selector is a vertical `RadioGroup`, not a `SegmentedButton`: three labels
+of that length do not fit three segments on a narrow screen, and shortening
+them to bare categories would put the legend problem right back.
+
+`filledFrom` fills a marking in but never overwrites one, like every other
+field it touches — so a merge cannot silently reclassify a memorial.
+
+Note `RadioListTile`'s `groupValue`/`onChanged` are deprecated after 3.32; the
+group value belongs on a `RadioGroup` ancestor now.
