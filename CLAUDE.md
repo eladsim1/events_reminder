@@ -631,15 +631,26 @@ so "N years each" broke silently at about 84 memorials and left the ones that
 hit the ceiling with nothing queued at all. Measured coverage under the global
 budget, on a list of evenly spread dates:
 
+**That table was measured under the 20-year horizon and was never redone when
+the horizon dropped to two. It was wrong by more than an order of magnitude at
+the top end.** Re-measured 2026-09-14 against the current code, with dates
+spread through the Hebrew year, where coverage means the point at which the
+FIRST memorial runs out of scheduled reminders:
+
 ```
-1 name        1 alarm     ~13 months   (worst case: its date has just passed)
-10           19           ~20 months
-50           99           ~24 months   (the horizon binds here, not the budget)
-100         199           ~24 months
-200         399           ~24 months
-300         400           ~17 months
-1000        400           ~5.5 months
+1 name        2 alarms   ~24 months
+10           28          ~24 months
+50          143          ~24 months
+100         286          ~24 months    <- the horizon binds up to about here
+200         400          ~12 months    <- the budget binds from here
+300         400          ~2 weeks
+1000        400          0             <- most get nothing; the catch-up carries them
 ```
+
+So the degradation is much sharper than the old note claimed: past ~200 active
+memorials the app has to be opened monthly, and past ~300 essentially every
+time. Disabled memorials are not counted at all, which is what makes switching
+one off the right way to archive it.
 
 It degrades instead of breaking. The cost at scale is that a memorial whose
 reminder is far off is not scheduled *yet*, so the app has to be opened every
