@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../models/hebrew_date.dart';
 import '../models/memorial.dart';
 import '../services/hebrew_calendar_service.dart';
+import 'magen_david.dart';
 
 /// כרטיס תצוגה של אזכרה בודדת במסך הבית.
 ///
@@ -19,8 +20,9 @@ class MemorialCard extends StatelessWidget {
   /// נקרא בהקשה על מיקום הקבר. null מסתיר את כפתור הניווט.
   final VoidCallback? onNavigate;
 
-  /// האייקון של קטגוריה. חשוף כדי שהטופס ושורת הסינון ישתמשו באותו אחד.
-  static IconData kindIcon(MemorialKind kind) => _KindChip.iconFor(kind);
+  /// הסימן של קטגוריה. חשוף כדי שהטופס ושורת הסינון ישתמשו באותו אחד.
+  static Widget kindMark(MemorialKind kind, {Color? color, double? size}) =>
+      _KindChip.markFor(kind, color: color, size: size);
 
   const MemorialCard({
     super.key,
@@ -288,13 +290,25 @@ class _KindChip extends StatelessWidget {
 
   final MemorialKind kind;
 
-  /// האייקון של כל קטגוריה. מקום אחד, כדי שהרשימה, הסינון והכרטיס לא
-  /// יציגו שלושה דברים שונים לאותה קטגוריה.
-  static IconData iconFor(MemorialKind kind) => switch (kind) {
-        MemorialKind.none => Icons.remove_circle_outline,
-        MemorialKind.family => Icons.family_restroom,
-        MemorialKind.tzadik => Icons.auto_stories,
-      };
+  /// הסימן של כל קטגוריה. מקום אחד, כדי שהרשימה, הסינון והכרטיס לא יציגו
+  /// שלושה דברים שונים לאותה קטגוריה.
+  ///
+  /// **18 ולא 14**: ל-Material Icons יש משקל שמחזיק גם בגודל קטן, אבל
+  /// למגן דוד יש זרועות דקות שנבלעות – בגודל הכרטיס המקורי הוא נראה כנקודה
+  /// מוזהבת ולא כצורה. הגודל אחיד לשלוש הקטגוריות כדי שהשורה לא תקפוץ.
+  static const double markSize = 18;
+
+  static Widget markFor(MemorialKind kind, {Color? color, double? size}) {
+    final s = size ?? markSize;
+    return switch (kind) {
+      // מצויר ולא אייקון, ובזהב משלו: הצבע כאן אינו נגזר מהערכה, כי זה
+      // הרעיון – ראה MagenDavid.
+      MemorialKind.tzadik => MagenDavid(size: s),
+      MemorialKind.family => Icon(Icons.family_restroom, size: s, color: color),
+      MemorialKind.none =>
+        Icon(Icons.remove_circle_outline, size: s, color: color),
+    };
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -316,7 +330,7 @@ class _KindChip extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(iconFor(kind), size: 14, color: fg),
+          markFor(kind, color: fg),
           const SizedBox(width: 4),
           Text(
             kind.label,

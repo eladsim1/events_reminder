@@ -540,8 +540,8 @@ class _MemorialFormState extends State<MemorialForm> {
                     value: k,
                     title: Row(
                       children: [
-                        Icon(MemorialCard.kindIcon(k),
-                            size: 18, color: theme.colorScheme.outline),
+                        MemorialCard.kindMark(k,
+                            color: theme.colorScheme.outline),
                         const SizedBox(width: 8),
                         Text(k.label),
                       ],

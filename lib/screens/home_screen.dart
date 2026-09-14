@@ -507,7 +507,7 @@ class _FilterBar extends ConsumerWidget {
                     Padding(
                       padding: const EdgeInsetsDirectional.only(end: 8),
                       child: FilterChip(
-                        avatar: Icon(MemorialCard.kindIcon(k), size: 16),
+                        avatar: MemorialCard.kindMark(k, size: 16),
                         label: Text('${k.label} (${kindCounts[k]})'),
                         selected: selectedKind == k,
                         onSelected: (_) => ref

@@ -46,6 +46,7 @@ import 'package:azkarot_app/services/notification_service.dart';
 import 'package:azkarot_app/services/reminder_sync.dart';
 import 'package:azkarot_app/widgets/import_selection_dialog.dart';
 import 'package:azkarot_app/widgets/hebrew_date_picker.dart';
+import 'package:azkarot_app/widgets/magen_david.dart';
 import 'package:azkarot_app/widgets/memorial_card.dart';
 import 'package:azkarot_app/widgets/memorial_form.dart';
 
@@ -1926,10 +1927,11 @@ void main() {
         ),
         findsOneWidget,
       );
+      // צדיקים אינו אייקון אלא מגן דוד מצויר, כי אין כזה ב-Material.
       expect(
         find.descendant(
           of: find.byType(MemorialCard),
-          matching: find.byIcon(Icons.auto_stories),
+          matching: find.byType(MagenDavid),
         ),
         findsOneWidget,
       );
@@ -2135,6 +2137,37 @@ void main() {
       expect(marked.filledFrom(other).kind, MemorialKind.family);
       // And a gap is filled.
       expect(blank.filledFrom(other).kind, MemorialKind.tzadik);
+    });
+  });
+
+  group('the drawn Magen David', () {
+    testWidgets('renders at every size it is used at, and never throws',
+        (tester) async {
+      // CustomPainter מחשב גאומטריה בזמן ציור: רדיוס שלילי בגודל קטן, או
+      // חלוקה באפס, אינם נראים עד שמציירים בפועל.
+      for (final size in [12.0, 14.0, 16.0, 18.0, 32.0, 64.0]) {
+        await tester.pumpWidget(
+            Center(child: MagenDavid(size: size)));
+        await tester.pump();
+        expect(tester.takeException(), isNull, reason: 'size $size');
+      }
+    });
+
+    testWidgets('it is what the tzadik category shows, everywhere',
+        (tester) async {
+      // מקור אחד: הכרטיס, הטופס ושבב הסינון קוראים לאותה פונקציה, אחרת
+      // הם יציגו שלושה דברים שונים לאותה קטגוריה.
+      for (final k in MemorialKind.values) {
+        // MaterialApp ולא Center חשוף: Icon דורש Directionality ו-IconTheme.
+        await tester.pumpWidget(MaterialApp(
+            home: Center(child: MemorialCard.kindMark(k))));
+        await tester.pump();
+        expect(
+          find.byType(MagenDavid),
+          k == MemorialKind.tzadik ? findsOneWidget : findsNothing,
+          reason: k.name,
+        );
+      }
     });
   });
 

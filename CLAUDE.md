@@ -1558,3 +1558,30 @@ Two test traps this created, both worth remembering:
 `06_after_add.png` turned out to have the **same order-dependent logo** as the
 splash golden, exposed by this change rather than caused by it. Same fix:
 `_warmLogo` before the capture, verified in both run orders.
+
+### The Magen David is drawn, not an icon
+
+Material Icons has no Star of David, and the alternatives are worse: the emoji
+✡️ renders in the system font, so its colour and shape are the manufacturer's
+choice and differ between devices; a bitmap blurs at every size it was not
+exported at. `MagenDavid` is a `CustomPainter` — sharp at any size, gold, and
+no new dependency.
+
+Two things the drawing had to get right:
+
+- **One 12-vertex polygon, not two triangles.** At chip size the outlines of
+  two overlaid triangles merge into a blot. A single filled shape with a darker
+  gold stroke stays legible — and the inner radius is `r/√3`, the ratio that
+  produces two genuinely equilateral triangles rather than a shape that merely
+  resembles them.
+- **The marks are 18px, not 14.** Material icons carry enough weight to survive
+  14; a hexagram's thin arms do not, and at 14 it read as a gold dot rather
+  than a shape. All three categories share the size so the row does not jump.
+
+The sparkle is drawn only from 18px up: smaller than that it is a single pixel
+that reads as dirt rather than as a glint.
+
+`MemorialCard.kindMark` returns a **Widget** now rather than an `IconData`,
+because one of the three is not an icon. The card, the form's radio rows and
+the filter chips all call it, so the three cannot show different things for the
+same category.
