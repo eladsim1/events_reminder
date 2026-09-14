@@ -1653,3 +1653,44 @@ the colour it is marking is not a marking.
 Note for the test fakes: `_InMemoryRepo` had to gain `readSetting`/
 `writeSetting`, or every settings read falls through to real sqflite and dies
 on a platform channel that does not exist under test.
+
+### The keyboard came back on its own
+
+Reported from the device: changing a category from the list raised the
+keyboard. The cause is not the sheet — **a modal route restores focus to
+whatever held it when the route opened**, and after a search that is the search
+field. So leaving the list and coming back pulled the keyboard up over a list
+the user was only trying to look at.
+
+Which means it was never about categories. Reproducing it showed the **edit
+screen does exactly the same thing**, and so would anything else pushed from
+the list. Two failing tests, one cause.
+
+The fix is one `Listener` around the screen body:
+
+```dart
+body: Listener(
+  onPointerDown: (_) => FocusManager.instance.primaryFocus?.unfocus(),
+  child: Column(...),
+)
+```
+
+Three choices in that, each load-bearing:
+
+- **`Listener`, not `GestureDetector`** — it observes without consuming, so the
+  tap still reaches the chip, the card and the switch.
+- **`onPointerDown`, not `onTap`** — the focus has to be released *before* the
+  route is pushed, or there is something to restore again.
+- **One place, not每 caller** — the app bar stays outside it, so the search
+  field itself still works, and anything added to the body later is covered
+  without remembering to.
+
+Two things this cost, worth knowing:
+
+- `dart format` on a single file produced a 93-line diff, because **the project
+  is not format-clean** (13 of 29 files would change). Formatting one file in
+  isolation buries the change. Reverted and re-indented by hand; `git diff -w`
+  shows the real change is 18 lines.
+- `git checkout` restored the file with **CRLF** (Windows `core.autocrlf`),
+  which silently broke every multi-line anchor in the patch scripts. Normalise
+  to LF before matching.

@@ -385,85 +385,102 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
         icon: const Icon(Icons.add),
         label: const Text('הוספה'),
       ),
-      body: Column(
-        children: [
-          const _PermissionWarning(),
-          // מוצג רק כשיש מה לסנן – שורת סינון על רשימה ריקה היא רעש.
-          if (asyncMemorials.valueOrNull?.isNotEmpty ?? false)
-            _FilterBar(memorials: asyncMemorials.value!, calendar: calendar),
-          Expanded(
-            child: asyncMemorials.when(
-              loading: () => const Center(child: CircularProgressIndicator()),
-              error: (e, _) => _ErrorView(
-                message: 'שגיאה בטעינת האזכרות: $e',
-                onRetry: () =>
-                    ref.read(memorialListProvider.notifier).loadAndReschedule(),
-              ),
-              data: (memorials) {
-                if (memorials.isEmpty) {
-                  return const _EmptyView(filter: MemorialFilter.all);
-                }
+      // כל נגיעה בגוף המסך משחררת את המיקוד.
+      //
+      // **זו הסיבה שהמקלדת חזרה.** מסלול מודאלי – גיליון הקטגוריה,
+      // מסך העריכה – מחזיר בסגירתו את המיקוד למי שהחזיק אותו בפתיחה,
+      // ואחרי חיפוש זהו שדה החיפוש. כך יציאה וחזרה העלו את המקלדת על
+      // רשימה שהמשתמש ניסה רק להסתכל בה.
+      //
+      // Listener ולא GestureDetector: הוא מאזין ואינו בולע, ולכן
+      // ההקשה ממשיכה לשבב, לכרטיס ולמתג כרגיל. onPointerDown ולא
+      // onTap, כדי שהשחרור יקרה **לפני** שהמסלול נדחף – אחרת יש שוב
+      // מה להחזיר.
+      //
+      // במקום אחד ולא בכל קורא: כך גם מה שייווסף כאן מחר מכוסה. סרגל
+      // הכותרת אינו בפנים, ולכן שדה החיפוש עצמו ממשיך לעבוד.
+      body: Listener(
+        onPointerDown: (_) => FocusManager.instance.primaryFocus?.unfocus(),
+        child: Column(
+          children: [
+            const _PermissionWarning(),
+            // מוצג רק כשיש מה לסנן – שורת סינון על רשימה ריקה היא רעש.
+            if (asyncMemorials.valueOrNull?.isNotEmpty ?? false)
+              _FilterBar(memorials: asyncMemorials.value!, calendar: calendar),
+            Expanded(
+              child: asyncMemorials.when(
+                loading: () => const Center(child: CircularProgressIndicator()),
+                error: (e, _) => _ErrorView(
+                  message: 'שגיאה בטעינת האזכרות: $e',
+                  onRetry: () =>
+                      ref.read(memorialListProvider.notifier).loadAndReschedule(),
+                ),
+                data: (memorials) {
+                  if (memorials.isEmpty) {
+                    return const _EmptyView(filter: MemorialFilter.all);
+                  }
 
-                final filter = ref.watch(memorialFilterProvider);
-                final kind = ref.watch(memorialKindFilterProvider);
-                final query = ref.watch(memorialSearchProvider);
+                  final filter = ref.watch(memorialFilterProvider);
+                  final kind = ref.watch(memorialKindFilterProvider);
+                  final query = ref.watch(memorialSearchProvider);
 
-                final matched = [
-                  for (final m in memorials)
-                    if (m.matchesQuery(query)) m
-                ];
-                final sorted = _sorted(
-                    _ofKind(_filtered(matched, filter, calendar), kind),
-                    calendar);
+                  final matched = [
+                    for (final m in memorials)
+                      if (m.matchesQuery(query)) m
+                  ];
+                  final sorted = _sorted(
+                      _ofKind(_filtered(matched, filter, calendar), kind),
+                      calendar);
 
-                if (sorted.isEmpty) {
-                  // מבדיל בין "החיפוש לא מצא" לבין "אין בחלון" – אחרת
-                  // המשתמש לא יודע מה בדיוק להרפות ממנו.
-                  return _EmptyView(
-                    filter: filter,
-                    query: matched.isEmpty ? query : '',
-                    kind: kind,
+                  if (sorted.isEmpty) {
+                    // מבדיל בין "החיפוש לא מצא" לבין "אין בחלון" – אחרת
+                    // המשתמש לא יודע מה בדיוק להרפות ממנו.
+                    return _EmptyView(
+                      filter: filter,
+                      query: matched.isEmpty ? query : '',
+                      kind: kind,
+                    );
+                  }
+
+                  return RefreshIndicator(
+                    onRefresh: () => ref
+                        .read(memorialListProvider.notifier)
+                        .loadAndReschedule(),
+                    child: ListView.builder(
+                      padding: const EdgeInsets.only(top: 8, bottom: 88),
+                      itemCount: sorted.length,
+                      itemBuilder: (context, index) {
+                        final m = sorted[index];
+                        return MemorialCard(
+                          memorial: m,
+                          calendar: calendar,
+                          onTap: () {
+                            Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (_) => EditMemorialScreen(memorial: m),
+                              ),
+                            );
+                          },
+                          onToggle: (enabled) {
+                            ref
+                                .read(memorialListProvider.notifier)
+                                .toggleEnabled(m, enabled);
+                          },
+                          // נקודת ציון לבדה מספיקה: הכפתור נועד להוביל למקום,
+                          // ותיאור טקסטואלי אינו תנאי לכך.
+                          onNavigate: m.hasBurialLocation
+                              ? () => _navigate(context, ref, m)
+                              : null,
+                          onChangeKind: () => _pickKind(context, m),
+                        );
+                      },
+                    ),
                   );
-                }
-
-                return RefreshIndicator(
-                  onRefresh: () => ref
-                      .read(memorialListProvider.notifier)
-                      .loadAndReschedule(),
-                  child: ListView.builder(
-                    padding: const EdgeInsets.only(top: 8, bottom: 88),
-                    itemCount: sorted.length,
-                    itemBuilder: (context, index) {
-                      final m = sorted[index];
-                      return MemorialCard(
-                        memorial: m,
-                        calendar: calendar,
-                        onTap: () {
-                          Navigator.of(context).push(
-                            MaterialPageRoute(
-                              builder: (_) => EditMemorialScreen(memorial: m),
-                            ),
-                          );
-                        },
-                        onToggle: (enabled) {
-                          ref
-                              .read(memorialListProvider.notifier)
-                              .toggleEnabled(m, enabled);
-                        },
-                        // נקודת ציון לבדה מספיקה: הכפתור נועד להוביל למקום,
-                        // ותיאור טקסטואלי אינו תנאי לכך.
-                        onNavigate: m.hasBurialLocation
-                            ? () => _navigate(context, ref, m)
-                            : null,
-                        onChangeKind: () => _pickKind(context, m),
-                      );
-                    },
-                  ),
-                );
-              },
+                },
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

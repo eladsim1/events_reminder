@@ -2166,6 +2166,56 @@ void main() {
       expect(notif.log, isEmpty);
     });
 
+    testWidgets('the keyboard does not come back after choosing',
+        (tester) async {
+      _phoneViewport(tester);
+      await _pumpApp(tester, seeded: threeKinds());
+
+      // Searching is how you reach one memorial out of many, so this is the
+      // ordinary way into the category sheet - and the search field is the
+      // only text field on the screen.
+      await tester.tap(find.byIcon(Icons.search));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField).first, 'סבא');
+      await tester.pumpAndSettle();
+      expect(tester.testTextInput.isVisible, isTrue,
+          reason: 'the search field legitimately raises it');
+
+      await tester.tap(_kindChipOf('סבא יעקב'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(ListTile, 'צדיקים'));
+      await tester.pumpAndSettle();
+
+      // A modal route restores focus to whatever held it when it opened, and
+      // that was the search field - so closing the sheet pulled the keyboard
+      // straight back up over a list the user was trying to look at.
+      expect(tester.testTextInput.isVisible, isFalse);
+    });
+
+    testWidgets('nor after opening and leaving the edit screen',
+        (tester) async {
+      _phoneViewport(tester);
+      await _pumpApp(tester, seeded: threeKinds());
+
+      await tester.tap(find.byIcon(Icons.search));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField).first, 'סבא');
+      await tester.pumpAndSettle();
+
+      // Same cause, different route: any pushed screen restores focus on the
+      // way back, so the fix has to sit where the list leaves itself.
+      await tester.tap(find.text('סבא יעקב'));
+      await tester.pumpAndSettle();
+      expect(find.byType(EditMemorialScreen), findsOneWidget);
+
+      // pageBack מחפש כפתור חזרה של Cupertino; האפליקציה היא Material,
+      // ותווית הכפתור בעברית, אז הסוג הוא מה שיציב כאן.
+      await tester.tap(find.byType(BackButton));
+      await tester.pumpAndSettle();
+
+      expect(tester.testTextInput.isVisible, isFalse);
+    });
+
     testWidgets('the two are told apart on the list, and the unmarked stays'
         ' quiet', (tester) async {
       _phoneViewport(tester);
