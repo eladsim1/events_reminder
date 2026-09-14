@@ -1892,6 +1892,209 @@ void main() {
     });
   });
 
+  group('a year that is not in the list', () {
+    final calendar = HebrewCalendarService(now: () => _fixedNow);
+
+    test('gematria and digits both read as the same year', () {
+      // The list shows gematria, so that is what comes to hand - but someone
+      // holding the number should not have to translate it in their head.
+      for (final typed in [
+        'תשפ״ו',
+        'תשפו',
+        'התשפ״ו',
+        'ה׳תשפ״ו',
+        "ה'תשפ\"ו",
+        '5786',
+        '  תשפ״ו  ',
+      ]) {
+        expect(calendar.parseHebrewYear(typed), 5786, reason: typed);
+      }
+    });
+
+    test('the leading he is thousands, not five', () {
+      // Summing it as a letter gives 791, and then the missing-thousand rule
+      // turns that into 5791 - a wrong year that looks perfectly valid.
+      expect(calendar.parseHebrewYear('התשפ״ו'),
+          calendar.parseHebrewYear('תשפ״ו'));
+      expect(calendar.parseHebrewYear('התר״ם'), 5640);
+      expect(calendar.parseHebrewYear('תר״ם'), 5640);
+    });
+
+    test('what cannot be read comes back null, not a guess', () {
+      for (final junk in [null, '', '   ', 'abc', '!!!', '???']) {
+        expect(calendar.parseHebrewYear(junk), isNull, reason: '$junk');
+      }
+    });
+
+    test('a year already below the thousand is left alone', () {
+      // Four hundreds are past a thousand, so nothing is completed.
+      expect(calendar.parseHebrewYear('תתתת'), 1600);
+    });
+
+    testWidgets('a year outside the range no longer breaks the edit screen',
+        (tester) async {
+      // This threw before the list learned to carry the chosen year: the
+      // dropdown asserts that its value is among its items, and a memorial
+      // imported with a year more than 120 years back took the whole form
+      // down with it.
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: MemorialForm(
+            initial: _seed(
+              id: 1,
+              name: 'סבא רבא',
+              day: 14,
+              month: HebrewMonth.cheshvan,
+              deathHebrewYear: 5640,
+            ),
+            defaultHour: 9,
+            defaultMinute: 0,
+            onSubmit: (_) {},
+            photoPicker: () async => null,
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+      await _revealInForm(tester, find.byType(DropdownButtonFormField<int?>));
+      expect(find.text('תר״מ'), findsWidgets,
+          reason: 'the year it already holds must be offered, or it throws');
+    });
+
+    // Driving onChanged directly rather than opening the menu: the list holds
+    // a hundred and twenty-odd items, so the escape hatch at its end is not
+    // reliably built, and fighting that would test Flutter's menu rather than
+    // this form. What the item IS gets its own assertion below.
+    /// The items, read off the DropdownButton the form field builds - the
+    /// form field itself keeps them in its closure and exposes nothing.
+    List<DropdownMenuItem<int?>> yearItems(WidgetTester tester) =>
+        tester
+            .widget<DropdownButton<int?>>(find.descendant(
+              of: find.byType(DropdownButtonFormField<int?>),
+              matching: find.byType(DropdownButton<int?>),
+            ))
+            .items!;
+
+    /// Exactly what a real tap does: the menu is wired straight to
+    /// state.didChange, which sets the internal value AND calls onChanged.
+    Future<void> choose(WidgetTester tester, int? value) async {
+      tester
+          .state<FormFieldState<int?>>(
+              find.byType(DropdownButtonFormField<int?>))
+          .didChange(value);
+      await tester.pumpAndSettle();
+    }
+
+    Future<void> openForm(WidgetTester tester, {Memorial? initial,
+        void Function(MemorialFormResult)? onSubmit}) async {
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: MemorialForm(
+            initial: initial,
+            defaultHour: 9,
+            defaultMinute: 0,
+            onSubmit: onSubmit ?? (_) {},
+            photoPicker: () async => null,
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+      await _revealInForm(
+          tester, find.byType(DropdownButtonFormField<int?>));
+    }
+
+    testWidgets('the escape hatch is offered, at the end of the list',
+        (tester) async {
+      await openForm(tester);
+      final items = yearItems(tester);
+
+      expect(items.last.value, -1,
+          reason: 'last, not first - it is an escape hatch, not the norm');
+      expect((items.last.child as Text).data, 'שנה אחרת…');
+      // And the ordinary path is untouched: unknown still leads.
+      expect(items.first.value, isNull);
+    });
+
+    testWidgets('typing a year puts it on the form', (tester) async {
+      MemorialFormResult? submitted;
+      await openForm(tester, onSubmit: (r) => submitted = r);
+
+      await tester.enterText(find.byType(TextFormField).first, 'סבא רבא');
+      await choose(tester, -1);
+
+      await tester.enterText(find.byType(TextField).last, 'תר״ם');
+      await tester.pumpAndSettle();
+      // The dialog echoes what it understood, so a mistyped gematria is
+      // visible before it is committed rather than after it is saved.
+      expect(find.textContaining('5640'), findsOneWidget);
+
+      await tester.tap(find.widgetWithText(FilledButton, 'אישור'));
+      await tester.pumpAndSettle();
+
+      final save = find.widgetWithText(FilledButton, 'שמירה');
+      await _revealInForm(tester, save);
+      await tester.ensureVisible(save);
+      await tester.pumpAndSettle();
+      await tester.tap(save);
+      await tester.pumpAndSettle();
+
+      expect(submitted?.deathHebrewYear, 5640);
+    });
+
+    testWidgets('cancelling leaves the field where it was', (tester) async {
+      // The dropdown holds a value of its own and didUpdateWidget syncs it
+      // only when initialValue changes - which a cancel does not do. Without
+      // putting it back by hand the field stayed on the sentinel.
+      await openForm(
+        tester,
+        initial: _seed(
+          id: 1,
+          name: 'x',
+          day: 14,
+          month: HebrewMonth.cheshvan,
+          deathHebrewYear: 5780,
+        ),
+      );
+
+      await choose(tester, -1);
+      await tester.tap(find.widgetWithText(TextButton, 'ביטול'));
+      await tester.pumpAndSettle();
+
+      final state = tester.state<FormFieldState<int?>>(
+          find.byType(DropdownButtonFormField<int?>));
+      expect(state.value, 5780, reason: 'the sentinel must not survive');
+      expect(find.text('שנה אחרת…'), findsNothing);
+    });
+
+    testWidgets('a year that has not arrived yet is refused', (tester) async {
+      await openForm(tester);
+      await choose(tester, -1);
+
+      await tester.enterText(find.byType(TextField).last, '9999');
+      await tester.tap(find.widgetWithText(FilledButton, 'אישור'));
+      await tester.pumpAndSettle();
+
+      // Still open, and saying why - the same rule the list itself obeys.
+      expect(find.text('השנה עדיין לא הגיעה'), findsOneWidget);
+    });
+
+    testWidgets('what cannot be read is refused too', (tester) async {
+      await openForm(tester);
+      await choose(tester, -1);
+
+      // Latin, not Hebrew gibberish: "זזז" is perfectly good gematria (21,
+      // completed to 5021). Nonsense Hebrew letters produce a nonsense year
+      // on purpose - which is exactly what the echo line under the field is
+      // there to expose, the same bargain the coordinates field makes.
+      await tester.enterText(find.byType(TextField).last, 'abc');
+      await tester.tap(find.widgetWithText(FilledButton, 'אישור'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('לא הצלחתי לקרוא את השנה'), findsOneWidget);
+    });
+  });
+
   group('burial location and photo', () {
     test('burialSearchQuery joins the parts, or is null when empty', () {
       Memorial at({String? cemetery, String? plot}) => _seed(

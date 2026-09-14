@@ -9,6 +9,96 @@ import '../services/hebrew_calendar_service.dart';
 import '../services/location_service.dart';
 import 'hebrew_date_picker.dart';
 
+/// מבקש שנה עברית בהקלדה, לשנים שאינן ברשימה.
+///
+/// מקבל גימטריה או מספרים – ראה [HebrewCalendarService.parseHebrewYear].
+/// מציג את מה שהובן לפני האישור, כי גימטריה קל להקליד בטעות ושנה שגויה
+/// אינה נראית שגויה.
+class _YearInputDialog extends StatefulWidget {
+  const _YearInputDialog({required this.calendar, this.initial});
+
+  final HebrewCalendarService calendar;
+  final int? initial;
+
+  @override
+  State<_YearInputDialog> createState() => _YearInputDialogState();
+}
+
+class _YearInputDialogState extends State<_YearInputDialog> {
+  late final TextEditingController _controller = TextEditingController(
+    text: widget.initial == null
+        ? ''
+        : widget.calendar.formatHebrewYear(widget.initial!),
+  );
+  String? _error;
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  /// מה שהוקלד, כפי שהובן. null כשאי אפשר לקרוא אותו.
+  int? get _parsed => widget.calendar.parseHebrewYear(_controller.text);
+
+  void _confirm() {
+    final year = _parsed;
+    if (year == null) {
+      setState(() => _error = 'לא הצלחתי לקרוא את השנה');
+      return;
+    }
+    // אי אפשר להיפטר בעתיד – אותה מגבלה שיש לרשימה עצמה.
+    if (year > widget.calendar.currentHebrewYear()) {
+      setState(() => _error = 'השנה עדיין לא הגיעה');
+      return;
+    }
+    Navigator.of(context).pop(year);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final year = _parsed;
+    return AlertDialog(
+      title: const Text('שנת פטירה'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          TextField(
+            controller: _controller,
+            autofocus: true,
+            textInputAction: TextInputAction.done,
+            decoration: InputDecoration(
+              hintText: 'תשפ״ו או 5786',
+              helperText: 'בגימטריה או במספרים',
+              border: const OutlineInputBorder(),
+              errorText: _error,
+            ),
+            onChanged: (_) => setState(() => _error = null),
+            onSubmitted: (_) => _confirm(),
+          ),
+          const SizedBox(height: 12),
+          // מה שהובן, כפי שיוצג בכרטיס. בלי ההד הזה אי אפשר לדעת אם
+          // הגימטריה נקראה כמו שהתכוונת עד שהאזכרה כבר נשמרה.
+          Text(
+            year == null ? '—' : '${widget.calendar.formatHebrewYear(year)}  ·  $year',
+            style: theme.textTheme.titleMedium
+                ?.copyWith(color: theme.colorScheme.primary),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('ביטול'),
+        ),
+        FilledButton(onPressed: _confirm, child: const Text('אישור')),
+      ],
+    );
+  }
+}
+
 /// תוצאת טופס האזכרה שמוחזרת למסך הקורא.
 class MemorialFormResult {
   final String name;
@@ -151,6 +241,49 @@ class _MemorialFormState extends State<MemorialForm> {
   }
 
   bool _locating = false;
+
+  /// ערך הדמה של "שנה אחרת". שלילי, ולכן לעולם אינו מתנגש בשנה אמיתית.
+  static const int _otherYear = -1;
+
+  /// מפתח לשדה השנה, כדי להחזיר אותו למצב שלנו אחרי הדיאלוג.
+  ///
+  /// DropdownButtonFormField מחזיק ערך פנימי משלו, ו-didUpdateWidget מסנכרן
+  /// אותו רק כש-initialValue משתנה. בביטול הדיאלוג הוא אינו משתנה – ובלי
+  /// המפתח השדה היה נשאר תקוע על "שנה אחרת…" אף שלא נבחרה שנה.
+  final _yearFieldKey = GlobalKey<FormFieldState<int?>>();
+
+  /// השנים שמוצעות ברשימה.
+  ///
+  /// הטווח הרגיל, ובנוסף השנה שכבר נבחרה כשהיא מחוצה לו. **בלי התוספת הזו
+  /// הרשימה זורקת**: DropdownButtonFormField דורש שהערך יופיע בין הפריטים,
+  /// ואזכרה שיובאה עם שנה ישנה יותר מ-120 שנה הפילה את מסך העריכה כולו.
+  List<int> _yearChoices() {
+    final years = _calendar.deathYearChoices();
+    final chosen = _deathYear;
+    if (chosen != null && !years.contains(chosen)) {
+      years.add(chosen);
+      years.sort((a, b) => b.compareTo(a));
+    }
+    return years;
+  }
+
+  /// מטפל בבחירה בשדה השנה.
+  Future<void> _pickYear(int? value) async {
+    if (value != _otherYear) {
+      setState(() => _deathYear = value);
+      return;
+    }
+    final typed = await showDialog<int>(
+      context: context,
+      builder: (_) =>
+          _YearInputDialog(calendar: _calendar, initial: _deathYear),
+    );
+    if (!mounted) return;
+    if (typed != null) setState(() => _deathYear = typed);
+    // בשני המקרים מיישרים את השדה למצב שלנו: באישור כדי שיציג את השנה
+    // החדשה, ובביטול כדי שלא יישאר תקוע על ערך הדמה.
+    _yearFieldKey.currentState?.didChange(_deathYear);
+  }
 
   /// הנקודה שבשדה כרגע, או null אם אין בו כזו.
   Coordinates? get _typedPoint =>
@@ -412,6 +545,7 @@ class _MemorialFormState extends State<MemorialForm> {
           // ולכן "לא ידועה" חייבת להישאר אפשרות לגיטימית ולא ברירת מחדל
           // שגויה כלשהי.
           DropdownButtonFormField<int?>(
+            key: _yearFieldKey,
             initialValue: _deathYear,
             isExpanded: true,
             decoration: const InputDecoration(
@@ -425,13 +559,20 @@ class _MemorialFormState extends State<MemorialForm> {
                 value: null,
                 child: Text('לא ידועה'),
               ),
-              for (final y in _calendar.deathYearChoices())
+              for (final y in _yearChoices())
                 DropdownMenuItem<int?>(
                   value: y,
                   child: Text(_calendar.formatHebrewYear(y)),
                 ),
+              // בסוף הרשימה ולא בראשה: זו יציאת חירום, לא המסלול הרגיל.
+              // הרשימה מכסה 120 שנה, ומי שצריך רחוק מזה – סב-רבא, רשומה
+              // ישנה – נתקע בלי שום דרך להזין את השנה.
+              const DropdownMenuItem<int?>(
+                value: _otherYear,
+                child: Text('שנה אחרת…'),
+              ),
             ],
-            onChanged: (v) => setState(() => _deathYear = v),
+            onChanged: _pickYear,
           ),
           const SizedBox(height: 20),
 

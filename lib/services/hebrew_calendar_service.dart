@@ -611,6 +611,57 @@ class HebrewCalendarService {
     return [for (var y = current; y > current - span; y--) y];
   }
 
+  /// ערכי הגימטריה. אותיות סופיות נספרות כרגילות – בשנים לא נהוג לתת
+  /// להן 500–900, ומי שמקליד ת״ש ולא ת״ם מתכוון לאותו דבר.
+  static const Map<String, int> _gematria = {
+    'א': 1, 'ב': 2, 'ג': 3, 'ד': 4, 'ה': 5, 'ו': 6, 'ז': 7, 'ח': 8, 'ט': 9,
+    'י': 10, 'כ': 20, 'ך': 20, 'ל': 30, 'מ': 40, 'ם': 40, 'נ': 50, 'ן': 50,
+    'ס': 60, 'ע': 70, 'פ': 80, 'ף': 80, 'צ': 90, 'ץ': 90,
+    'ק': 100, 'ר': 200, 'ש': 300, 'ת': 400,
+  };
+
+  /// קורא שנה עברית שהוקלדה כטקסט, או null אם אי אפשר לקרוא אותה.
+  ///
+  /// **סלחני בכוונה**, מאותו טעם כמו [Coordinates.tryParse]: הרשימה מציגה
+  /// גימטריה, ולכן זו הצורה שיבוא לאדם להקליד – אבל מי שיש לו את המספר
+  /// לא צריך לתרגם אותו בראש. שתי הצורות מתקבלות:
+  ///
+  ///     תשפ״ו · התשפ״ו · ה׳תשפ״ו · 5786   ->   5786
+  ///
+  /// אלף החמישי מושלם כשהוא חסר: מחרוזת שסכומה קטן מאלף היא כתיב מקוצר
+  /// (תשפ״ו = 786), וזה הכתיב הרווח. ה׳ פותחת מטופלת במפורש ולא דרך
+  /// הסכום, אחרת ה׳תשפ״ו היה יוצא 791 ואז 5791 – שנה שגויה שנראית תקינה.
+  int? parseHebrewYear(String? text) {
+    if (text == null) return null;
+    final raw = text.trim();
+    if (raw.isEmpty) return null;
+
+    // מספרים כפי שהם.
+    if (RegExp(r'^\d+$').hasMatch(raw)) return int.tryParse(raw);
+
+    // גרשיים, גרש, רווחים ואפוסטרוף אינם נושאים ערך – מוסרים הכול חוץ
+    // מאותיות עבריות.
+    final letters = raw.replaceAll(RegExp(r'[^\u05D0-\u05EA]'), '');
+    if (letters.isEmpty) return null;
+
+    var rest = letters;
+    var thousands = 0;
+    if (rest.length > 1 && rest[0] == 'ה') {
+      thousands = 5000;
+      rest = rest.substring(1);
+    }
+
+    var sum = 0;
+    for (final ch in rest.split('')) {
+      final v = _gematria[ch];
+      if (v == null) return null;
+      sum += v;
+    }
+    if (sum == 0) return null;
+    if (thousands == 0 && sum < 1000) thousands = 5000;
+    return thousands + sum;
+  }
+
   /// מפרמט שנה עברית בגימטריה, למשל 5786 -> תשפ״ו.
   /// (kosher_dart משמיט את אלף השנים ומשתמש בגרשיים ״.)
   String formatHebrewYear(int hebrewYear) {

@@ -1435,3 +1435,48 @@ asked about every day of every month must agree with a fresh service asked
 about one; and two memorials differing in everything except the Hebrew date
 must share an entry and still be right, while one differing in the date must
 not.
+
+## A year the list does not reach
+
+`deathYearChoices` offers 120 Hebrew years back from the current one. A
+great-grandparent is further back than that, and there was no way to enter such
+a year at all.
+
+**It was also a crash.** `DropdownButtonFormField` asserts that its value is
+among its items, so a memorial carrying a year outside the window took the
+whole edit screen down with a Flutter assertion — white screen, no message.
+That is reachable today through an imported backup, where `death_hebrew_year`
+is a raw integer that no dropdown ever constrained. `_yearChoices()` now adds
+the chosen year to the list when the range does not contain it, which is both
+the feature and the fix.
+
+The escape hatch is the **last** item, not the first: it is a way out, not the
+normal path. Choosing it opens a small dialog that accepts either form —
+
+```
+תשפ״ו · התשפ״ו · ה׳תשפ״ו · 5786   ->   5786
+```
+
+`parseHebrewYear` completes the missing thousand (a sum below 1000 is the
+common shortened spelling) and handles a leading ה explicitly rather than
+through the sum — otherwise ה׳תשפ״ו totals 791 and then becomes 5791, a wrong
+year that looks entirely valid.
+
+**The dialog echoes what it understood**, formatted and as a number, before the
+confirm. Gematria is easy to mistype and a wrong year does not look wrong;
+`זזז` is perfectly good arithmetic (21, completed to 5021), so the parser
+cannot refuse it and the echo is the only thing that can. Same bargain as the
+coordinates field: forgiving input, visible interpretation.
+
+Two traps worth keeping:
+
+- **Cancelling must put the field back by hand.** The dropdown keeps a value of
+  its own and `didUpdateWidget` syncs it only when `initialValue` changes —
+  which a cancel does not do, so the field stayed on "שנה אחרת…" showing a
+  sentinel. A `GlobalKey<FormFieldState<int?>>` and an explicit `didChange`
+  after the dialog closes, on both branches.
+- A widget test should **not** drive the menu: it holds 120-odd items, so the
+  entry at its end is not reliably built. The menu is wired straight to
+  `state.didChange`, which sets the internal value *and* calls `onChanged` — so
+  calling that one method is exactly a real tap, and the items list is asserted
+  separately off the inner `DropdownButton`.
