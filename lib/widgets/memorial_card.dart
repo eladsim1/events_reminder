@@ -20,6 +20,16 @@ class MemorialCard extends StatelessWidget {
   /// נקרא בהקשה על מיקום הקבר. null מסתיר את כפתור הניווט.
   final VoidCallback? onNavigate;
 
+  /// נקרא בהקשה על שבב הקטגוריה. null הופך אותו לתווית בלבד.
+  final VoidCallback? onChangeKind;
+
+  /// המפתח של שבב הקטגוריה.
+  ///
+  /// קיים בשביל הבדיקות: השבב יושב בתוך ה-InkWell של הכרטיס, ולכן חיפוש
+  /// לפי טקסט מחזיר שני InkWell – והבחירה ביניהם לפי סדר היא בדיוק סוג
+  /// השבירות שאין דרך לראות עד שהיא נשברת.
+  static const Key kindChipKey = ValueKey('kind-chip');
+
   /// הסימן של קטגוריה. חשוף כדי שהטופס ושורת הסינון ישתמשו באותו אחד.
   static Widget kindMark(MemorialKind kind, {Color? color, double? size}) =>
       _KindChip.markFor(kind, color: color, size: size);
@@ -31,6 +41,7 @@ class MemorialCard extends StatelessWidget {
     required this.onTap,
     required this.onToggle,
     this.onNavigate,
+    this.onChangeKind,
   });
 
   String _daysLabel(int days) {
@@ -149,9 +160,15 @@ class MemorialCard extends StatelessWidget {
                     // הסימון צמוד לתאריך העברי ולא לשם: הוא מאפיין את
                     // האזכרה, ובמבט על הרשימה הוא נקרא באותה שורה שבה
                     // קוראים מתי היא.
-                    if (memorial.kind != MemorialKind.none) ...[
+                    // כשאפשר לשנות את הקטגוריה מכאן, גם אזכרה לא מסומנת
+                    // צריכה משהו ללחוץ עליו – אחרת אפשר רק *לשנות* סימון
+                    // קיים ולא להוסיף אחד. השבב הריק מצויר כמתאר בלבד, בלי
+                    // מילוי ועם סימן חיבור, כך שהוא נקרא כפעולה ולא כטענה:
+                    // "אין כאן קטגוריה" ולא "הקטגוריה היא ללא".
+                    if (memorial.kind != MemorialKind.none ||
+                        onChangeKind != null) ...[
                       const SizedBox(width: 8),
-                      _KindChip(kind: memorial.kind),
+                      _KindChip(kind: memorial.kind, onTap: onChangeKind),
                     ],
                     if (memorial.deathHebrewYear case final year?) ...[
                       const SizedBox(width: 8),
@@ -286,9 +303,10 @@ class _Portrait extends StatelessWidget {
 /// האייקון הוא המזהה במבט על הרשימה – משפחה מול ספר – והכיתוב לצדו כדי
 /// שלא יידרש מקרא. צבע מבדיל בין השניים אך אינו נושא את המידע לבדו.
 class _KindChip extends StatelessWidget {
-  const _KindChip({required this.kind});
+  const _KindChip({required this.kind, this.onTap});
 
   final MemorialKind kind;
+  final VoidCallback? onTap;
 
   /// הסימן של כל קטגוריה. מקום אחד, כדי שהרשימה, הסינון והכרטיס לא יציגו
   /// שלושה דברים שונים לאותה קטגוריה.
@@ -313,31 +331,54 @@ class _KindChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final empty = kind == MemorialKind.none;
     final family = kind == MemorialKind.family;
-    final bg = family
-        ? theme.colorScheme.primaryContainer
-        : theme.colorScheme.tertiaryContainer;
-    final fg = family
-        ? theme.colorScheme.onPrimaryContainer
-        : theme.colorScheme.onTertiaryContainer;
 
-    return Container(
+    final bg = empty
+        ? Colors.transparent
+        : family
+            ? theme.colorScheme.primaryContainer
+            : theme.colorScheme.tertiaryContainer;
+    final fg = empty
+        ? theme.colorScheme.outline
+        : family
+            ? theme.colorScheme.onPrimaryContainer
+            : theme.colorScheme.onTertiaryContainer;
+
+    final content = Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
       decoration: BoxDecoration(
         color: bg,
         borderRadius: BorderRadius.circular(10),
+        border: empty
+            ? Border.all(color: theme.colorScheme.outlineVariant)
+            : null,
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          markFor(kind, color: fg),
+          if (empty)
+            Icon(Icons.add, size: 14, color: fg)
+          else
+            markFor(kind, color: fg),
           const SizedBox(width: 4),
           Text(
-            kind.label,
+            empty ? 'קטגוריה' : kind.label,
             style: theme.textTheme.labelSmall?.copyWith(color: fg),
           ),
         ],
       ),
+    );
+
+    if (onTap == null) return content;
+
+    // InkWell מקונן: הוא בולע את ההקשה כך שהיא אינה מגיעה לכרטיס ופותחת
+    // את מסך העריכה. בלי זה הקשה על השבב הייתה עושה את שני הדברים.
+    return InkWell(
+      key: MemorialCard.kindChipKey,
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(10),
+      child: content,
     );
   }
 }

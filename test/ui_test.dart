@@ -463,6 +463,16 @@ Future<void> _loadHebrewFont() async {
   }
 }
 
+/// שבב הקטגוריה של כרטיס מסוים.
+///
+/// ממוקד לכרטיס ולפי מפתח: השבב יושב בתוך ה-InkWell של הכרטיס, וחיפוש לפי
+/// טקסט מחזיר את שניהם.
+Finder _kindChipOf(String name) => find.descendant(
+      of: find.ancestor(
+          of: find.text(name), matching: find.byType(MemorialCard)),
+      matching: find.byKey(MemorialCard.kindChipKey),
+    );
+
 Memorial _seed({
   required int id,
   required String name,
@@ -2011,6 +2021,83 @@ void main() {
 
       expect(find.text('אין אזכרות בקטגוריה "צדיקים"'), findsOneWidget);
       expect(find.byType(MemorialCard), findsNothing);
+    });
+
+    testWidgets('the category can be changed from the list itself',
+        (tester) async {
+      _phoneViewport(tester);
+      final (repo, notif) = await _pumpApp(tester, seeded: threeKinds());
+      notif.log.clear();
+
+      // The chip on a marked card is the handle.
+      await tester.tap(_kindChipOf('סבא יעקב'));
+      await tester.pumpAndSettle();
+
+      // The sheet says which memorial, and marks where it stands now.
+      expect(find.text('סבא יעקב'), findsWidgets);
+      expect(find.byIcon(Icons.check), findsOneWidget);
+
+      await tester.tap(find.widgetWithText(ListTile, 'צדיקים'));
+      await tester.pumpAndSettle();
+
+      expect(repo.items.firstWhere((m) => m.id == 1).kind,
+          MemorialKind.tzadik);
+      // And it says so, because with a category filter on, the card would
+      // vanish from the list the moment it changes. Scoped to the SnackBar:
+      // one of the seeded memorials is itself named "לא סומן".
+      expect(
+        find.descendant(
+            of: find.byType(SnackBar), matching: find.textContaining('סומן')),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('an unmarked memorial has something to press', (tester) async {
+      _phoneViewport(tester);
+      // Without this there is no way to ADD a marking from the list, only to
+      // change one that already exists.
+      final (repo, _) = await _pumpApp(tester, seeded: [
+        _seed(id: 1, name: 'לא סומן', day: 10, month: HebrewMonth.av),
+      ]);
+
+      await tester.tap(_kindChipOf('לא סומן'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(ListTile, 'משפחה'));
+      await tester.pumpAndSettle();
+
+      expect(repo.items.single.kind, MemorialKind.family);
+    });
+
+    testWidgets('pressing the chip does not also open the edit screen',
+        (tester) async {
+      _phoneViewport(tester);
+      await _pumpApp(tester, seeded: threeKinds());
+
+      await tester.tap(_kindChipOf('סבא יעקב'));
+      await tester.pumpAndSettle();
+
+      // The card's own InkWell wraps the whole thing, so without the nested
+      // one swallowing the tap this would have done both.
+      expect(find.byType(EditMemorialScreen), findsNothing);
+      expect(find.byType(BottomSheet), findsOneWidget);
+    });
+
+    testWidgets('changing a category does not disturb the alarms',
+        (tester) async {
+      _phoneViewport(tester);
+      final (_, notif) = await _pumpApp(tester, seeded: threeKinds());
+      notif.log.clear();
+
+      await tester.tap(_kindChipOf('סבא יעקב'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(ListTile, 'צדיקים'));
+      await tester.pumpAndSettle();
+
+      // The category changes no date, no occurrence count and no notification
+      // text, so cancelling and rescheduling here would be work on the
+      // notification store - under the lock - for a field that cannot affect
+      // it.
+      expect(notif.log, isEmpty);
     });
 
     testWidgets('the two are told apart on the list, and the unmarked stays'

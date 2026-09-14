@@ -217,6 +217,51 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     );
   }
 
+  /// בוחר קטגוריה לאזכרה, מתוך הרשימה עצמה.
+  ///
+  /// גיליון תחתון ולא תפריט: שלוש שורות עם סימן וכיתוב נקראות טוב יותר
+  /// מתפריט צף, והן גדולות מספיק להקשה בלי דיוק.
+  Future<void> _pickKind(BuildContext context, Memorial memorial) async {
+    final chosen = await showModalBottomSheet<MemorialKind>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+              child: Text(
+                memorial.name,
+                style: Theme.of(ctx).textTheme.titleMedium,
+              ),
+            ),
+            for (final k in MemorialKind.values)
+              ListTile(
+                leading: MemorialCard.kindMark(k,
+                    color: Theme.of(ctx).colorScheme.outline),
+                title: Text(k.label),
+                // מה שנבחר כרגע מסומן, אחרת אי אפשר לדעת ממה משנים.
+                trailing: memorial.kind == k
+                    ? Icon(Icons.check,
+                        color: Theme.of(ctx).colorScheme.primary)
+                    : null,
+                onTap: () => Navigator.of(ctx).pop(k),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (chosen == null || !mounted || chosen == memorial.kind) return;
+
+    await ref.read(memorialListProvider.notifier).setKind(memorial, chosen);
+    if (!mounted) return;
+    // אומרים מה קרה: עם סינון קטגוריה פעיל האזכרה נעלמת מהרשימה ברגע
+    // שהיא משתנה, וזה נראה כמו מחיקה אם לא אומרים דבר.
+    _tell(chosen == MemorialKind.none
+        ? 'הסימון של ${memorial.name} הוסר'
+        : '${memorial.name} סומן/ה כ${chosen.label}');
+  }
+
   /// ממיין את האזכרות לפי **תאריך האזכרה** הקרוב ביותר ואילך.
   ///
   /// לא לפי מועד התזכורת: זה מקדים את האזכרה ב-5 עד 11 יום תלוי ביום בשבוע,
@@ -410,6 +455,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                         onNavigate: m.hasBurialLocation
                             ? () => _navigate(context, ref, m)
                             : null,
+                        onChangeKind: () => _pickKind(context, m),
                       );
                     },
                   ),

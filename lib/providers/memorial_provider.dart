@@ -269,6 +269,18 @@ class MemorialNotifier extends AsyncNotifier<List<Memorial>> {
     }
   }
 
+  /// משנה את הקטגוריה של אזכרה.
+  ///
+  /// **אינו מתזמן מחדש**, בשונה מ-[updateMemorial]: הקטגוריה אינה משפיעה
+  /// על מועד התזכורת, על מספר המופעים ולא על טקסט ההתראה, ולכן ביטול
+  /// ותזמון מחדש של האזעקות כאן היו עבודה מיותרת על מאגר ההתראות – תחת
+  /// נעילה, בשביל שדה שאינו נוגע להן.
+  Future<void> setKind(Memorial memorial, MemorialKind kind) async {
+    if (memorial.kind == kind) return;
+    await _repo.update(memorial.copyWith(kind: kind));
+    await _refresh();
+  }
+
   /// מכבה או מפעיל תזכורות לפי מזהה, ומחזיר את השם או null אם אין כזו.
   ///
   /// נופל חזרה למסד כשהרשימה עדיין לא נטענה. זה קורה בדיוק בנתיב שבשבילו

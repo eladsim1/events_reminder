@@ -1585,3 +1585,35 @@ that reads as dirt rather than as a glint.
 because one of the three is not an icon. The card, the form's radio rows and
 the filter chips all call it, so the three cannot show different things for the
 same category.
+
+### Setting the category from the list
+
+The chip is the handle: tapping it opens a sheet with the three categories and
+a check on the current one.
+
+**An unmarked card needed something to press.** Otherwise the list can only
+*change* a marking, never add one — which is most of the work. So a card with
+no category now shows an outline-only chip reading "+ קטגוריה". That is a
+deliberate softening of the earlier rule: it is drawn with no fill and in the
+outline colour, so it reads as an empty slot rather than as a claim — "there is
+no category here", not "the category is none".
+
+Two things that would otherwise bite:
+
+- **The chip's `InkWell` is nested inside the card's.** The inner one swallows
+  the tap, so pressing the chip does not also push the edit screen. A test
+  holds that, because it is invisible until someone removes the nesting.
+- **`setKind` does not reschedule**, unlike `updateMemorial`. The category
+  changes no date, no occurrence count and no notification text, so cancelling
+  and rescheduling would be work on the notification store — under the lock —
+  for a field that cannot affect it. A test asserts the notification log stays
+  empty.
+
+The change is announced in a snackbar, because with a category filter active
+the card leaves the list the instant it changes, and silence there looks like a
+deletion.
+
+`MemorialCard.kindChipKey` exists for the tests: the chip sits inside the
+card's `InkWell`, so a search by text returns both, and picking between them by
+finder order is exactly the kind of brittleness that is invisible until it
+breaks.
