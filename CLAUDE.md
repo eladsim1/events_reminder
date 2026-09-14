@@ -1681,7 +1681,7 @@ Three choices in that, each load-bearing:
   tap still reaches the chip, the card and the switch.
 - **`onPointerDown`, not `onTap`** — the focus has to be released *before* the
   route is pushed, or there is something to restore again.
-- **One place, not每 caller** — the app bar stays outside it, so the search
+- **One place, not every caller** — the app bar stays outside it, so the search
   field itself still works, and anything added to the body later is covered
   without remembering to.
 
