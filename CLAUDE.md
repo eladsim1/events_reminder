@@ -29,6 +29,30 @@ along with them. The user asked for that explicitly. What survived from that
 layer is `PhoneLauncher.dial`, because the feedback row in Settings opens the
 dialer, and with it the `tel:` entry in the manifest's `<queries>`.
 
+### The repository is its own, since 2026-10-11
+
+This clone was made by copying the `azkarot_app` directory, so it **inherited
+that app's `origin`** and kept pointing at `github.com/eladsim1/azkarot_reminder`
+for three weeks. A push would have put the events app into the memorial app's
+repository.
+
+It now has its own:
+
+```
+origin    github.com/eladsim1/events_reminder     push here
+azkarot   github.com/eladsim1/azkarot_reminder    FETCH ONLY - push url is a
+                                                  deliberate non-url
+```
+
+Keeping `azkarot` as a remote is what makes the upstream sweep cheap — the
+delta is `git log 20556a8..azkarot/main` without leaving this clone. Its push
+url was replaced with a string that cannot resolve, on purpose: the whole point
+is that this must never be pushed there.
+
+**The history before `20556a8` is the memorial app's**, because that is
+literally where this app comes from. `a43ae08` is the conversion, and it is the
+first commit that is this app's own.
+
 ## Nothing here has run on hardware
 
 **Not one line of this app has been on a device.** The suite is green (313
