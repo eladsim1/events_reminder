@@ -1,6 +1,6 @@
 import 'package:workmanager/workmanager.dart';
 
-import '../repository/memorial_repository.dart';
+import '../repository/event_repository.dart';
 import 'notification_service.dart';
 import 'reminder_sync.dart';
 
@@ -16,7 +16,7 @@ import 'reminder_sync.dart';
 /// עבודה שבועית סוגרת את הפער בלי לבקש דבר מהמשתמש.
 class BackgroundRefresh {
   /// שם ייחודי – WorkManager מזהה לפיו את העבודה ומחליף אותה במקום לשכפל.
-  static const String uniqueName = 'azkarot-weekly-refresh';
+  static const String uniqueName = 'events-weekly-refresh';
   static const String taskName = 'refreshReminderWindow';
 
   static const Duration frequency = Duration(days: 7);
@@ -59,10 +59,10 @@ class BackgroundRefresh {
   /// [repo] ו-[notifications] נפתחים להזרקה כדי שהרישום יהיה בר-בדיקה.
   /// ה-isolate האמיתי אינו מעביר דבר ומקבל את ברירות המחדל.
   static Future<bool> run({
-    MemorialRepository? repo,
+    EventRepository? repo,
     NotificationService? notifications,
   }) async {
-    repo ??= MemorialRepository();
+    repo ??= EventRepository();
     try {
       await syncReminders(repo, notifications ?? NotificationService(),
           owner: 'background');
@@ -80,7 +80,7 @@ class BackgroundRefresh {
     }
   }
 
-  static Future<void> _record(MemorialRepository repo, String? error) async {
+  static Future<void> _record(EventRepository repo, String? error) async {
     try {
       await repo.recordBackgroundRun(DateTime.now(), error);
     } catch (_) {

@@ -1,0 +1,12 @@
+<!--
+  אנדרואיד 8 ומעלה מעדיף את ההצהרה הזו על פני ה-PNG שב-mipmap-*. בלעדיה
+  המשגר מקטין אייקון מרובע לתוך עיגול לבן עם מסגרת, וזו הסיבה שאייקונים
+  ישנים נראים קטנים ומיושנים לצד השאר.
+
+  ה-PNG-ים נשארים בכל זאת: minSdk הוא 24, ואנדרואיד 7 אינו מכיר adaptive-icon.
+-->
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@drawable/ic_launcher_background" />
+    <foreground android:drawable="@drawable/ic_launcher_foreground" />
+    <monochrome android:drawable="@drawable/ic_launcher_foreground" />
+</adaptive-icon>

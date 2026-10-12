@@ -11,6 +11,5 @@
   חסרות משמעות במכשיר אחר, כי האפליקציה מתזמנת הכול מחדש בפתיחה הראשונה.
 -->
 <full-backup-content>
-    <include domain="database" path="azkarot.db"/>
-    <include domain="file" path="memorial_photos"/>
+    <include domain="database" path="events.db"/>
 </full-backup-content>

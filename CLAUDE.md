@@ -1,32 +1,64 @@
-# azkarot_app — build & test notes
+# events_app — build & test notes
 
-## Verified end-to-end on hardware (2026-08-04)
+Flutter app (Android-only platform folder) that reminds about recurring happy
+occasions — birthdays, wedding anniversaries, the engagement, the day you met —
+on the **Tuesday of the week before** the event's week. Each event is counted in
+the **Hebrew calendar by default**, or in the Gregorian one if that is what its
+date means.
 
-A memorial on כ"ז באב (Gregorian 10/08/2026, a Monday) produced a reminder that
-fired on **Tuesday 04/08/2026 at the configured hour**, on a physical Samsung
-device, with the app closed. Confirmed by the user. This is the first and so far
-only live confirmation that the notification path works at all, and it validates:
-the Hebrew→Gregorian conversion via `kosher_dart`, the
-Tuesday-of-the-week-before rule, `exactAllowWhileIdle` delivery under Doze, and
-the `flutter_local_notifications` 17→22 API migration.
+## This app was converted from a memorial-reminder app (2026-09-18)
 
-Still unconfirmed on hardware, as of 2026-09-04 — the horizon is two Hebrew
-years now, not twenty:
+It began as `azkarot_app`, which reminded about Hebrew-calendar yahrzeits. The
+conversion kept every delivery mechanism intact — the id blocks, the alarm
+budget, the cross-isolate lock, the catch-up, the canary — and replaced the
+domain: event kinds instead of Kaddish categories, a second calendar, and a
+bright look instead of a deliberately muted one.
 
-- the multi-year recurrence (nothing has yet been observed firing in a later
-  year), the boot-receiver restore, and the missed-reminder catch-up;
+**It is a different app, not an upgrade.** The applicationId is
+`com.example.events_app`, the database is `events.db`, and the schema starts at
+version 1 with no migration from the memorial schema. That is deliberate three
+times over: the two apps are meant to coexist on one phone, an automatic
+conversion of a yahrzeit into a "happy event" would be a change of meaning
+rather than a migration, and the memorial app is in real use — its data must not
+be touched.
+
+**What was deleted, so nobody restores it by reflex:** the grave location
+(cemetery / plot / coordinates), the Waze and `geo:` launches, reading the
+current location, and both photo slots — with `geolocator` and the `PhotoStore`
+along with them. The user asked for that explicitly. What survived from that
+layer is `PhoneLauncher.dial`, because the feedback row in Settings opens the
+dialer, and with it the `tel:` entry in the manifest's `<queries>`.
+
+## Nothing here has run on hardware
+
+**Not one line of this app has been on a device.** The suite is green (313
+tests) and `flutter analyze` is clean, and neither of those can see what only a
+phone can.
+
+What *is* known, from the app this was converted from: on 2026-08-04 an event on
+כ"ז באב produced a reminder that fired on the configured hour of the Tuesday
+before, on a physical Samsung, with the app closed. That confirmed the parts
+this app inherited unchanged — `kosher_dart` conversion, the
+Tuesday-of-the-week-before rule, `exactAllowWhileIdle` under Doze, and the
+`flutter_local_notifications` 22 API. It says nothing about anything added
+since.
+
+Unconfirmed on hardware, and this is where the real risk sits:
+
+- the whole **Gregorian** half — it is exercised only by the suite;
+- the multi-year recurrence, the boot-receiver restore, and the
+  missed-reminder catch-up;
 - the DST edge case, only reachable around the March transition;
-- everything added since: the weekly `BackgroundRefresh` job, `CanaryReceiver`,
-  the Waze and `geo:` launches, reading the current location, share, and the
-  two photo slots;
+- the weekly `BackgroundRefresh` job and `CanaryReceiver`;
+- the notification text, title and action buttons as the shade renders them;
 - **the whole Kotlin layer has no automated coverage at all** — `MainActivity`'s
-  method channel and `CanaryReceiver` are exercised by nothing but the device.
+  method channel and `CanaryReceiver` are exercised by nothing but the device;
+- the 32-bit build. The APK provably *contains* `armeabi-v7a` (see "A phone
+  without 64 bits"), which is not the same as having watched it run on an
+  armv7 phone — nothing here has.
 
-That list, and not the Dart defects, is where the real risk sits: the suite can
-only ever check what the app believes about itself.
+The suite can only ever check what the app believes about itself.
 
-Flutter app (Android-only platform folder) that reminds about Hebrew-calendar
-yahrzeits on the **Tuesday of the week before** the memorial week.
 
 ## Building for Android
 
@@ -124,18 +156,21 @@ widget/golden rendering all work with the Flutter SDK alone.
 
 | file | what it exercises |
 |---|---|
-| `hebrew_calendar_service_test.dart`, `memorial_model_test.dart` | pure date/model logic |
-| `database_helper_test.dart` | the **real** SQLite schema + CRUD, and `MemorialRepository` on top of it, via `sqflite_common_ffi` |
+| `event_calendar_service_test.dart`, `event_model_test.dart` | pure date/model logic |
+| `database_helper_test.dart` | the **real** SQLite schema + CRUD, and `EventRepository` on top of it, via `sqflite_common_ffi` |
 | `ui_test.dart` | every screen rendered, plus add / edit / delete / toggle driven through the provider layer |
 
-`flutter test --coverage` sits at ~79% of `lib/`. The two deliberate holes:
+313 tests, ~14 seconds on this machine. The deliberate holes:
 
-- `notification_service.dart` (~5%) — replaced by a recording stub in
-  `ui_test.dart`, because `zonedSchedule` needs a real platform. **Nothing here
-  proves a notification actually fires at the right time.**
-- `settings_screen.dart` (~20%) — export/import go through `path_provider` and
+- `notification_service.dart` — the plugin is a private field with no public
+  constructor to subclass, so `ui_test.dart` replaces the whole service with a
+  recording stub. **Nothing here proves a notification actually fires at the
+  right time.** What *can* be checked without a device is the text, and
+  `bodyFor` is public for exactly that reason.
+- `settings_screen.dart` — export/import go through `path_provider` and
   `file_picker` platform channels. The data shape they move is covered by the
   JSON round-trip test in `database_helper_test.dart`, but the file I/O is not.
+- the Kotlin layer — nothing at all. See "Nothing here has run on hardware".
 
 `sqflite_common_ffi` needs no extra setup on this machine — sqlite resolves
 without a DLL override. Note that `DatabaseHelper` caches its connection in a
@@ -144,21 +179,21 @@ static field, so the tests truncate the table in `setUp` rather than reopening.
 ## Running the UI without a device
 
 `test/ui_test.dart` is the entry point: it renders every screen and drives the
-add-memorial and toggle flows through the real provider layer.
+add-event and toggle flows through the real provider layer.
 
 The cards show "days until the reminder", so the goldens would fail a day after
-being generated. `HebrewCalendarService` therefore takes an injectable clock
-(`HebrewCalendarService({DateTime Function()? now})`, defaulting to
-`DateTime.now`), and the test overrides `hebrewCalendarServiceProvider` with a
-pinned one. Note that `MemorialForm` and `HebrewDatePicker` construct the
+being generated. `EventCalendarService` therefore takes an injectable clock
+(`EventCalendarService({DateTime Function()? now})`, defaulting to
+`DateTime.now`), and the test overrides `calendarServiceProvider` with a
+pinned one. Note that `EventForm` and `EventDatePicker` construct the
 service directly rather than reading the provider, so a pinned clock does not
 reach them — fine today, since neither renders anything clock-dependent.
 
 `flutter test` renders real widgets on the Dart VM, so the actual screens can
 be driven and screenshotted with no Android involved. Two things are required:
 
-- Override `memorialRepositoryProvider` and `notificationServiceProvider` with
-  subclasses — the concrete `MemorialRepository` / `NotificationService` are
+- Override `eventRepositoryProvider` and `notificationServiceProvider` with
+  subclasses — the concrete `EventRepository` / `NotificationService` are
   injectable, and `DatabaseHelper.instance` is lazy so constructing it never
   opens SQLite.
 - Load a real font via `FontLoader`, otherwise all text renders as boxes.
@@ -179,7 +214,7 @@ out — pump in fixed slices until the target screen appears instead.
   `uiLocalNotificationDateInterpretation`. It was missing, which was a hard
   compile error — the app did not build at all before this.
 
-- `HebrewCalendarService.nextMemorialDate` accepted a `from` parameter but used
+- `EventCalendarService.nextOccurrenceDate` accepted a `from` parameter but used
   it only for the "is this in the past" comparison — the starting Hebrew year
   came from `_currentHebrewYear()`, i.e. the real `DateTime.now()`. So `from`
   could not steer the search: `from: 2010-01-01` returned 2025-10-02. That made
@@ -197,7 +232,7 @@ Israeli DST transition is 167h or 169h rather than 168h. Two separate bugs came
 from this and both are fixed; keep the rule when touching date code.
 
 - `tuesdayBeforeWeekOf` built the week offset with `Duration(days: 7)` and
-  returned the result unnormalised. For a memorial on 2027-03-28 it returned
+  returned the result unnormalised. For an event on 2027-03-28 it returned
   **Monday** 2027-03-22 23:00, so the reminder fired a day early. Now the
   arithmetic is on date components: `DateTime(y, m, sunday.day - 5)`, which
   normalises overflow and is DST-immune.
@@ -246,125 +281,461 @@ Android the extension filter becomes a MIME filter, and many file providers do
 not report `application/json`, which greys the backups out. The `.json` check
 is done in Dart instead.
 
-## Features added 2026-08-04
+## What an event carries
 
-- **A grave has a point, not only a description.** `latitude`/`longitude`
-  (schema v7) sit *beside* `cemetery`/`plot` rather than replacing them: a text
-  search reaches the cemetery gate, a coordinate reaches the grave.
-  `NavigationLauncher.openCoordinates` uses `geo:lat,lng?q=lat,lng(label)` —
-  the repeated `q` with a label matters, because without it some apps centre
-  the map on the point without dropping a pin, leaving nothing to press
-  "navigate" on. The card prefers the point when both exist, and offers
-  navigation when only a point exists.
-
-  The form takes **pasted text**, not a map picker: a picker needs an API key
-  and a heavy dependency, and in practice nobody types coordinates — they copy
-  them. `Coordinates.tryParse` is deliberately forgiving and takes the first
-  pair it finds, so "31.7683, 35.2137", the same without a space, and a whole
-  Google Maps URL all work (in a URL the first pair is the place; what follows
-  is the zoom). It refuses values outside the real ranges, because a field that
-  accepts nonsense is a navigate button that leads nowhere.
-
-  **Percent-decode before matching.** Waze share links encode the comma as
-  `%2C`, so undecoded they read as two numbers with no separator and parse as
-  nothing — in the very app people use to share a location. Decoding is wrapped
-  in a try, since text pasted mid-string can carry broken encoding and
-  `decodeFull` throws on it.
-
-  Below the field sits a **labelled** navigate button — "נסיעה לנקודה בוויז" —
-  rather than an icon inside it. An icon with a tooltip is not discoverable by
-  touch: nothing on screen said what it did or which app it opened. It sits in
-  a `Wrap` beside the location button, because two labelled Hebrew buttons do
-  not fit one row on a narrow screen and a `Row` overflows.
-
-  It opens Waze straight to
-  whatever is typed *right now* — the point of it is to check a value before
-  committing to it, so it reads the field rather than the saved record, and it
-  is disabled until the text parses. Waze specifically, not the chooser the
-  card uses: a check wants a route, not another question. `navigate=yes` is
-  what starts driving; without it Waze shows the pin and waits. It falls back
-  from `waze://` to the https link, which opens the app if installed and the
-  site if not.
-
-  Both the `waze` scheme **and** `<package android:name="com.waze"/>` are
-  declared in `<queries>`. Third time this trap has bitten here, after `geo:`
-  and `tel:`: without the declaration `canLaunchUrl` returns false however
-  well-formed the link is, and the button silently does nothing.
-
-  **"Use my current location"** is the way a grave's point is actually
-  captured: you are standing there once a year anyway. `LocationService` wraps
-  `geolocator` and reports **why** it failed, not just that it did — a denial
-  is a prompt, a permanent denial is system settings, and GPS being off is
-  neither, so one message for all three would send the user to the wrong
-  screen. It writes into the text field rather than straight into the result,
-  so the reading can be seen, corrected or abandoned before saving, and the
-  button disables itself while reading: a second tap would start a parallel
-  read that could overwrite the newer value.
-
-  The picker is **injected** into `MemorialForm`, like `photoPicker`, so the
-  form never touches a plugin and stays testable; passing null hides the
-  button. `ACCESS_FINE_LOCATION` is requested only on that tap — ordinary use
-  never touches location.
-
-  Two test traps here, both found by failing: the field's `hintText` is a real
-  coordinate, so a test using those same numbers matches the hint and passes
-  without anything being read; and `ScaffoldMessenger` **queues** snackbars, so
-  four failure cases in one loop leave the second and later ones waiting behind
-  the first. One test each.
-
-  Two formats deliberately return null rather than a guess: shortened links
-  (`maps.app.goo.gl/...`) hold nothing but an id and would need a network fetch,
-  and degrees-minutes-seconds (`31°46'05.9"N`) is not parsed at all.
-
-- **Burial location** as two fields (`cemetery`, `plot`), joined by
-  `Memorial.burialSearchQuery` and opened via `NavigationLauncher` with a
-  `geo:0,0?q=` URI so Android offers a chooser (Waze, Maps, …) rather than
-  hard-coding one provider. Requires the `geo` and `https` `<intent>` entries in
-  the manifest's `<queries>` — without them `canLaunchUrl` returns false on
-  Android 11+ even when Waze is installed.
-- **Photo** (`photo_path`), downscaled to `PhotoStore.maxDimension` (256px) and
-  written into app support storage. Two reasons the copy is mandatory: the
-  picker returns a **cache** path Android later deletes, and a full-size phone
-  photo is megabytes for a 48px avatar. Downscaling with `dart:ui`
-  (`ImageDescriptor` + `instantiateCodec`) avoids an image package.
-  `_Portrait` checks `File.existsSync()` and falls back to the candle.
-- **Photos are included in the JSON backup** as base64 under `photo_data`;
-  `photo_path` is stripped on export because a path from another device is
-  meaningless. This only stays practical because of the downscale — embedding
-  originals would produce tens of MB per backup. Import restores each image to
-  local storage and rewrites `photoPath`. A corrupt `photo_data` is skipped, not
-  fatal to the whole import.
-- **Snooze actions** on the notification (3 days / 7 days). The handler runs in
-  a background isolate with no `ProviderScope` and no database, so the body text
-  travels in the notification `payload`, and timezones are re-initialised there.
+- **A kind** (`kind`) — birthday / anniversary / engagement / first-met /
+  other. Not a decoration: it is what words the notification
+  ("יום ההולדת של דנה" against "יום הנישואין של דנה"), what picks the mark and
+  the colour on the card, and the second filter dimension on the list. There is
+  no "unmarked" value, unlike the memorial app's categories — every event has a
+  kind, and an unknown value from a newer backup falls back to `other`.
+- **A calendar** (`calendar`) — Hebrew or Gregorian, per event. See "Two
+  calendars, one mechanism" below; this is the biggest thing the conversion
+  added.
+- **A date** (`day`, `month`, `adar_type`) — one pair of columns for both
+  calendars, where `month` is a `HebrewMonth` index for a Hebrew event and 1–12
+  for a Gregorian one. A second pair of columns would have invited the question
+  "which one is live" at every site that touches it, and a wrong answer there is
+  an event on the wrong day.
+- **A start year** (`start_year`) — **nullable on purpose**: plenty of events
+  are kept without remembering the year, so "unknown" has to stay a legitimate
+  value rather than collapse into a wrong default. It is stored **in the
+  event's own calendar**, which is what makes it subtractable from the
+  occurrence year in `EventCalendarService.anniversaryNumber` ("יום הנישואין
+  ה-25"). Subtracting a Hebrew year from a Gregorian occurrence would produce
+  about −3760, which then vanishes silently because the count refuses to show a
+  number below 1.
+- **Snooze** from the notification. The handler runs in a background isolate
+  with no `ProviderScope` and no database, so the body text travels in the
+  notification `payload`, and timezones are re-initialised there.
   `notificationTapBackground` must stay a top-level function annotated
   `@pragma('vm:entry-point')` or R8 removes it.
 - **Configurable reminder timing** (`reminder_mode`, `reminder_value`), default
-  unchanged: `weekdayOfPreviousWeek` + Tuesday. `fixedDaysBefore` gives a
-  consistent gap instead of the 5–11 day spread.
+  `weekdayOfPreviousWeek` + Tuesday. `fixedDaysBefore` gives a consistent gap
+  instead of the 5–11 day spread. The default sounds odd for a birthday and is
+  not: a present, a restaurant booking or a surprise all need a few days.
 
-- **Year of death** (`death_hebrew_year`, v4) — **nullable on purpose**: many
-  yahrzeits are kept by the anniversary alone, so "unknown" has to stay a
-  legitimate value rather than collapse into a wrong default. Its point is
-  `HebrewCalendarService.yahrzeitNumber`, which reports whether the coming
-  occurrence is the first, third, and so on. It returns null when the death
-  year is at or after the occurrence, so a nonsensical count is never shown.
+Schema is **v1** and `_onUpgrade` is empty — see the conversion note at the top.
+Every future change has to be incremental and in ascending order, because by
+then there will be installs with data.
 
-Schema is now **v8** (see "Two photos per memorial" below for v8); `_onUpgrade` is incremental and the v3 columns carry SQL
-defaults so upgraded installs keep behaving identically.
+### The kind is baked into the notification, so changing it must reschedule
+
+`EventNotifier.setKind` calls `updateEvent`, which cancels and reschedules.
+That is **the opposite** of the memorial app, where the equivalent `setKind`
+deliberately did *not* touch the notification store and a test asserted the log
+stayed empty. The reason flipped with the domain: there the category was a
+visual label, here the kind decides the notification's title and its opening
+words, and those are written at `zonedSchedule` time. Without the reschedule,
+an event switched from birthday to anniversary would go on announcing the old
+kind until it was edited for some other reason.
+
+`rescheduleAll` alone is not enough for this: it skips an event whose queue is
+already the right size, and changing a kind changes no count.
 
 ### Test harness notes for the form
 
-`MemorialForm` is a lazy `ListView`, and it is now tall enough that the save
-button is not built until scrolled to — `ensureVisible` throws "No element".
+`EventForm` is a lazy `ListView`, and it is tall enough that the save button is
+not built until scrolled to — `ensureVisible` throws "No element".
 `_revealInForm` drives `ScrollPosition.jumpTo` directly instead of simulating a
 drag, because a drag starts at the Scrollable's centre, which lands on the date
 picker's wheels and silently changes the date. The finder is scoped to
-`MemorialForm`: the home screen stays mounted beneath the pushed route, so a
-bare `find.byType(ListView)` can grab the wrong list.
+`EventForm`: the home screen stays mounted beneath the pushed route, so a bare
+`find.byType(ListView)` can grab the wrong list.
 
-Also inject the photo picker (`MemorialForm.photoPicker`) rather than calling
-`PhotoStore` directly, so the form stays testable without plugins.
+**The conversion snackbar sits over the save button.** Switching the calendar
+announces itself in a `SnackBar`, which floats above the bottom of the screen —
+exactly where the save row ends up on a phone viewport. A test that switches
+and then saves has to let it expire first (`pump(seconds: 5)`); it was the
+cause of a save that silently did nothing. The snackbar's duration is 2 seconds
+for the same reason, and the picker's own preview line is what really shows the
+converted date.
+
+
+## Two calendars, one mechanism
+
+An event is counted in the Hebrew calendar (the default) or in the Gregorian
+one, per event. The whole difference collapses to one question — *what is the
+Gregorian date of the occurrence in year N* — and that question is answered in
+`EventCalendarService._occurrenceForYear` and **nowhere else**. Everything above
+it (the reminder rule, the future-occurrence window, the missed-reminder
+catch-up, the postponement, the alarm budget, the sort order) never learns which
+calendar it is dealing with.
+
+The word "year" in that service means **a year in the event's own calendar**:
+a Hebrew year for a Hebrew event, a Gregorian year for a Gregorian one.
+`_yearOf(date, calendar)` is the one place that translation happens.
+
+**Why not use Android's annual repeat for Gregorian events.** `zonedSchedule`'s
+`matchDateTimeComponents` can repeat annually on a fixed Gregorian date, which
+would fit them exactly. Doing it would mean two scheduling paths, two
+cancellation paths, two ways to count what is queued, and an alarm budget that
+cannot be computed — for a saving of nothing that matters. One path.
+
+### 29 February is the twin of ל' בחשוון, and worse
+
+The Hebrew half already had the lesson: a date that some years lack must fall
+back to the last day of its month rather than skip the year, because an event
+with no reminder is worse than one a day early. The Gregorian half needs the
+same rule for 29 February — and carries an extra trap:
+
+```dart
+DateTime(2027, 2, 29)   // == 1 March 2027. No error. No warning.
+```
+
+It does not fail, it *rolls over* — so the naive version moves the event into
+another month, silently. `_computeGregorianOccurrence` therefore asks
+`daysInGregorianMonth(year, month)` first and clamps. That helper is
+`DateTime(year, month + 1, 0).day` — day zero of the next month — so the leap
+rule is never written out by hand and cannot drift.
+
+`maxDaysInMonth` scans four years for a Gregorian month and nineteen for a
+Hebrew one (the leap cycles), which is what lets the input accept 29 February
+and ל' בחשוון while still refusing 30 February and ל' באייר. `adjustedDayNote`
+says which years moved and why, in each calendar's own words.
+
+### Switching an event's calendar must convert the date
+
+"14 בחשוון" and "14 בנובמבר" are two different days. Flipping the calendar
+while keeping the numbers would silently change when the event falls — the same
+class of bug as the picker that used to roll the 30th down to the 29th without
+saying anything.
+
+`convertDate` therefore resolves the source date to a real Gregorian day in a
+reference year and reads the target representation off it. **The reference year
+is the event's start year when it is known** — converting a wedding date belongs
+in the wedding's year — and the next occurrence's year when it is not.
+
+**It returns the converted year too, and that is not a nicety.** The start year
+is stored in the event's own calendar; converting the date and leaving the year
+would leave a Hebrew 5761 under a Gregorian event, and `anniversaryNumber`
+would compute about −3760 and then hide it, because it refuses to show a count
+below 1. The anniversary count would vanish with no error anywhere.
+
+Two properties are worth testing over any hardcoded gematria, and both are in
+the suite: converting a date and resolving it in the reference year lands on the
+very same day, and the anniversary count is identical before and after a switch.
+
+### The cache key includes the calendar
+
+`_occurrenceForYear` is memoised, and it is safe for the same reason it was in
+the memorial app: the function is pure in (calendar, day, month, adarType,
+year) and never reads the clock. Adding the calendar to the key was mandatory —
+without it a Hebrew event and a Gregorian one with the same numbers would
+answer for each other.
+
+## The card is coloured, and the colour is information
+
+Each kind owns a fixed hue (`EventCard.kindColor`) which the card uses three
+times over: a 6px bar at its start edge, a soft gradient wash, and the ring
+around the mark. That is what makes a birthday distinguishable from an
+anniversary while scrolling, before a single word is read.
+
+**The kind hues are not derived from the app's theme seed**, deliberately:
+someone choosing a colour for the app is not asking to change what marks a
+birthday. Same argument the memorial app used for its gold Magen David.
+
+Two layout traps, both found by the screenshot rather than by a failing test:
+
+- **A `Container(width: 6)` inside a `Row` gets zero height.** A `Row` centres
+  its children by default, so a child with only a width shrinks to the height
+  of the content it does not have — the bar simply was not drawn, and nothing
+  failed. `crossAxisAlignment: stretch` fixes that in a normal `Row` but
+  **throws inside a `Stack`** ("BoxConstraints forces an infinite height"). The
+  bar is a `PositionedDirectional` instead, which stretches to the content's
+  height and respects RTL.
+- The card's gradient uses `AlignmentDirectional`, not `Alignment`, or it runs
+  the wrong way in an RTL layout.
+
+### The marks are drawn, and the emoji lives only in the notification
+
+`EventCard.kindMark` returns a Material icon, or a painted `WeddingRings` for
+the anniversary — Material has no wedding rings, so they are two stroked
+circles, deliberately overlapping, with the stroke scaled to the size (the same
+reasoning that drew the Magen David as one filled polygon: a thin line
+disappears at 16px).
+
+The first attempt used the kind's emoji (🎂 💍 💎 💖 🎉). It looked right in
+theory and was wrong twice: an emoji renders in the *system* font, so its shape
+and colour are the manufacturer's choice, and in a widget test — where exactly
+one font is loaded — **it renders as an empty box**. Every golden showed
+rectangles where the user would see a cake, which means the goldens stopped
+being evidence. `EventKind.emoji` survives for the notification *title*, where
+Android draws the text itself and no golden is involved.
+
+### Confetti is drawn, deterministic, and rationed
+
+`Confetti` is a `CustomPainter` with a fixed `seed`, so the same widget paints
+the same pieces on every run — an animated or randomised version would fail
+every golden against its predecessor with nothing having changed. It appears in
+three places only: the splash, the empty list, and the header of a card whose
+event is today or tomorrow (`EventCard.celebrateWithin`). A permanent sprinkle
+would be decoration; rationed, it means "something is happening now".
+
+It is not drawn on a card whose reminders are switched off, because that would
+promise a reminder that will not come.
+
+## The notification says which kind of day it is
+
+The title is `EventKind.notificationTitle` — the emoji plus the kind ("🎂 יום
+הולדת") — because the title is the line read first in the shade. The body is
+built by `bodyFor`, in one place used by both the scheduled notification and the
+missed-reminder catch-up; two separate builders would have drifted apart
+silently, and the user sees them as the same message.
+
+**The ordinal comes from the occurrence being scheduled, not from the next
+one.** Occurrences are scheduled years ahead, so "יום הנישואין ה-25" next year
+is the 26th the year after; `anniversaryNumberFor(event, occurrenceDate)` is the
+function that gets this right, and `anniversaryNumber` (the card's version) is
+defined in terms of it.
+
+One thing the postponement path cannot do: `rescheduleTo` is static so the
+background isolate can reach it, and there is no database there to ask what kind
+the event is — so a postponed reminder gets the generic
+`NotificationService.rescheduledTitle`. The body, which carries the full
+wording, is reused as it was.
+
+
+## Ported from the memorial app, 2026-10-06
+
+The two apps share every mechanism, so a fix made in `azkarot_app` after the
+2026-09-18 split is usually a fix owed here too. Seven commits landed there in
+between; what came across, and what deliberately did not:
+
+| there | here |
+|---|---|
+| Name the day each postponement option lands on | ported |
+| Read the option as a sentence ("3 ימים לפני ביום רביעי") | ported |
+| Keep save and cancel on screen while the form scrolls | ported |
+| One list decides which ABIs ship | ported, **replacing** what this app had |
+| Ship one APK that installs on every phone | the ABI half ported; the `uses-feature` half does not apply |
+| "problem parsing the package" — the phone was out of space | ported as a diagnosis note |
+| Bump to 1.1.1+3001 | not copied; this app has its own versionCode floor |
+
+**The `uses-feature` half has no counterpart here.** There, a location
+permission implied `android.hardware.location` as *required*, and the app was
+calling itself incompatible with any device lacking a location sensor. This app
+deleted the location layer entirely, so no permission it declares implies a
+hardware feature — confirmed on the built APK, which prints no
+`uses-implied-feature` line at all. Do not copy the `<uses-feature>` block
+across; it would be declaring a stance on hardware this app never asks about.
+
+**The versionCode floor is this app's own.** Splits were built here on
+2026-09-23 and Flutter prefixes their versionCode per ABI (1001 / 2001 / 4001),
+so a universal build at +1 would be a downgrade against any of them if one was
+ever installed. `pubspec` is `1.1.0+5000` and must never go below it — the same
+trap the memorial app hit, with different numbers.
+
+### The names differ on purpose, in one place
+
+The weekday helpers came across as they were, but the two date formatters were
+renamed: `formatDayMonth`/`formatGregorianDate` there are `slashDayMonth` and
+`slashDate` here. `EventCalendarService` already owns `formatDayMonth` and
+`formatGregorianDayMonth`, which render *words* ("14 בנובמבר") for the Gregorian
+half this app added — two functions with near-identical names and different
+output is how a card ends up showing the wrong shape of date. When porting the
+next change, expect that rename at the boundary.
+
+## The postponement list names the day each option lands on
+
+A row reads **"3 ימים לפני ביום רביעי"**. One sentence, not two fields with a
+separator: the interval already identifies every row uniquely, so the weekday is
+extra information rather than the identifier, and a date beside it was noise.
+
+The event day itself takes a comma — **"ביום האירוע, יום שני"** — because its
+label already opens with ביום and "ביום האירוע ביום שני" stutters. It is the
+only label that is not of the form "<n> before", so it is the only row that
+needs the exception.
+
+On the title line and not in a subtitle: a two-line `ListTile` is 72px against
+56px, which over the 31-row ladder is about 500px of extra scrolling and two
+fewer options on screen, for information that is part of the same thought. A
+test pins that the longest row stays on one line at 412dp.
+
+### One definition of where a postponement lands
+
+`NotificationService.snoozeTargetFor(eventDate, daysBefore)` is that date, and
+it has **three** callers: the filter in `choicesBefore`, the actual scheduling
+in `rescheduleTo`, and the label. The arithmetic was written out twice before,
+and a third copy in the label is exactly how a screen comes to say "יום רביעי"
+while the alarm is set for Tuesday.
+
+`snoozeChoiceLabel` was left alone: it is exact-text-matched by unit tests and
+reused verbatim by the snackbar, so the weekday is appended by the screen.
+
+### The confirmation is built from what was scheduled
+
+`התזכורת נדחתה ליום רביעי, 07/07/2027` is composed from the date
+`rescheduleReminder` **returned**, not from the label that was tapped. Two
+things that buys: a message built from the label could not contradict what was
+actually scheduled (it never knew it), and the label-based version produced
+`התזכורת נדחתה לביום האירוע` — the ל of the sentence on top of the ב of ביום,
+on the one option whose label starts with a preposition.
+
+## Save and cancel are pinned, not scrolled to
+
+The row sat at the end of the form's `ListView`, so saving an edit meant
+scrolling past the name, the kind chips, the calendar switch, the date wheels,
+the year, the reminder rule, the hour and the notes. It is now outside the
+scroll: `Form` ▸ `Column` ▸ `Expanded(ListView)` + `_actionBar`.
+
+**In `EventForm`, not in each screen's `Scaffold`.** The add and edit screens
+share this form, and pinning it on one only would be a difference nobody
+intended.
+
+The safe-area padding moved with it — the row is what sits above the system
+navigation bar now, so it owns the inset. A top hairline rather than elevation,
+because Material 3 tints an elevated surface and the row would be the only
+thing in the app wearing that colour.
+
+The fields moved into `_fields(theme)` rather than being re-indented inside a
+new `Column`: this project is not `dart format`-clean, and a 240-line
+re-indentation would have buried the actual change in the diff.
+
+Three things the tests hold, because "the button exists" was never the question:
+
+- both buttons are **on screen** before anything is scrolled — asserted on the
+  rect, since a widget parked off screen is still found;
+- the rect is **unchanged** after the list is scrolled to its end, with a guard
+  that the list really did scroll;
+- the keyboard pushes the row up rather than covering it, and the `Column` does
+  not overflow (which on a device is the striped banner).
+
+The two tests that asserted `ListView.padding` now assert where the button
+lands: the inset used to be the list's bottom padding and now belongs to the
+pinned row, and neither of those is the thing that matters.
+
+## A phone without 64 bits
+
+One APK installs on every ARM phone, 32-bit and 64-bit alike. Measured on the
+build of 2026-10-06:
+
+```
+lib/armeabi-v7a/   32-bit ARM   libapp.so, libflutter.so, libdartjni.so
+lib/arm64-v8a/     64-bit ARM   libapp.so, libflutter.so, libdartjni.so
+                                                       35.5 MB in total
+```
+
+**x86 and x86_64 are excluded on purpose.** On Android they mean an emulator or
+a Chromebook, and the cost of carrying them was a fifth of the file. Running on
+an x86 emulator therefore needs `-Pabis=x86_64` (below) — that is the price.
+
+### Half an ABI is worse than none, and it is easy to ship
+
+`ndk.abiFilters` governs code built **here**. It does not touch the prebuilt
+`.so` a plugin ships inside its AAR — so narrowing through it alone leaves a
+`lib/<abi>/` directory holding a plugin library with **no `libflutter.so`**.
+That is enough for Android to advertise the ABI as supported: a matching device
+installs happily and **crashes on launch**, which is worse than "incompatible"
+because it surfaces after the install rather than before it.
+
+`--target-platform android-arm` reaches the same trap from the other side: it
+narrows the Flutter engine and leaves the plugins' arm64 libraries in place.
+
+So the ABI set is **one list**, `keptAbis` in `android/app/build.gradle.kts`,
+feeding both `abiFilters` and `packaging.jniLibs.excludes`. Excluding an ABI
+then removes its directory entirely instead of half of it. A test pins that both
+sites derive from that one list.
+
+```bash
+# the file to hand out — 35.5 MB, both ARM ABIs
+flutter build apk --release
+
+# smaller, for a phone short on storage — 17.3 MB, 32-bit only,
+# and it runs on 64-bit ARM too
+flutter build apk --release --target-platform android-arm -Pabis=armeabi-v7a
+```
+
+Both were built and inspected on 2026-10-06: the universal one carries
+`libflutter.so` in **both** ARM directories, and the narrowed one declares
+`armeabi-v7a` alone and still carries the engine. Note that the second
+overwrites `app-release.apk`, so rebuild the universal one before handing
+anything out.
+
+**Verify after any narrowed build** that every surviving directory still holds
+the engine:
+
+```bash
+unzip -l build/app/outputs/flutter-apk/app-release.apk | grep "lib/"
+```
+
+An armeabi-v7a-only APK runs on 32-bit **and** 64-bit ARM phones, so it is a
+usable fallback when size is the problem — but **not** on 64-bit-only devices
+(Pixel 7 and later, the newest Snapdragons), which cannot run 32-bit code at
+all. The two-ABI build stays the default deliverable.
+
+### No permission here implies a hardware feature
+
+Worth stating because the memorial app was bitten by it: a location permission
+implies `android.hardware.location`, an implied feature defaults to
+**required**, and the app then declares itself incompatible with any device
+lacking that sensor. This app deleted the location layer, and the built APK
+prints exactly one implied feature — `android.hardware.faketouch`, "default
+feature for all apps", which every device satisfies. Check it after adding any
+permission:
+
+```bash
+aapt2 dump badging <apk> | grep -E "uses-feature|implied"
+```
+
+### The real limit is Android 7.0, and it is not ours to lower
+
+The floor is `minSdk 24`, and it comes from **`flutter_local_notifications`
+22.2.0**, which declares `minSdkVersion 24` in its own `android/build.gradle`.
+The manifest merger takes the maximum, so the app cannot go below it while that
+plugin is in the build.
+
+Flutter 3.44's own floor is lower, for reference: `DependencyVersionChecker`
+hard-errors below **23** and warns below **24**. So the only step available is
+one API level, and it is blocked by the plugin the whole app exists for.
+Overriding it with `tools:overrideLibrary` would trade a clean install failure
+for a runtime failure **on the delivery path** — the one place this app cannot
+afford one. Dropping back to `flutter_local_notifications` 17.x, which allowed
+less, is blocked by the compileSdk-34 problem documented above.
+
+Stated for whoever asks next: **a 32-bit phone runs this fine, provided it is on
+Android 7.0 or newer.** A 32-bit phone on Android 5 or 6 cannot install it, and
+its architecture is not the reason.
+
+### versionCode has a floor, and going under it looks like a corrupt file
+
+`--split-per-abi` builds were produced here on 2026-09-23, and Flutter prefixes
+their versionCode per ABI: `1001` for armeabi-v7a, `2001` for arm64-v8a, `4001`
+for x86_64. A universal build at `+1` is therefore a **downgrade** against any
+of them, and Android refuses a downgrade with a message that says nothing about
+versions. `pubspec` is `1.1.0+5000`; never go below it.
+
+### "ארעה בעיה בניתוח החבילה" — ask about free storage first
+
+Inherited from the memorial app, where it was reported and resolved the same day
+(2026-10-04): **the device had no free space.** The reasoning there had gone to
+the transfer instead, which is the plausible wrong answer worth recording.
+
+Installation needs room for the APK *plus* its unpacked code, several times the
+file size. A phone that had just enough room for a 20 MB file does not have it
+for a 35 MB one — and this app's file grew for exactly that kind of reason, so
+the `-Pabis=armeabi-v7a` build above is a legitimate answer rather than only a
+workaround.
+
+The distinction between the two messages is worth keeping: "incompatible" means
+Android read the APK and rejected it; **"problem parsing the package" means it
+could not read it at all** — and an install that runs out of room lands in the
+second bucket on many OEM skins rather than saying so plainly.
+
+Causes in the order they actually occur: no free storage; a truncated or
+partially-downloaded transfer (give the recipient the byte size and SHA-256, the
+only way to tell a bad file from a bad device state); "install from unknown
+sources" disabled, which some skins surface as a parse error. Only then suspect
+the file, and check it here before blaming it:
+
+```bash
+unzip -t <apk>                                    # zip structure
+apksigner verify --verbose <apk>                  # which schemes
+aapt2 dump xmltree <apk> --file AndroidManifest.xml | head   # manifest parses
+```
+
+**v1 signing is absent by design.** AGP disables JAR signing when `minSdk >= 24`,
+so `apksigner` reports `v1: false, v2: true`. That is correct — do not "fix" it.
 
 ## Resources referenced only from Dart get shrunk away
 
@@ -385,6 +756,72 @@ The notification icon itself must be **white on transparent** — Android render
 notification small icons as a silhouette from the alpha channel, so the
 launcher icon (used previously) showed up as a white blob.
 
+## The launcher icon was still the memorial candle until 2026-10-11
+
+`mipmap-*/ic_launcher.png` came across at the 2026-09-18 split and was never
+touched: all five files were **byte-identical to `azkarot_app`'s** — a memorial
+candle on a muted purple. The notification icon had been converted (to a
+wrapped gift) and the launcher icon had not, so the two disagreed about what
+the app is.
+
+It is now a wrapped gift, **the same gift**, on a warm amber-to-rose gradient.
+
+### One shape, declared twice, and deliberately not transcribed
+
+The geometry lives in `ic_notification.xml` in a 24-unit viewport.
+`ic_launcher_foreground.xml` reuses those exact `pathData` strings and places
+them with a `<group>` transform rather than re-stating them in 108-unit
+coordinates. Transcribing them would let the shade icon and the home-screen
+icon drift apart silently — the same argument as `_buildBackup` serving both
+export and share.
+
+The scale is `2.62` and that number is not free: an adaptive icon is 108 units
+but the OEM mask can take anything outside a **66-unit circle**. At the more
+obvious 2.93 (which fills the 72-unit square) the bottom corner of the box sits
+35 units from the centre and is clipped on round-mask devices. 2.62 puts the
+furthest corner at 32.4.
+
+The legacy PNGs use 0.62 of the square instead, because nothing masks them.
+
+### Why the amber is `#FF8F00` and not the card's `#F9A825`
+
+The gradient is built from the app's own hues — the birthday amber and the
+first-met rose — rather than an arbitrary pair. But the card's amber is too
+light to carry a white mark: the gift's top-left corner disappeared into it.
+`#FF8F00 -> #D81B60` keeps white legible at both ends.
+
+### `mipmap-anydpi-v26` is what Android 8+ actually shows
+
+Without it a square icon is shrunk inside a white circle with a border, which
+is why old icons look small and dated beside the rest. The PNGs still ship
+because `minSdk` is 24 and Android 7 does not know `adaptive-icon`.
+
+A `<monochrome>` entry points at the same foreground, for Android 13's themed
+icons.
+
+Unlike `ic_notification`, **these need no `keep.xml` entry**: the launcher icon
+is referenced from `android:icon` in the manifest, so the shrinker can see it.
+Verified in the built APK — resource names are obfuscated in release, so check
+the resource table rather than the file names:
+
+```bash
+aapt2 dump resources <apk> | grep -A9 'mipmap/ic_launcher'
+# wants five densities plus (anydpi-v26)
+```
+
+### Rendering the PNGs with no image tooling
+
+There is no ImageMagick and no Python on this machine (`convert` on PATH is
+Windows' filesystem converter, not ImageMagick). The five PNGs were produced by
+a throwaway `testWidgets` that paints the same shape into a `PictureRecorder`
+inside `runAsync` and writes `toByteData(format: png)` — Flutter is already the
+rasteriser for the goldens here, so the icon comes out of the engine that draws
+the app.
+
+The file was **deleted after it ran**, on purpose: left in `test/` it would
+rewrite the PNGs on every `flutter test`. The vector drawables are the source
+of truth; write the generator again from them if the design changes.
+
 ## Delivery is best-effort, never skipped
 
 The product requirement is "on time, and never missed". Timing accuracy and
@@ -401,30 +838,31 @@ other:
    everything on `BOOT_COMPLETED` and `MY_PACKAGE_REPLACED`, and an alarm whose
    time already passed fires immediately. So a phone that was off is covered.
 3. **Catch-up on open**: if a reminder time passed without ever being scheduled
-   — a memorial added *after* its Tuesday went by —
-   `HebrewCalendarService.missedReminderDate` detects it and
+   — an event added *after* its Tuesday went by —
+   `EventCalendarService.missedReminderDate` detects it and
    `deliverMissedReminder` shows it immediately.
 
 ### A Hebrew date that some years do not have
 
 `ל' בחשוון` and `ל' בכסלו` exist only when the month runs to thirty days.
-`_memorialGregorianForYear` used to return null for the other years and the
+`_occurrenceForYear` used to return null for the other years and the
 whole year was skipped — measured over eleven years, `ל' בחשוון` produced
-**five** reminders and `ל' בכסלו` eight. A memorial with no reminder at all is
+**five** reminders and `ל' בכסלו` eight. An event with no reminder at all is
 a worse answer than one on the adjacent day, so it now falls back to the last
 day of that month. Both now match an ordinary date.
 
-This is a practical call, not a ruling: some keep the yahrzeit on the 29th and
-some on the following Rosh Chodesh. The fallback picks the one that never lands
-*after* the original day. A test pins it by comparing the count against an
-ordinary date in the same month — the previous test asserted the skipping, so
-it had to be inverted rather than adjusted.
+The fallback picks the adjacent day that never lands *after* the original one.
+A test pins it by comparing the count against an ordinary date in the same
+month.
+
+**29 February is the same problem in the other calendar**, with a trap of its
+own — see "29 February is the twin of ל' בחשוון" above.
 
 ### An alarm that was scheduled and never fired
 
 `lastNotifiedAt` is written at schedule time (below), which means the catch-up
 is blocked exactly when the alarm was scheduled and then silently killed —
-a force-stop, or an OEM battery manager. Measured: with the memorial never
+a force-stop, or an OEM battery manager. Measured: with the event never
 scheduled the catch-up fires; with it scheduled and the alarm lost it returns
 null.
 
@@ -432,13 +870,13 @@ The signal that separates them is the plugin's own store: **a delivered
 notification is removed from it, so one still listed as pending after its time
 has passed never fired.** The payload therefore carries `firesAt`
 (`firesAtPayloadVersion`), and `_lostAlarm` looks for a pending entry in the
-memorial's block whose firing time is in the past. `_deliverMissed` falls back
+event's block whose firing time is in the past. `_deliverMissed` falls back
 to it when `missedReminderDate` says nothing, then **cancels that entry** —
 otherwise it would be rediscovered on every launch, since `lastNotifiedAt`
 already equals its time and nothing else would stop it.
 
 Two details worth keeping: the pending list is fetched **once per sync**
-(`deliverMissedReminders`) rather than per memorial, which was hundreds of
+(`deliverMissedReminders`) rather than per event, which was hundreds of
 platform calls on a long list; and `decodePayload` only reads `firesAt` when
 the version says it is there, or a version-6 payload would have its body torn
 in half.
@@ -450,13 +888,13 @@ the app cannot observe that a scheduled notification fired. The first version
 wrote `lastNotifiedAt` only when the catch-up itself delivered, which produced a
 **duplicate notification for every normal delivery**: the alarm fired at 09:00,
 the user opened the app at 09:01, `missedReminderDate` saw "reminder passed,
-memorial ahead, nothing recorded" and fired a second one. Reported from the
+event ahead, nothing recorded" and fired a second one. Reported from the
 device on 2026-08-04, and the fix confirmed on the device the same day — the
 duplicate no longer appears when reopening the app after a delivery.
 
-So `scheduleForMemorial` returns the nearest reminder it scheduled,
-`rescheduleAll` returns a `{memorialId: nearestReminder}` map, and
-`MemorialNotifier` persists them. The field therefore means "the latest reminder
+So `scheduleForEvent` returns the nearest reminder it scheduled,
+`rescheduleAll` returns a `{eventId: nearestReminder}` map, and
+`EventNotifier` persists them. The field therefore means "the latest reminder
 **accounted for**", not "delivered" — keep it that way.
 
 Known trade-off: a force-stop between scheduling and firing loses that year's
@@ -466,10 +904,10 @@ on — a guaranteed duplicate every year is worse than a rare miss.
 
 ### Notification id scheme changed — legacy ids must be swept
 
-Before the multi-year work the id was the raw memorial id; it is now
-`memorialId * 100 + occurrenceIndex`. An upgraded install therefore has orphaned
+Before the multi-year work the id was the raw event id; it is now
+`eventId * 100 + occurrenceIndex`. An upgraded install therefore has orphaned
 alarms the new code cannot match, which would fire *alongside* the new schedule.
-`rescheduleAll` cancels any pending id below `notificationIdsPerMemorial` —
+`rescheduleAll` cancels any pending id below `notificationIdsPerEvent` —
 SQLite ids start at 1, so block 0 is never legitimately owned.
 
 ## Reminders are scheduled a few years ahead, deliberately
@@ -477,8 +915,8 @@ SQLite ids start at 1, so block 0 is never legitimately owned.
 `zonedSchedule` is one-shot, and Android offers no yearly repeat that tracks the
 Hebrew calendar — `matchDateTimeComponents` only repeats weekly, monthly, or
 annually on a **fixed Gregorian date**, while a Hebrew anniversary drifts. So
-`NotificationService.scheduleForMemorial` enumerates
-`HebrewCalendarService.futureReminderDates` (horizon:
+`NotificationService.scheduleForEvent` enumerates
+`EventCalendarService.futureReminderDates` (horizon:
 `scheduleHorizonYears`, currently **2**) and schedules every occurrence. Each
 app launch and resume refills the window via `loadAndReschedule`.
 
@@ -492,17 +930,17 @@ It bought that with Android's 500-alarm ceiling and with scheduling that is
 quadratic in the number of occurrences.
 
 **The horizon counts Hebrew years, not the lead time that remains**, which is
-the part that is easy to misread. A memorial whose date has just passed loses
+the part that is easy to misread. An event whose date has just passed loses
 an occurrence immediately, so in the worst case:
 
 ```
-horizon 2  ->  1.05 years of cover,  3 alarms per memorial
-horizon 3  ->  2.03 years of cover,  4 alarms per memorial
+horizon 2  ->  1.05 years of cover,  3 alarms per event
+horizon 3  ->  2.03 years of cover,  4 alarms per event
 ```
 
 That measurement led me to recommend 3; the user chose 2, deliberately. The
 consequence is that thirteen months without opening the app can miss one
-memorial — unless the weekly refresh runs, which is the thing an OEM battery
+event — unless the weekly refresh runs, which is the thing an OEM battery
 manager may defer. Do not change the number without redoing the measurement.
 
 A test that indexes a fixed occurrence (`reminders[5]`) breaks the moment this
@@ -510,10 +948,10 @@ changes; anchor on `reminders.last` instead.
 
 Two consequences to preserve when touching this:
 
-- Every memorial owns a contiguous block of `Memorial.notificationIdsPerMemorial`
+- Every event owns a contiguous block of `Event.notificationIdsPerEvent`
   (100) notification ids — `id * 100 + occurrenceIndex`. Without the block, each
   year would overwrite the previous one.
-- `cancelForMemorial` must cancel the whole block. Cancelling only the base id
+- `cancelForEvent` must cancel the whole block. Cancelling only the base id
   would leave 19 future-year notifications alive after a delete or a toggle-off.
 
 Not covered: a user who never opens the app for 20 years. There is no way to fix
@@ -529,29 +967,29 @@ occurrences is therefore O(N²), and every call is a platform-channel round trip
 
 Two rules follow, both already encoded here:
 
-- `cancelForMemorial` asks `pendingNotificationRequests()` what actually exists
+- `cancelForEvent` asks `pendingNotificationRequests()` what actually exists
   and cancels only those. An earlier version swept all 100 ids in the block,
-  which cost 100 round trips per memorial.
+  which cost 100 round trips per event.
 - `rescheduleAll` compares the pending count against
-  `futureReminderDates().length` and **skips memorials whose window is already
+  `futureReminderDates().length` and **skips events whose window is already
   full**. Hebrew dates are deterministic, so there is nothing to recompute.
   Without the skip, every foreground resume re-cancelled and re-scheduled
-  everything — roughly 1,200 platform calls with ten memorials, enough to hang
+  everything — roughly 1,200 platform calls with ten events, enough to hang
   startup.
 
-`Memorial.ownsNotificationId` owns the block-boundary check and is unit-tested;
-an off-by-one there silently cancels a *different* memorial's notifications.
+`Event.ownsNotificationId` owns the block-boundary check and is unit-tested;
+an off-by-one there silently cancels a *different* event's notifications.
 
 ## The reminder can legitimately be in the past
 
-`reminderDate` is 5–11 days before the memorial, so every year there is a
-window where the reminder Tuesday has passed but the memorial has not.
+`reminderDate` is 5–11 days before the event, so every year there is a
+window where the reminder Tuesday has passed but the event has not.
 `NotificationService` must therefore schedule from `nextFutureReminderDate`,
 which rolls on to the next Hebrew year; the old code called `reminderDate`,
 saw a past date, and returned without scheduling anything — commented as a
-"rare edge case" when it actually happens annually for every memorial. A
-memorial added inside that window got no notification at all, that year or the
-next. `MemorialCard` also renders the negative day count as
+"rare edge case" when it actually happens annually for every event. A
+event added inside that window got no notification at all, that year or the
+next. `EventCard` also renders the negative day count as
 "התזכורת לשנה זו כבר עברה" rather than "בעוד ‎-3 ימים".
 
 ## Network
@@ -587,15 +1025,15 @@ old ones look like the bug persisting.
 
 ## Settings shows what is actually scheduled
 
-`pendingReport` counts the queued notifications per memorial, plus anything
-whose block belongs to no memorial at all. Rows come back in
+`pendingReport` counts the queued notifications per event, plus anything
+whose block belongs to no event at all. Rows come back in
 `inReminderOrder` — **not** the repository's `created_at DESC` — and each
 carries its next reminder date, so the section reads as the schedule itself and
 the allocation's choices are visible. In creation order the same numbers say
 nothing.
 
-The date shown is the **reminder's** firing time, not the memorial's — they
-differ by whatever that memorial's reminder setting says.
+The date shown is the **reminder's** firing time, not the event's — they
+differ by whatever that event's reminder setting says.
 
 **Sorting cannot detect a fault**, since this code does the sorting; rows will
 always look ordered. The check that means something is scheduled-versus-planned:
@@ -613,48 +1051,58 @@ first thing to read when a notification misbehaves.
 
 `AlarmManager.setExactAndAllowWhileIdle` throws once the app holds 500 alarms,
 and the failure arrives as a `Parcel.readException` out of `IAlarmManager.set`.
-Twenty years across two series is 42 alarms per memorial, so the ceiling is
-breached at about a dozen memorials — and because `scheduleForMemorial` cancels
-before it reschedules, the memorial that hits it is left with **nothing**
+Twenty years across two series is 42 alarms per event, so the ceiling is
+breached at about a dozen events — and because `scheduleForEvent` cancels
+before it reschedules, the event that hits it is left with **nothing**
 queued. The user sees a reminder that never fires and only appears on opening
 the app, which is the catch-up.
 
-**The budget is global, not per memorial.** `allocateBudget` gathers every
-candidate reminder from every memorial, sorts them by date, and takes the
+**The budget is global, not per event.** `allocateBudget` gathers every
+candidate reminder from every event, sorts them by date, and takes the
 nearest `maxScheduledAlarms` (400, deliberately short of the real limit). Each
-memorial's own list is chronological, so a prefix of the sorted list is a prefix
-of each memorial's — which is what lets a plain count stand in for a set of
+event's own list is chronological, so a prefix of the sorted list is a prefix
+of each event's — which is what lets a plain count stand in for a set of
 occurrences.
 
-A per-memorial year count measures the wrong thing: Android caps the *total*,
-so "N years each" broke silently at about 84 memorials and left the ones that
+A per-event year count measures the wrong thing: Android caps the *total*,
+so "N years each" broke silently at about 84 events and left the ones that
 hit the ceiling with nothing queued at all. Measured coverage under the global
 budget, on a list of evenly spread dates:
 
-**That table was measured under the 20-year horizon and was never redone when
-the horizon dropped to two. It was wrong by more than an order of magnitude at
-the top end.** Re-measured 2026-09-14 against the current code, with dates
-spread through the Hebrew year, where coverage means the point at which the
-FIRST memorial runs out of scheduled reminders:
+**This table has now been wrong twice, so measure it, never reason about it.**
+The first version was measured under the 20-year horizon and never redone when
+the horizon dropped to two. The second (2026-09-14) claimed ~24 months of
+cover, which contradicted the horizon arithmetic written a few sections up in
+this same file — two Hebrew years of *occurrences* is about 13 months of
+*cover*, because the nearest occurrence is usually already behind.
+
+Re-measured 2026-09-18 on this code (horizon 2, budget 400, dates spread
+through the Hebrew year, coverage = the point at which the FIRST event runs out
+of scheduled reminders):
 
 ```
-1 name        2 alarms   ~24 months
-10           28          ~24 months
-50          143          ~24 months
-100         286          ~24 months    <- the horizon binds up to about here
-200         400          ~12 months    <- the budget binds from here
-300         400          ~2 weeks
-1000        400          0             <- most get nothing; the catch-up carries them
+1 event       2 alarms   13.7 months
+10           20          13.7 months
+50          104          13.7 months
+100         209          13.7 months
+140         292          13.7 months   <- the horizon binds up to about here
+200         400          12.5 months   <- the budget binds from here
+300         400           4.5 months
+1000        400           0            <- most get nothing; the catch-up carries them
 ```
 
-So the degradation is much sharper than the old note claimed: past ~200 active
-memorials the app has to be opened monthly, and past ~300 essentially every
-time. Disabled memorials are not counted at all, which is what makes switching
-one off the right way to archive it.
+So: up to ~140 active events the app has to be opened about once a year, at 300
+about every four months, and past that essentially every time. Disabled events
+are not counted at all, which is what makes switching one off the right way to
+archive it.
 
-It degrades instead of breaking. The cost at scale is that a memorial whose
+The measurement is a throwaway test (build N events, sum `allocateBudget`, take
+the earliest last-scheduled reminder) — write it again rather than trusting
+this table after any change to the horizon, the budget or `futureReminderDates`.
+
+It degrades instead of breaking. The cost at scale is that an event whose
 reminder is far off is not scheduled *yet*, so the app has to be opened every
-few months rather than every few years. `scheduleForMemorial` takes either a
+few months rather than every few years. `scheduleForEvent` takes either a
 precomputed `quota` (when the caller is scheduling everything at once) or the
 list to allocate `among`.
 
@@ -664,8 +1112,8 @@ grant does the same thing — scheduling **retries once in
 separate requirements here, and delivery is the one that matters: a reminder a
 few minutes late beats no reminder. The settings row still names what happened.
 
-**`scheduleForMemorial` cancels before it schedules**, so a throw inside
-`_scheduleAll` leaves the memorial with *nothing* queued — and the only symptom
+**`scheduleForEvent` cancels before it schedules**, so a throw inside
+`_scheduleAll` leaves the event with *nothing* queued — and the only symptom
 is "the reminder never fires, it only appears when I open the app", because all
 that is left is the catch-up. The `on Exception` there used to be silent, which
 made a scheduling failure indistinguishable from a delivery failure without a
@@ -677,10 +1125,10 @@ Record the **first line only** (`firstLineOf`). A `PlatformException`'s
 with frames while the reason itself scrolled out of view.
 
 `rescheduleAll` also sweeps every pending id that belongs to no current
-memorial. Two things strand a whole block: the pre-block id scheme, and a
+event. Two things strand a whole block: the pre-block id scheme, and a
 deletion whose cancel never ran — it is fire-and-forget, so a kill at the wrong
 moment leaves it behind. Nothing else notices a leftover, since it is counted
-neither in what is wanted nor in what a memorial already holds, and it goes on
+neither in what is wanted nor in what an event already holds, and it goes on
 firing the text baked into it years ago.
 
 ## What only the operating system can answer
@@ -713,7 +1161,7 @@ inside the app, and a dead button is worse than none.
 and re-arms itself, and the settings screen reports the timestamp. **Every other
 check in this app examines the app's own bookkeeping; this one observes what
 Android actually did.** A stamp going stale means alarms are being suppressed —
-known before a memorial is missed rather than after.
+known before an event is missed rather than after.
 
 It re-arms from inside `onReceive` deliberately: relying on the app being opened
 would defeat the point, since it exists for the case where it is not. It uses
@@ -743,7 +1191,7 @@ for lack of trying.
 `ImportMode.replace` is what import always did: delete everything, insert the
 file. `ImportMode.merge` adds only what is missing and deletes nothing.
 
-Identity across devices is `Memorial.identityKey` — **name plus Hebrew date**,
+Identity across devices is `Event.identityKey` — **name plus Hebrew date**,
 with whitespace normalised. The row id is meaningless outside the device that
 issued it (import assigns new ones), so the comparison has to be on content.
 The cost is accepted rather than solved: two people with the same name on the
@@ -752,7 +1200,7 @@ no better key without asking the user row by row.
 
 ### Import asks what to bring in, before it compares anything
 
-`ImportSelectionDialog` lists every memorial in the file with a checkbox,
+`ImportSelectionDialog` lists every event in the file with a checkbox,
 **all ticked**: importing the whole file is the normal case, and a list that
 started empty would make the expected behaviour the one that costs work. A
 tristate "הכול" row toggles them together, and both actions are disabled when
@@ -763,7 +1211,7 @@ screens in a row for one action is fatigue, not care.
 
 Everything downstream — the identical/candidate/new analysis — runs on the
 **selection**, not the file. There is no sense asking about a clash with a
-memorial that was deliberately left out.
+event that was deliberately left out.
 
 It lives in `lib/widgets/` rather than inside the settings screen because it
 carries real behaviour worth testing: the default, the tristate, the disabled
@@ -785,7 +1233,7 @@ rather than help.
 before the data does. A test pins that.
 
 Confirming "same person" keeps the **existing** record and fills only its empty
-fields from the file (`Memorial.filledFrom`). It cannot lose information: name,
+fields from the file (`Event.filledFrom`). It cannot lose information: name,
 date and reminder rule stay with the record that was already there, and only
 gaps are filled. The dialog defaults every candidate to **not** the same
 person — a wrong merge discards a record from the file and cannot be undone,
@@ -793,7 +1241,7 @@ while a wrong split adds a duplicate that is one tap to delete. Between two
 mistakes, take the one that can be corrected.
 
 `mergeAll` also folds duplicates *within* the file — a backup can repeat a
-memorial — by adding each key to the seen set as it inserts.
+event — by adding each key to the seen set as it inserts.
 
 In the dialog, **merge is the filled button and replace is plain text**, and
 replace names its consequence ("החלפה (מוחק הכול)") rather than saying "ייבוא".
@@ -803,28 +1251,10 @@ like the default.
 Tested against the real database rather than the in-memory fake: the point is
 the SQL, and the fake would only be testing itself.
 
-## Photo files were never deleted
-
-Not on deleting a memorial, not on an import that replaces everything. They
-simply accumulated in app support storage with nothing referencing them — small
-each, because of the 256px downscale, but unbounded.
-
-`PhotoStore.deleteOrphans` removes what no memorial points at, and the provider
-runs it after a sync and after an import (which produces the largest batch of
-orphans at once). It lives in the provider because that is the only layer that
-knows the full set of paths in use.
-
-**The grace period is a guard, not a tuning knob.** `MemorialForm` writes the
-picked photo to disk *before* the memorial is saved, and in that window the file
-is an orphan by every test — a cleanup without the delay would delete the
-picture out from under whoever is filling in the form. `PhotoStore` takes an
-optional directory so this is tested against real files in a temp directory
-rather than a mocked channel.
-
 ## Backup is declared, not assumed
 
 `allowBackup`, `fullBackupContent` and `dataExtractionRules` are now explicit,
-covering the database and the photo folder. A new phone or a reinstall is the
+covering the database. A new phone or a reinstall is the
 only scenario that loses *everything* rather than one reminder, and the rules
 were undeclared: the defaults may well have covered it, but nothing aimed them
 and nothing verified it.
@@ -853,7 +1283,7 @@ so the wait cannot hang.
 
 `syncReminders` normally gives up when the lock is held: the sync runs again on
 every resume, so waiting buys nothing. Import is the exception — it has just
-replaced every memorial, and skipping would leave the user with **nothing
+replaced every event, and skipping would leave the user with **nothing
 scheduled** immediately after being told the import succeeded. It passes
 `waitForLock`.
 
@@ -900,7 +1330,7 @@ had rendered yet, which quietly broke three unrelated permission tests.
 
 The background job runs in its own `FlutterEngine` and its own isolate. **Every
 static is a separate copy there**, which means the single-flight guard in
-`MemorialNotifier` does not cover it at all: the screen and the job can sync at
+`EventNotifier` does not cover it at all: the screen and the job can sync at
 the same moment, read the same `lastNotifiedAt`, and both deliver the same
 reminder — the very failure that produced the duplicate notification. Worse,
 `rescheduleAll` cancels before it schedules, so interleaving them can cancel
@@ -926,7 +1356,7 @@ have made contention likely in the first place.
 ## The window slides on its own, once a week
 
 `BackgroundRefresh` registers a WorkManager periodic task that reloads the
-memorials and runs `rescheduleAll`, without the app being opened.
+events and runs `rescheduleAll`, without the app being opened.
 
 It exists because nothing else moves the window. A scheduled notification is
 one-shot; the plugin has no delivered-callback; the boot receiver only
@@ -960,9 +1390,9 @@ Notes for anyone touching it:
   2.1.20 set. Verified in the APK: `androidx.work.impl.*` components are
   present in the merged manifest.
 - **WorkManager allows a worker about ten minutes.** `rescheduleAll` used to
-  re-fetch the entire pending queue *per memorial* inside `cancelForMemorial` —
+  re-fetch the entire pending queue *per event* inside `cancelForEvent` —
   hundreds of platform calls each returning hundreds of rows. It now passes the
-  snapshot it already holds; the blocks are disjoint, so scheduling one memorial
+  snapshot it already holds; the blocks are disjoint, so scheduling one event
   cannot invalidate another's ids. The inexact-retry path deliberately fetches
   fresh, because the failed first attempt may already have written notifications
   that the old snapshot does not know about.
@@ -980,24 +1410,24 @@ Notes for anyone touching it:
 ```
 
 There used to be a second series — a fixed 09:00 reminder the day before the
-memorial — in slots 50..98. **It was removed on 2026-09-01**: the postponement
+event — in slots 50..98. **It was removed on 2026-09-01**: the postponement
 list gives exactly the same thing on the user's own initiative, and the second
-series doubled every memorial's share of the alarm budget to pay for it. It also
+series doubled every event's share of the alarm budget to pay for it. It also
 had to be de-duplicated against the main series, because
 `ReminderMode.fixedDaysBefore` with a value of 1 put both on the same day at the
 same minute.
 
-`HebrewCalendarService.rescheduledReminderHour` survives it: that is the hour a
-postponed reminder lands at, fixed rather than derived from the memorial's own
+`EventCalendarService.rescheduledReminderHour` survives it: that is the hour a
+postponed reminder lands at, fixed rather than derived from the event's own
 reminder hour, so a postponement always arrives in the morning.
 
 The notification body carries the weekday, the Gregorian date and a countdown.
-Those are computed against the **firing** date via `memorialDateForReminder` +
-`describeMemorialForReminder`, not against "now" — the text is baked in at
+Those are computed against the **firing** date via `eventDateForReminder` +
+`describeEventForReminder`, not against "now" — the text is baked in at
 schedule time, years ahead, so anything derived from the current clock would be
 wrong by the time it fires.
 
-`hebrewWeekdayNames` includes שבת because a memorial can fall on any day;
+`hebrewWeekdayNames` includes שבת because an event can fall on any day;
 `reminderWeekdayChoices` is the six-day subset offered in the reminder picker.
 
 `daysBeforeChoices` is a full 1..`maxDaysBeforeChoice` run with no gaps, and
@@ -1006,11 +1436,11 @@ to be a rounded ladder (1, 2, 3, 5, 7, 10, …) that hid the numbers people
 actually ask for — four days, six, nine. Anything the old ladder could have
 stored has to stay inside the list: `DropdownButtonFormField` throws when its
 `initialValue` is not among its items, so narrowing the range would crash the
-edit screen for an existing memorial.
+edit screen for an existing event.
 
 ## "Do not remind again" belongs in that list too
 
-The postponement dialog ends with `לא להזכיר יותר`, which switches the memorial
+The postponement dialog ends with `לא להזכיר יותר`, which switches the event
 off — the same state as the toggle in the list, so it is reversible, and the
 snackbar says so. No extra confirmation: choosing it from a list is already
 explicit, and a second prompt would be noise.
@@ -1026,11 +1456,11 @@ The dialog opens even when no interval is left, since switching the reminders
 off is still meaningful then — otherwise the button would open the app only to
 report there was nothing to do.
 
-## The reminder offers a choice of how long before the memorial
+## The reminder offers a choice of how long before the event
 
-Up to three plain action buttons, labelled by how long **before the memorial**
+Up to three plain action buttons, labelled by how long **before the event**
 they land: `quickChoices` filters the ladder to targets later than now and
-earlier than the memorial, so the list shrinks as the date approaches and the
+earlier than the event, so the list shrinks as the date approaches and the
 buttons disappear on the day itself.
 
 **Do not put the options behind an `AndroidNotificationActionInput` with
@@ -1043,7 +1473,7 @@ hence `maxRescheduleActions`; `quickChoices` prefers 7 / 3 / 1 days because
 they span the range, and backfills the longest remaining option when one of
 them has passed, so an early reminder is always among the offers.
 
-The **payload carries the memorial date** — `encodePayload` / `decodePayload`
+The **payload carries the event date** — `encodePayload` / `decodePayload`
 write `v<version>|<millis>|<body>`, splitting on the first separator so a body
 may itself contain one. The background isolate has no database and cannot
 re-derive that date, and without it "three days before" has no meaning there.
@@ -1058,7 +1488,7 @@ Confirmed by the user on 2026-08-31: their reminder was set to "one day
 before", and that single setting produced **both** reported symptoms, which is
 why neither could be found by reasoning about the default configuration.
 
-- the main reminder lands on `memorial - 1 day` at 09:00, exactly where the
+- the main reminder lands on `event - 1 day` at 09:00, exactly where the
   day-before series already sits, so every reminder arrived twice, one minute
   apart in text only (`אזכרתו של…` and `מחר אזכרתו של…`);
 - and at that moment every snooze option pointed at that same instant or
@@ -1079,7 +1509,7 @@ left to choose.
 
 `snoozeChoiceLadder` is a full run, 0..`maxDaysBeforeChoice`, with nothing
 skipped; `choicesBefore` trims it to what is still ahead and still before the
-memorial. Only 0, 1 and 2 get worded labels — a "שבוע לפני" wedged between
+event. Only 0, 1 and 2 get worded labels — a "שבוע לפני" wedged between
 "6 ימים לפני" and "8 ימים לפני" breaks the eye going down a continuous list.
 
 The request reaches the screen by two different paths, and **both are
@@ -1111,31 +1541,17 @@ notification's own time: hours may have passed since it fired, and an option
 that has since expired must not be offered. It is long enough to scroll, so a
 widget test that taps an entry has to pick one near the top or scroll first.
 
-### "On the day of the memorial" is one of the choices
+### "On the day of the event" is one of the choices
 
-The ladder starts at 0, and 0 means the morning of the memorial itself. Without
+The ladder starts at 0, and 0 means the morning of the event itself. Without
 it the day-before notification carries **no button at all** — every other
 option has already passed by the moment it fires — and so does anything shown
-when the memorial is today or tomorrow. The request was a reminder "up to the
-day of the memorial, and not after", and the day itself is inside that.
+when the event is today or tomorrow. The request was a reminder "up to the
+day of the event, and not after", and the day itself is inside that.
 
-`choicesBefore` therefore bounds the target by the memorial's *date*, not by
-the memorial instant. Do not tighten it back to a strict `isBefore(memorial)`:
+`choicesBefore` therefore bounds the target by the event's *date*, not by
+the event instant. Do not tighten it back to a strict `isBefore(event)`:
 that silently empties the list exactly when a reminder matters most.
-
-### Two series can land on the same day, and then everything is announced twice
-
-`ReminderMode.fixedDaysBefore` with a value of 1 puts the main reminder one day
-before the memorial — which is precisely where the day-before series already
-is. At the default hour of 09:00 they fire in the same minute: two identical
-notifications, different ids, for one memorial. `dayBeforeMemorialDates` drops
-any date whose main reminder falls on the same **day** (not the same instant —
-two hours apart still reads as a duplicate to whoever gets it).
-
-This has to live in the calendar rather than in `_scheduleAll`, because
-`rescheduleAll` counts `dayBeforeMemorialDates(m).length` to decide whether the
-queue is full. Filtering only at schedule time would leave the count too high
-and reschedule everything on every resume.
 
 ### The plugin declares no receivers — the app must
 
@@ -1158,7 +1574,7 @@ are declared, because nothing else in the toolchain will.
 
 ### A queue holding MORE than it should is not a full queue
 
-`rescheduleAll` skipped a memorial when `pending >= wanted`, read as "there are
+`rescheduleAll` skipped an event when `pending >= wanted`, read as "there are
 enough, nothing to do". More than wanted is not a full queue — it is leftovers
 from an earlier configuration, and skipping leaves them scheduled forever. That
 is how the day-before series survived after `fixedDaysBefore = 1` made it
@@ -1173,20 +1589,20 @@ one commit after documenting it.
 ### A change to a notification does not reach the ones already queued
 
 Text and buttons are baked in at `zonedSchedule` time, and `rescheduleAll`
-skips any memorial whose window is already full — so an upgrade that changes
+skips any event whose window is already full — so an upgrade that changes
 the notification changes nothing for an existing install. That is why the
 button fix appeared to do nothing beyond a fresh install.
 
-`payloadVersion` is the fix: `rescheduleAll` reschedules a memorial when any of
+`payloadVersion` is the fix: `rescheduleAll` reschedules an event when any of
 its pending notifications carries an older marker. **Bump it whenever the baked-in
-content changes**, or the change ships only to memorials that are added or
+content changes**, or the change ships only to events that are added or
 edited afterwards. `decodePayload` still accepts both older shapes (bare body,
 and `<millis>|<body>`) because those notifications are what an upgraded install
 is holding.
 
 ## Nothing that touches the notification plugin may block the UI
 
-Scheduling one memorial issues ~40 `zonedSchedule` calls and the plugin
+Scheduling one event issues ~40 `zonedSchedule` calls and the plugin
 rewrites its whole JSON blob on each, so anything awaiting it stalls for
 seconds. Every entry point is therefore fire-and-forget:
 
@@ -1195,7 +1611,7 @@ seconds. Every entry point is therefore fire-and-forget:
 | splash | `load()` (SQLite) | `syncNotifications()` |
 | resume | `load()` | `syncNotifications()` |
 | add / update | insert + `_refresh()` | `_scheduleAndRecord()` |
-| delete | delete + `_refresh()` | `cancelForMemorial()` |
+| delete | delete + `_refresh()` | `cancelForEvent()` |
 
 `ui_test.dart` proves this with a fake whose scheduling never completes: if
 any of these regained an `await`, the screen would hang and the test would
@@ -1211,70 +1627,31 @@ and **that is how the duplicate notification came back** on 2026-08-31. Both
 runs read the same `lastNotifiedAt`, both conclude the reminder was missed, and
 both deliver it.
 
-`MemorialNotifier.syncNotifications` therefore keeps the in-flight future and
+`EventNotifier.syncNotifications` therefore keeps the in-flight future and
 hands it to any caller that arrives while it is running. Do not "fix" a
 duplicate by moving the `lastNotifiedAt` write earlier — the write is not the
 race, the second reader is. The test drives two overlapping syncs and counts
 deliveries; with the guard removed it reports 2.
 
-## Two photos per memorial, at two sizes
-
-A memorial carries **`photo_path`** (the portrait) and **`grave_photo_path`**
-(the grave), schema v8. They are not variants of one field — they answer
-different questions, and a form with a single picture forced a choice between
-"who was this" and "where is the stone".
-
-The sizes differ for that same reason:
-
-| | `PhotoStore.maxDimension` | `PhotoStore.graveMaxDimension` |
-|---|---|---|
-| portrait | 256 px | |
-| grave | | 800 px |
-
-256 px is fine for a 48 px avatar and useless for reading an inscription in a
-cemetery; 800 px is where a backup holding dozens of memorials still sends over
-WhatsApp, because **every doubling of the side quadruples the file** and photos
-travel base64-embedded in the JSON.
-
-Three consequences, each of which is a silent bug if missed:
-
-- `PhotoStore.pickAndStore` / `storeBytes` / `downscale` take an optional
-  `maxSide`; `restoreFromBase64` takes one too. **Restoring without it
-  re-downscales to 256**, so every export/import cycle would degrade the grave
-  photo a little further. The bytes in the backup are already at their final
-  size — the restore must not "helpfully" shrink them again.
-- Export removes **both** local paths and carries `photo_data` +
-  `grave_photo_data`. A path from another device is meaningless for either.
-- `Memorial.photoPaths` (not `photoPath`) is what the orphan sweep must use.
-  `_cleanUpPhotos` iterating only the portrait would delete every grave photo
-  as unreferenced, on the next sync.
-
-`copyWith` needs `clearGravePhoto` alongside `clearPhoto`, for the same reason
-the original one exists: `null` means "unchanged" in a `copyWith`, so removing
-a picture is not expressible without an explicit flag.
-
-The tile's thumbnail opens the picture full-screen in an `InteractiveViewer`.
-Without that the grave photo is unusable exactly where it is needed — 40 px
-identifies nothing in a cemetery, and the inscription is usually read zoomed.
-
 ## Code review, 2026-09-04 — what a full pass found
 
-Eight real defects across the whole tree. The pattern worth remembering: **most
-of them were places where one layer was fixed and the layer next to it was
-not**, and every one of them was invisible to `flutter analyze` and to the
-suite as it stood.
+Eight real defects across the whole tree, seven of which still apply here — the
+eighth was about photo file names and went out with the photos. The pattern
+worth remembering: **most of them were places where one layer was fixed and the
+layer next to it was not**, and every one of them was invisible to
+`flutter analyze` and to the suite as it stood.
 
 ### A date the calendar schedules but the form refuses
 
 The thirtieth of Cheshvan and of Kislev exists only in years where the month
 runs to thirty days. The calendar was taught to fall back to the last day of
-the month rather than skip the year — but `MemorialForm._validateHebrewDate`
-and `HebrewDatePicker` still asked `daysInMonth` about the **current** year. In
+the month rather than skip the year — but `EventForm._validateHebrewDate`
+and `EventDatePicker` still asked `daysInMonth` about the **current** year. In
 5786, where Cheshvan has 29, that means:
 
 - the date cannot be entered at all — the form reports it does not exist;
-- and `HebrewDatePicker.initState` clamps an existing day 30 down to 29, so
-  **opening the edit screen silently changed the memorial's date on the next
+- and `EventDatePicker.initState` clamps an existing day 30 down to 29, so
+  **opening the edit screen silently changed the event's date on the next
   save.** Data loss on an ordinary edit, in roughly half the years.
 
 `maxDaysInMonth` answers the length over a 19-year scan (the leap cycle, so
@@ -1283,26 +1660,12 @@ still comes back 29, so the thirtieth of Iyar is still refused — that half of
 the rule is what makes it falsifiable. The lengths are derived from
 `kosher_dart` rather than a hardcoded table, so they cannot drift from it.
 
-### Photo file names were never content-addressed
-
-```dart
-final name = 'p${resized.lengthInBytes}_${resized.hashCode.abs()}.png';
-```
-
-The comment said "named by content, so re-picking the same image does not
-create duplicates". **`Uint8List.hashCode` is identity, not content** — lists
-in Dart do not override it. So the same picture picked twice made two files,
-and, in the dangerous direction, two different images with the same length and
-a colliding identity hash would hit `if (!target.existsSync())` and return the
-**old** path — silently attaching the wrong photo. Now an FNV-1a pass over the
-bytes.
-
 ### An empty list left orphaned alarms firing forever
 
-`syncReminders` returned early when there were no memorials. But the sweep for
-notifications that belong to no memorial lives inside `rescheduleAll`, and a
+`syncReminders` returned early when there were no events. But the sweep for
+notifications that belong to no event lives inside `rescheduleAll`, and a
 delete whose fire-and-forget cancel never ran leaves exactly that. Delete the
-last memorial and nothing would ever sweep them; they go on firing the text
+last event and nothing would ever sweep them; they go on firing the text
 baked into them years ago. The test that asserted the old behaviour — "an empty
 list is not work" — *was* the bug, so it was inverted rather than adjusted.
 
@@ -1316,7 +1679,7 @@ write lock up front) and `_tryClaim` treats a throw as a held lock.
 
 ### Smaller, still real
 
-- **`Memorial.fromMap` used `DateTime.parse` for `last_notified_at`** while the
+- **`Event.fromMap` used `DateTime.parse` for `last_notified_at`** while the
   field one line above used `tryParse`. One corrupt value took down a whole
   import, for a marker the next sync recomputes anyway.
 - **The settings diagnostics built their `Future` inside `build()`.** Every
@@ -1325,7 +1688,7 @@ write lock up front) and `_tryClaim` treats a throw as a held lock.
   button "worked" only as a side effect of the rebuild — which is what makes a
   fix like that fragile. Both futures are now held in fields and reloaded
   explicitly.
-- **"Do not remind again" could report that the memorial was not found** on a
+- **"Do not remind again" could report that the event was not found** on a
   cold launch from the notification button, because the screen read the
   provider's cached list while it was still loading. `setEnabledById` falls
   back to the database.
@@ -1350,26 +1713,23 @@ the old golden was right and only the run order was wrong.
 
 ### Known and deliberately left alone
 
-- **The Hebrew date conversions are recomputed per build.** `_sorted`,
-  `_filtered`, `_FilterBar`'s counters and every `MemorialCard` call into
-  `kosher_dart` on each frame — so a keystroke in the search field costs one
-  conversion per memorial. Fine at ten, not obviously fine at the three hundred
-  the alarm budget is designed for. Fixing it means memoising in
-  `HebrewCalendarService`, which has an injectable clock and therefore a cache
-  key that is easy to get subtly wrong. Measure before touching it.
-- `_FilterBar` is a plain `Row`; three chips fit the tested viewport but a very
-  narrow screen would overflow.
-- The photo count in the merge snackbar counts photos in the *selection*, so it
-  can overstate when rows are skipped as identical.
+- The date conversions are recomputed on every build — see "The per-build
+  conversions, measured" below for the cache that took the worst of it out.
+  What remains is widget rebuilding, which measured flat.
+- **The identity key for a merge is name + date + calendar**, so two different
+  people who share a name and a birthday merge into one. Same-date-different-
+  name is asked about; same-name-same-date is treated as a duplicate without
+  asking. Birthdays collide far more often than yahrzeits did, which makes this
+  the weakest remaining assumption in the import.
 
 ### The occurrence line contradicted the date beside it
 
 Found by the user asking the obvious question — "how does it save the 30th of
-Cheshvan in a year that has no 30th?" It does not: a memorial is stored as a
+Cheshvan in a year that has no 30th?" It does not: an event is stored as a
 recurring anniversary (day + month, **no year**), and each year is resolved
 separately. Nothing is ever saved "for" a year.
 
-But the answer exposed a second bug. `formatNextMemorialHebrewDate` promises
+But the answer exposed a second bug. `formatNextOccurrence` promises
 the full Hebrew date **of the coming occurrence** — its own doc says so, and it
 already resolved the month that way (plain Adar shows as Adar II in a leap
 year). The **day** was still taken from the stored field. So the card read:
@@ -1380,13 +1740,13 @@ year). The **day** was still taken from the stored field. So the card read:
 ```
 
 Two rows, one card, contradicting each other. The day is now derived from the
-Gregorian date that `_memorialGregorianForYear` already produced, so it cannot
+Gregorian date that `_occurrenceForYear` already produced, so it cannot
 drift from it.
 
-The recurring line above (`formatHebrewDate`, no year) still says
-`ל' בחשוון` — that is what the memorial *is*, and both facts belong on the
+The recurring line above (`formatEventDate`, no year) still says
+`ל' בחשוון` — that is what the event *is*, and both facts belong on the
 card. The notification body is unchanged for the same reason: it names the
-yahrzeit, not the occurrence.
+anniversary, not the occurrence.
 
 ### …and then says why
 
@@ -1402,7 +1762,7 @@ nothing to explain — a note that always shows is noise rather than help, and a
 test pins both halves. Without it the card simply displayed a different day
 from the one that was entered, with no reason given.
 
-It covers Adar too, and not only the short months: a memorial saved as Adar I
+It covers Adar too, and not only the short months: an event saved as Adar I
 (thirty days) falls into the single Adar of a non-leap year, which has
 twenty-nine — `ל' באדר אינו קיים בתשפ״ו, ולכן האזכרה בכ"ט`.
 
@@ -1422,11 +1782,11 @@ field, which re-filters, re-counts and re-sorts the whole list:
 
 So the constant ~33 ms is widget rebuilding and is not the interesting part.
 The growth is: at the default filter each keystroke costs about **three**
-`nextMemorialDate` calls per memorial — `_sorted`, plus two of `_FilterBar`'s
+`nextOccurrenceDate` calls per event — `_sorted`, plus two of `_FilterBar`'s
 three counters — and 300 cold conversions alone measure ~20 ms.
 
-The cache went in at `_memorialGregorianForYear`, **not** at
-`nextMemorialOccurrence**. That placement is the whole safety argument: the
+The cache went in at `_occurrenceForYear`, **not** at
+`nextOccurrence**. That placement is the whole safety argument: the
 former is a pure function of day, month, adar type and Hebrew year, with no
 reference to the clock at all, so there is nothing to expire and a key holding
 those four cannot return someone else's answer. The latter depends on
@@ -1443,20 +1803,20 @@ starts clean.
 
 Two tests hold the property rather than the numbers: a service that has been
 asked about every day of every month must agree with a fresh service asked
-about one; and two memorials differing in everything except the Hebrew date
+about one; and two events differing in everything except the Hebrew date
 must share an entry and still be right, while one differing in the date must
 not.
 
 ## A year the list does not reach
 
-`deathYearChoices` offers 120 Hebrew years back from the current one. A
-great-grandparent is further back than that, and there was no way to enter such
-a year at all.
+`startYearChoices` offers 120 years back from the current one, **in the calendar
+of the event** — gematria for a Hebrew event, digits for a Gregorian one. A
+grandparent born further back than that had no way in at all.
 
 **It was also a crash.** `DropdownButtonFormField` asserts that its value is
-among its items, so a memorial carrying a year outside the window took the
+among its items, so an event carrying a year outside the window took the
 whole edit screen down with a Flutter assertion — white screen, no message.
-That is reachable today through an imported backup, where `death_hebrew_year`
+That is reachable today through an imported backup, where `start_year`
 is a raw integer that no dropdown ever constrained. `_yearChoices()` now adds
 the chosen year to the list when the range does not contain it, which is both
 the feature and the fix.
@@ -1476,8 +1836,12 @@ year that looks entirely valid.
 **The dialog echoes what it understood**, formatted and as a number, before the
 confirm. Gematria is easy to mistype and a wrong year does not look wrong;
 `זזז` is perfectly good arithmetic (21, completed to 5021), so the parser
-cannot refuse it and the echo is the only thing that can. Same bargain as the
-coordinates field: forgiving input, visible interpretation.
+cannot refuse it and the echo is the only thing that can: forgiving input,
+visible interpretation.
+
+**One dialog serves both calendars**, because `parseHebrewYear` returns a plain
+number as itself — so `1998` is 1998 and תשנ"ח is 5758. Only the hint text and
+the echo differ by calendar.
 
 Two traps worth keeping:
 
@@ -1492,143 +1856,6 @@ Two traps worth keeping:
   calling that one method is exactly a real tap, and the items list is asserted
   separately off the inner `DropdownButton`.
 
-## Who gets Kaddish, and who does not
-
-`MemorialKind` (schema v9) holds three states, and the third one is the point:
-
-```
-none     never asked — the default, and what every existing row upgrades to
-family   a relative       — אומרים קדיש
-tzadik   a rav or tzadik  — ללא קדיש
-```
-
-**`none` is not "no".** Defaulting an upgraded row to `family` would assert
-something halachic that nobody said, so the column carries a SQL default of
-`none` and an unmarked memorial claims neither. The card shows nothing for it —
-a marking that appears on everything marks nothing.
-
-The chip says **what to do, not who the person was**: "אומרים קדיש" reads at a
-glance, where "משפחה" would need the reader to remember what it implies. Colour
-distinguishes the two but never carries the meaning alone — a colour legend
-nobody can see is not a marking. In the form the labels are longer and state
-the rule in full, because that is the moment of choosing.
-
-The selector is a vertical `RadioGroup`, not a `SegmentedButton`: three labels
-of that length do not fit three segments on a narrow screen, and shortening
-them to bare categories would put the legend problem right back.
-
-`filledFrom` fills a marking in but never overwrites one, like every other
-field it touches — so a merge cannot silently reclassify a memorial.
-
-Note `RadioListTile`'s `groupValue`/`onChanged` are deprecated after 3.32; the
-group value belongs on a `RadioGroup` ancestor now.
-
-### Categories, not rulings — and a filter for them
-
-The labels are now bare categories: **ללא · משפחה · צדיקים**. The earlier
-wording spelled out the rule on every card ("משפחה — אומרים קדיש"); the user
-asked that it not, and that is their call. The meaning is known to whoever set
-the marking, and the app has no business restating a halachic conclusion on
-each row.
-
-Each category has an icon — `family_restroom` and `auto_stories` — defined once
-in `MemorialCard.kindIcon` and used by the card, the form's radio rows and the
-filter chips, so the three can never show different things for the same
-category. The name sits beside the icon, so no legend is needed to read one.
-`none` still shows nothing at all on a card: a marking that appears on
-everything marks nothing.
-
-`memorialKindFilterProvider` is a **second, independent dimension** from
-`memorialFilterProvider` — one is a time window, the other a category, and they
-intersect. Two consequences worth keeping:
-
-- The category row appears **only when something is actually marked**,
-  otherwise it is permanent noise above the list for anyone who does not use
-  categories.
-- Tapping the selected chip clears it. A filter that can only be undone from a
-  different chip than the one that set it is a trap.
-
-`_EmptyView` gained a fourth case, because "there are memorials, and some are
-in the window, but none in this category" looks exactly like an empty list
-unless it says so.
-
-**Both chip rows scroll horizontally now** — the overflow risk flagged during
-the review is real once there are seven chips, and a chip that overflows is a
-filter the user cannot reach.
-
-Two test traps this created, both worth remembering:
-
-- **A horizontal scroller on the home screen broke two settings tests.** They
-  used `find.byType(Scrollable).first`, and the home screen stays mounted
-  beneath the pushed settings route — so *its* scroller became the first one in
-  the tree and the drag went sideways into nothing. Scope the finder to
-  `SettingsScreen`, the same rule `_revealInForm` already follows.
-- A chip beyond the viewport needs `ensureVisible` before a tap; `widgetWithText`
-  finds it either way, and the tap then lands on the clip.
-
-`06_after_add.png` turned out to have the **same order-dependent logo** as the
-splash golden, exposed by this change rather than caused by it. Same fix:
-`_warmLogo` before the capture, verified in both run orders.
-
-### The Magen David is drawn, not an icon
-
-Material Icons has no Star of David, and the alternatives are worse: the emoji
-✡️ renders in the system font, so its colour and shape are the manufacturer's
-choice and differ between devices; a bitmap blurs at every size it was not
-exported at. `MagenDavid` is a `CustomPainter` — sharp at any size, gold, and
-no new dependency.
-
-Two things the drawing had to get right:
-
-- **One 12-vertex polygon, not two triangles.** At chip size the outlines of
-  two overlaid triangles merge into a blot. A single filled shape with a darker
-  gold stroke stays legible — and the inner radius is `r/√3`, the ratio that
-  produces two genuinely equilateral triangles rather than a shape that merely
-  resembles them.
-- **The marks are 18px, not 14.** Material icons carry enough weight to survive
-  14; a hexagram's thin arms do not, and at 14 it read as a gold dot rather
-  than a shape. All three categories share the size so the row does not jump.
-
-The sparkle is drawn only from 18px up: smaller than that it is a single pixel
-that reads as dirt rather than as a glint.
-
-`MemorialCard.kindMark` returns a **Widget** now rather than an `IconData`,
-because one of the three is not an icon. The card, the form's radio rows and
-the filter chips all call it, so the three cannot show different things for the
-same category.
-
-### Setting the category from the list
-
-The chip is the handle: tapping it opens a sheet with the three categories and
-a check on the current one.
-
-**An unmarked card needed something to press.** Otherwise the list can only
-*change* a marking, never add one — which is most of the work. So a card with
-no category now shows an outline-only chip reading "+ קטגוריה". That is a
-deliberate softening of the earlier rule: it is drawn with no fill and in the
-outline colour, so it reads as an empty slot rather than as a claim — "there is
-no category here", not "the category is none".
-
-Two things that would otherwise bite:
-
-- **The chip's `InkWell` is nested inside the card's.** The inner one swallows
-  the tap, so pressing the chip does not also push the edit screen. A test
-  holds that, because it is invisible until someone removes the nesting.
-- **`setKind` does not reschedule**, unlike `updateMemorial`. The category
-  changes no date, no occurrence count and no notification text, so cancelling
-  and rescheduling would be work on the notification store — under the lock —
-  for a field that cannot affect it. A test asserts the notification log stays
-  empty.
-
-The change is announced in a snackbar, because with a category filter active
-the card leaves the list the instant it changes, and silence there looks like a
-deletion.
-
-`MemorialCard.kindChipKey` exists for the tests: the chip sits inside the
-card's `InkWell`, so a search by text returns both, and picking between them by
-finder order is exactly the kind of brittleness that is invisible until it
-breaks.
-
 ## The colour is a choice, in Settings
 
 `ThemeSeed` holds eight seeds; Material 3 derives the whole scheme — surfaces,
@@ -1637,13 +1864,18 @@ single hue rather than a colour per component: a derived scheme keeps contrast
 correct in every combination, while per-component picking produces unreadable
 pairs that nobody notices until a user is squinting at one.
 
-The hues are deliberately muted. This is an app about memorials, and a
-saturated colour would shout.
+**The hues are saturated on purpose, and this is the one place the conversion
+reversed a rule rather than renaming it.** The memorial app's palette was
+deliberately muted, because "an app about memorials should not shout". An app
+about birthdays should: it has to look like one the moment it opens. The only
+limit kept is legibility — every seed was checked to derive a scheme that holds
+contrast in both brightnesses, which is also why the kind colours are used as
+washes and marks and never as a background for text.
 
-**`ThemeSeed.fallback` is the purple the app already had**, so an existing
-install does not change appearance because a picker was added, and an unknown
-stored value falls back rather than throwing — a theme is a preference, never a
-reason to fail to start. A test pins both.
+**`ThemeSeed.fallback` is rose**, and an unknown stored value falls back rather
+than throwing — a theme is a preference, never a reason to fail to start. A
+test pins both, and a second one pins that no two swatches share a colour: two
+swatches that look alike are not a choice.
 
 Stored in `app_state`, the same key/value table that already holds the sync
 lock and the background-job status; it exists for exactly this kind of value.

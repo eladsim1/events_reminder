@@ -13,16 +13,12 @@
     <uses-permission
         android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"/>
     <uses-permission android:name="android.permission.VIBRATE"/>
-    <!-- נדרשת רק לכפתור "השתמש במיקום הנוכחי", ונשאלת בזמן הלחיצה. שימוש
-         רגיל באפליקציה אינו נוגע במיקום. -->
-    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
-    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
 
     <!-- גיבוי מוצהר במפורש. מכשיר חדש או התקנה מחדש הם התרחיש היחיד
          שמאבד את כל הנתונים ולא רק תזכורת אחת, וללא הצהרה שום דבר לא כיוון
          את מה שנשמר ושום דבר לא אימת זאת. -->
     <application
-        android:label="תזכורת אזכרות"
+        android:label="תזכורת אירועים"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
         android:allowBackup="true"
@@ -101,28 +97,12 @@
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>
         </intent>
-        <!-- נדרש מ-Android 11: בלי הצהרה על הסכמות, canLaunchUrl מחזיר false
-             גם כשוויז או Google Maps מותקנים (package visibility). -->
-        <intent>
-            <action android:name="android.intent.action.VIEW"/>
-            <data android:scheme="geo"/>
-        </intent>
-        <intent>
-            <action android:name="android.intent.action.VIEW"/>
-            <data android:scheme="https"/>
-        </intent>
-        <!-- אותה מלכודת כמו geo: בלי ההצהרה canLaunchUrl מחזיר false על
-             tel: גם כשיש אפליקציית חיוג, ושורת המשוב לא תיפתח. -->
+        <!-- מלכודת ותקה: מאנדרואיד 11, בלי ההצהרה הזו canLaunchUrl מחזיר
+             false על tel: גם כשיש אפליקציית חיוג – ושורת המשוב, שכל תפקידה
+             לפתוח את מסך החיוג, פשוט אינה עושה דבר. -->
         <intent>
             <action android:name="android.intent.action.DIAL"/>
             <data android:scheme="tel"/>
-        </intent>
-        <!-- ווייז נפתחת ישירות מכפתור בדיקת נקודת הציון. גם כאן, בלי
-             ההצהרה canLaunchUrl מחזיר false אף שהיא מותקנת. -->
-        <package android:name="com.waze"/>
-        <intent>
-            <action android:name="android.intent.action.VIEW"/>
-            <data android:scheme="waze"/>
         </intent>
     </queries>
 </manifest>

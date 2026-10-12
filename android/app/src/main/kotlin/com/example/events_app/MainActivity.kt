@@ -1,4 +1,4 @@
-package com.example.azkarot_app
+package com.example.events_app
 
 import android.app.NotificationManager
 import android.content.Intent
@@ -19,7 +19,7 @@ import io.flutter.plugin.common.MethodChannel
  */
 class MainActivity : FlutterActivity() {
     private companion object {
-        const val CHANNEL = "azkarot_app/checks"
+        const val CHANNEL = "events_app/checks"
     }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {

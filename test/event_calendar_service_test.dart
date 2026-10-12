@@ -1,10 +1,10 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:azkarot_app/models/hebrew_date.dart';
-import 'package:azkarot_app/models/memorial.dart';
-import 'package:azkarot_app/services/hebrew_calendar_service.dart';
+import 'package:events_app/models/event_date.dart';
+import 'package:events_app/models/event.dart';
+import 'package:events_app/services/event_calendar_service.dart';
 
-Memorial _memorial({
+Event _hebrewEvent({
   required int day,
   required HebrewMonth month,
   AdarType adarType = AdarType.none,
@@ -12,11 +12,11 @@ Memorial _memorial({
   int minute = 0,
 }) {
   final storage = month.toStorage();
-  return Memorial(
+  return Event(
     id: 1,
     name: 'בדיקה',
-    hebrewDay: day,
-    hebrewMonth: storage.baseMonth,
+    day: day,
+    month: storage.baseMonth,
     adarType: adarType == AdarType.none ? storage.adarType : adarType,
     notificationHour: hour,
     notificationMinute: minute,
@@ -25,7 +25,7 @@ Memorial _memorial({
 }
 
 void main() {
-  final calendar = HebrewCalendarService();
+  final calendar = EventCalendarService();
 
   group('isLeapYear', () {
     test('שנים מעוברות ידועות', () {
@@ -90,36 +90,36 @@ void main() {
     });
   });
 
-  group('tuesdayBeforeWeekOf – יום שלישי של השבוע שלפני שבוע האזכרה', () {
-    test('אזכרה ביום חמישי -> שלישי של השבוע הקודם', () {
+  group('tuesdayBeforeWeekOf – יום שלישי של השבוע שלפני שבוע האירוע', () {
+    test('אירוע ביום חמישי -> שלישי של השבוע הקודם', () {
       // חמישי 20/05/2027.
-      final memorialDate = DateTime(2027, 5, 20);
-      expect(memorialDate.weekday, DateTime.thursday);
+      final eventDate = DateTime(2027, 5, 20);
+      expect(eventDate.weekday, DateTime.thursday);
 
-      final reminder = calendar.tuesdayBeforeWeekOf(memorialDate);
+      final reminder = calendar.tuesdayBeforeWeekOf(eventDate);
       // צפוי: שלישי 11/05/2027.
       expect(reminder.weekday, DateTime.tuesday);
       expect(reminder, DateTime(2027, 5, 11));
     });
 
-    test('אזכרה ביום ראשון -> שלישי של השבוע הקודם', () {
+    test('אירוע ביום ראשון -> שלישי של השבוע הקודם', () {
       // ראשון הוא תחילת השבוע; השבוע הקודם מתחיל ראשון שלפני.
-      final memorialDate = DateTime(2027, 5, 16); // ראשון
-      expect(memorialDate.weekday, DateTime.sunday);
+      final eventDate = DateTime(2027, 5, 16); // ראשון
+      expect(eventDate.weekday, DateTime.sunday);
 
-      final reminder = calendar.tuesdayBeforeWeekOf(memorialDate);
+      final reminder = calendar.tuesdayBeforeWeekOf(eventDate);
       expect(reminder.weekday, DateTime.tuesday);
-      // שבוע האזכרה מתחיל 16/05 -> שבוע קודם מתחיל 09/05 -> שלישי 11/05.
+      // שבוע האירוע מתחיל 16/05 -> שבוע קודם מתחיל 09/05 -> שלישי 11/05.
       expect(reminder, DateTime(2027, 5, 11));
     });
 
-    test('אזכרה ביום שבת -> שלישי של השבוע הקודם', () {
-      final memorialDate = DateTime(2027, 5, 22); // שבת
-      expect(memorialDate.weekday, DateTime.saturday);
+    test('אירוע ביום שבת -> שלישי של השבוע הקודם', () {
+      final eventDate = DateTime(2027, 5, 22); // שבת
+      expect(eventDate.weekday, DateTime.saturday);
 
-      final reminder = calendar.tuesdayBeforeWeekOf(memorialDate);
+      final reminder = calendar.tuesdayBeforeWeekOf(eventDate);
       expect(reminder.weekday, DateTime.tuesday);
-      // שבוע האזכרה: ראשון 16/05 .. שבת 22/05 -> קודם: שלישי 11/05.
+      // שבוע האירוע: ראשון 16/05 .. שבת 22/05 -> קודם: שלישי 11/05.
       expect(reminder, DateTime(2027, 5, 11));
     });
 
@@ -133,12 +133,12 @@ void main() {
     });
   });
 
-  group('nextMemorialDate', () {
+  group('nextOccurrenceDate', () {
     test('מחזיר את השנה הבאה אם התאריך כבר עבר', () {
-      // אזכרה בתשרי (סמוך לראש השנה). נבדוק ממועד מאוחר בשנה.
-      final m = _memorial(day: 10, month: HebrewMonth.tishrei);
+      // אירוע בתשרי (סמוך לראש השנה). נבדוק ממועד מאוחר בשנה.
+      final m = _hebrewEvent(day: 10, month: HebrewMonth.tishrei);
       final from = DateTime(2025, 12, 1);
-      final next = calendar.nextMemorialDate(m, from: from);
+      final next = calendar.nextOccurrenceDate(m, from: from);
       expect(next.isAfter(from) || next.isAtSameMomentAs(from), isTrue);
     });
 
@@ -148,12 +148,12 @@ void main() {
           .toList();
       final from = DateTime(2026, 3, 15);
       for (final mo in months) {
-        final maxDay = calendar.daysInMonth(
+        final maxDay = calendar.daysInHebrewMonth(
           month: mo,
           adarType: mo.toStorage().adarType,
         );
-        final m = _memorial(day: maxDay.clamp(1, 29), month: mo);
-        final next = calendar.nextMemorialDate(m, from: from);
+        final m = _hebrewEvent(day: maxDay.clamp(1, 29), month: mo);
+        final next = calendar.nextOccurrenceDate(m, from: from);
         final fromDay = DateTime(from.year, from.month, from.day);
         expect(next.isBefore(fromDay), isFalse,
             reason: 'חודש $mo החזיר תאריך בעבר: $next');
@@ -164,20 +164,20 @@ void main() {
   group('אדר א\' ואדר ב\' בשנה מעוברת', () {
     test('אדר א\' ואדר ב\' מפיקים תאריכים לועזיים שונים בשנה מעוברת', () {
       // 5784 מעוברת.
-      final adarA = _memorial(
+      final adarA = _hebrewEvent(
         day: 10,
         month: HebrewMonth.adarA,
         adarType: AdarType.adarA,
       );
-      final adarB = _memorial(
+      final adarB = _hebrewEvent(
         day: 10,
         month: HebrewMonth.adarB,
         adarType: AdarType.adarB,
       );
 
       final from = DateTime(2023, 12, 1); // לפני אדר של 5784 (אביב 2024)
-      final dateA = calendar.nextMemorialDate(adarA, from: from);
-      final dateB = calendar.nextMemorialDate(adarB, from: from);
+      final dateA = calendar.nextOccurrenceDate(adarA, from: from);
+      final dateB = calendar.nextOccurrenceDate(adarB, from: from);
 
       expect(dateA, isNot(equals(dateB)));
       // אדר א' קודם לאדר ב'.
@@ -185,39 +185,39 @@ void main() {
     });
 
     test('אדר סתמי בשנה מעוברת נופל על אדר ב\' (מנהג נפוץ)', () {
-      final adarPlain = _memorial(
+      final adarPlain = _hebrewEvent(
         day: 10,
         month: HebrewMonth.adar,
         adarType: AdarType.adar,
       );
-      final adarB = _memorial(
+      final adarB = _hebrewEvent(
         day: 10,
         month: HebrewMonth.adarB,
         adarType: AdarType.adarB,
       );
 
       final from = DateTime(2023, 12, 1);
-      final datePlain = calendar.nextMemorialDate(adarPlain, from: from);
-      final dateB = calendar.nextMemorialDate(adarB, from: from);
+      final datePlain = calendar.nextOccurrenceDate(adarPlain, from: from);
+      final dateB = calendar.nextOccurrenceDate(adarB, from: from);
 
       expect(datePlain, equals(dateB));
     });
   });
 
-  group('formatHebrewDate', () {
+  group('formatEventDate', () {
     test("י\"ד בחשוון", () {
-      final m = _memorial(day: 14, month: HebrewMonth.cheshvan);
-      expect(calendar.formatHebrewDate(m), 'י"ד בחשוון');
+      final m = _hebrewEvent(day: 14, month: HebrewMonth.cheshvan);
+      expect(calendar.formatEventDate(m), 'י"ד בחשוון');
     });
 
     test("א' בניסן", () {
-      final m = _memorial(day: 1, month: HebrewMonth.nisan);
-      expect(calendar.formatHebrewDate(m), "א' בניסן");
+      final m = _hebrewEvent(day: 1, month: HebrewMonth.nisan);
+      expect(calendar.formatEventDate(m), "א' בניסן");
     });
 
     test("ט\"ו בשבט", () {
-      final m = _memorial(day: 15, month: HebrewMonth.shevat);
-      expect(calendar.formatHebrewDate(m), 'ט"ו בשבט');
+      final m = _hebrewEvent(day: 15, month: HebrewMonth.shevat);
+      expect(calendar.formatEventDate(m), 'ט"ו בשבט');
     });
   });
 

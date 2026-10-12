@@ -1,45 +1,89 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:azkarot_app/models/hebrew_date.dart';
-import 'package:azkarot_app/models/memorial.dart';
+import 'package:events_app/models/event_date.dart';
+import 'package:events_app/models/event.dart';
 
 void main() {
-  group('Memorial serialization', () {
+  group('Event serialization', () {
     test('toMap/fromMap הלוך ושוב', () {
-      final m = Memorial(
+      final m = Event(
         id: 5,
-        name: 'משה בן יעקב',
-        hebrewDay: 14,
-        hebrewMonth: HebrewMonth.cheshvan.index,
+        name: 'דנה',
+        day: 14,
+        month: HebrewMonth.cheshvan.index,
         adarType: AdarType.none,
         notificationHour: 9,
         notificationMinute: 30,
         enabled: true,
         notes: 'הערה',
+        kind: EventKind.birthday,
+        startYear: 5756,
         createdAt: DateTime(2024, 5, 1, 12, 0),
       );
 
       final map = m.toMap();
-      final restored = Memorial.fromMap(map);
+      final restored = Event.fromMap(map);
 
       expect(restored.id, m.id);
       expect(restored.name, m.name);
-      expect(restored.hebrewDay, m.hebrewDay);
-      expect(restored.hebrewMonth, m.hebrewMonth);
+      expect(restored.day, m.day);
+      expect(restored.month, m.month);
       expect(restored.adarType, m.adarType);
       expect(restored.notificationHour, m.notificationHour);
       expect(restored.notificationMinute, m.notificationMinute);
       expect(restored.enabled, m.enabled);
       expect(restored.notes, m.notes);
       expect(restored.createdAt, m.createdAt);
+      expect(restored.kind, m.kind);
+      expect(restored.calendar, CalendarSystem.hebrew,
+          reason: 'the default has to survive a round trip too');
+      expect(restored.startYear, 5756);
+    });
+
+    test('a Gregorian event keeps its calendar and its month number', () {
+      final m = Event(
+        id: 7,
+        name: 'דנה',
+        calendar: CalendarSystem.gregorian,
+        day: 29,
+        month: 2,
+        kind: EventKind.birthday,
+        startYear: 1996,
+        notificationHour: 9,
+        notificationMinute: 0,
+        createdAt: DateTime(2024, 1, 1),
+      );
+
+      final restored = Event.fromJson(m.toJson());
+      expect(restored.calendar, CalendarSystem.gregorian);
+      expect(restored.isHebrew, isFalse);
+      // The same column that holds a HebrewMonth index for a Hebrew event.
+      expect(restored.month, 2);
+      expect(restored.day, 29);
+      expect(restored.startYear, 1996);
+    });
+
+    test('the identity key separates the two calendars', () {
+      Event at(CalendarSystem c) => Event(
+            name: 'דנה',
+            calendar: c,
+            day: 14,
+            month: 1,
+            notificationHour: 9,
+            notificationMinute: 0,
+            createdAt: DateTime(2024, 1, 1),
+          );
+      // Same name, same numbers, two completely different days.
+      expect(at(CalendarSystem.hebrew).identityKey,
+          isNot(at(CalendarSystem.gregorian).identityKey));
     });
 
     test('toJson/fromJson הלוך ושוב עם אדר ב\'', () {
-      final m = Memorial(
+      final m = Event(
         id: 2,
-        name: 'שרה',
-        hebrewDay: 10,
-        hebrewMonth: HebrewMonth.adar.index,
+        name: 'אנחנו',
+        day: 10,
+        month: HebrewMonth.adar.index,
         adarType: AdarType.adarB,
         notificationHour: 8,
         notificationMinute: 0,
@@ -48,18 +92,18 @@ void main() {
         createdAt: DateTime(2024, 1, 1),
       );
 
-      final restored = Memorial.fromJson(m.toJson());
+      final restored = Event.fromJson(m.toJson());
       expect(restored.adarType, AdarType.adarB);
-      expect(restored.selectedMonth, HebrewMonth.adarB);
+      expect(restored.hebrewMonth, HebrewMonth.adarB);
       expect(restored.enabled, isFalse);
       expect(restored.notes, isNull);
     });
 
     test('copyWith עם clearNotes מנקה הערות', () {
-      final m = Memorial(
-        name: 'דוד',
-        hebrewDay: 1,
-        hebrewMonth: HebrewMonth.nisan.index,
+      final m = Event(
+        name: 'אמא',
+        day: 1,
+        month: HebrewMonth.nisan.index,
         notificationHour: 9,
         notificationMinute: 0,
         notes: 'קיים',
@@ -69,9 +113,9 @@ void main() {
       final cleared = m.copyWith(clearNotes: true);
       expect(cleared.notes, isNull);
 
-      final changed = m.copyWith(name: 'דוד המלך');
+      final changed = m.copyWith(name: 'אמא שלי');
       expect(changed.notes, 'קיים');
-      expect(changed.name, 'דוד המלך');
+      expect(changed.name, 'אמא שלי');
     });
   });
 

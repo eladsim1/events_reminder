@@ -1,7 +1,13 @@
-name: azkarot_app
-description: "אפליקציית תזכורת אזכרות לפי התאריך העברי"
+name: events_app
+description: "אפליקציית תזכורות לאירועים משמחים – ימי הולדת, ימי נישואין ועוד"
 publish_to: 'none'
-version: 1.0.0+1
+# versionCode חייב להישאר מעל 4001.
+#
+# ב-23/09/2026 נבנו כאן קובצי --split-per-abi, ו-Flutter מוסיף להם 1000 לכל
+# ABI: 1001 ל-armeabi-v7a, 2001 ל-arm64-v8a, 4001 ל-x86_64. אם אחד מהם הותקן
+# אי פעם על טלפון, בנייה אוניברסלית ב-+1 היא **שדרוג לאחור** ואנדרואיד מסרב
+# לה – עם אותה הודעה סתומה שמקבלים על קובץ פגום. 5000 עובר את כולם.
+version: 1.1.0+5000
 
 environment:
   sdk: '>=3.6.0 <4.0.0'
@@ -36,7 +42,6 @@ dependencies:
   path_provider: ^2.1.6
   workmanager: ^0.10.9
   share_plus: ^12.0.2
-  geolocator: ^14.0.2
 
   # הרשאות ההתראות מתבקשות דרך flutter_local_notifications עצמו
   # (requestNotificationsPermission / requestExactAlarmsPermission),

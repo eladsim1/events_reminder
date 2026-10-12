@@ -7,7 +7,7 @@ void main() {
   WidgetsFlutterBinding.ensureInitialized();
   runApp(
     const ProviderScope(
-      child: AzkarotApp(),
+      child: EventsApp(),
     ),
   );
 }

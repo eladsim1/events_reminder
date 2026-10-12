@@ -1,37 +1,35 @@
 import 'package:path/path.dart' as p;
 import 'package:sqflite/sqflite.dart';
 
-import '../models/hebrew_date.dart';
-import '../models/memorial.dart';
+import '../models/event.dart';
+import '../models/event_date.dart';
 
 /// עוטף גישה גולמית ל-SQLite.
 ///
 /// **חשוב:** אף שכבה מלבד ה-Repository אינה ניגשת ישירות למחלקה זו.
-/// כאן מוגדרת סכימת הטבלה [memorials] והמרות מ/אל [Memorial].
+/// כאן מוגדרת סכימת הטבלה [table] וההמרות מ/אל [Event].
 class DatabaseHelper {
-  static const _databaseName = 'azkarot.db';
+  static const _databaseName = 'events.db';
 
-  /// 1 -> 2: נוסף last_notified_at, כדי לדעת אילו תזכורות כבר טופלו ולא
-  /// להציג שוב את אותה שנה בכל פתיחה.
-  /// 2 -> 3: מיקום קבר (cemetery, plot), תמונה (photo_path), ומועד התזכורת
-  /// הניתן להגדרה (reminder_mode, reminder_value).
-  /// 3 -> 4: שנת הפטירה העברית (death_hebrew_year), אופציונלית.
-  /// 4 -> 5: postponed_reminder_at – דחייה חד-פעמית שהמשתמש ביקש מההתראה.
-  /// 5 -> 6: טבלת app_state – נעילת סנכרון ומצב העבודה שרצה ברקע.
-  /// 6 -> 7: latitude/longitude – נקודת ציון של הקבר עצמו.
-  /// 7 -> 8: grave_photo_path – תמונת הקבר, לצד תמונת הנפטר.
-  /// 8 -> 9: kind – משפחה שאומרים עליה קדיש מול רב/צדיק שלא.
-  static const _databaseVersion = 9;
+  /// גרסה 1: הסכימה נולדה שלמה.
+  ///
+  /// **לא המשך של סכימת האזכרות.** האפליקציה הזו היא אפליקציה אחרת, עם
+  /// מזהה חבילה משלה ועם קובץ מסד משלה, ולכן אין התקנה קיימת לשדרג ממנה –
+  /// ושדרוג כזה גם לא היה נכון: יום שנה לפטירה אינו אירוע משמח, והמרה
+  /// אוטומטית בין השניים הייתה שינוי משמעות ולא מיגרציה.
+  ///
+  /// [_onUpgrade] נשאר כאן בשביל מה שיבוא: כל שינוי סכימה עתידי חייב
+  /// להיות אינקרמנטלי ובסדר עולה, כי אז כבר יהיו התקנות עם נתונים.
+  static const _databaseVersion = 1;
 
-  static const table = 'memorials';
+  static const table = 'events';
 
   /// מפתח/ערך לענייני תשתית. קיימת בגלל שני צרכים שאין להם מקום אחר:
   /// נעילה שמשותפת ל-isolates, ומצב הריצה של העבודה ברקע.
   static const stateTable = 'app_state';
 
   DatabaseHelper._privateConstructor();
-  static final DatabaseHelper instance =
-      DatabaseHelper._privateConstructor();
+  static final DatabaseHelper instance = DatabaseHelper._privateConstructor();
 
   static Database? _database;
 
@@ -51,58 +49,11 @@ class DatabaseHelper {
     );
   }
 
-  /// שדרוג סכימה. חייב להיות אינקרמנטלי – התקנות קיימות מכילות נתונים.
+  /// שדרוג סכימה. חייב להיות אינקרמנטלי ובסדר עולה – התקנות קיימות מכילות
+  /// נתונים, ובלוק שרץ בסדר יורד מזמין מיגרציה עתידית שתסתמך על קודמתה
+  /// ותרוץ לפניה.
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
-    // בסדר עולה. הבלוקים כאן עצמאיים זה מזה, אבל סדר יורד מזמין מיגרציה
-    // עתידית שתסתמך על קודמתה ותרוץ לפניה.
-    if (oldVersion < 2) {
-      await db.execute(
-        'ALTER TABLE $table ADD COLUMN last_notified_at TEXT',
-      );
-    }
-    if (oldVersion < 3) {
-      await db.execute('ALTER TABLE $table ADD COLUMN cemetery TEXT');
-      await db.execute('ALTER TABLE $table ADD COLUMN plot TEXT');
-      await db.execute('ALTER TABLE $table ADD COLUMN photo_path TEXT');
-      // ברירת המחדל שומרת על ההתנהגות הקיימת: יום שלישי של השבוע שלפני.
-      await db.execute(
-        "ALTER TABLE $table ADD COLUMN reminder_mode TEXT NOT NULL "
-        "DEFAULT '${ReminderMode.weekdayOfPreviousWeek.dbValue}'",
-      );
-      await db.execute(
-        'ALTER TABLE $table ADD COLUMN reminder_value INTEGER NOT NULL '
-        'DEFAULT ${Memorial.defaultReminderWeekday}',
-      );
-    }
-    if (oldVersion < 4) {
-      // ללא DEFAULT: היעדר ידיעה הוא מצב לגיטימי, ו-null מבטא אותו.
-      await db.execute(
-        'ALTER TABLE $table ADD COLUMN death_hebrew_year INTEGER',
-      );
-    }
-    if (oldVersion < 5) {
-      await db.execute(
-        'ALTER TABLE $table ADD COLUMN postponed_reminder_at TEXT',
-      );
-    }
-    if (oldVersion < 6) {
-      await _createStateTable(db);
-    }
-    if (oldVersion < 7) {
-      await db.execute('ALTER TABLE $table ADD COLUMN latitude REAL');
-      await db.execute('ALTER TABLE $table ADD COLUMN longitude REAL');
-    }
-    if (oldVersion < 8) {
-      await db.execute('ALTER TABLE $table ADD COLUMN grave_photo_path TEXT');
-    }
-    if (oldVersion < 9) {
-      // ברירת מחדל 'none' ולא 'family': אזכרה קיימת מעולם לא נשאלה, וניחוש
-      // כאן היה טוען משהו הלכתי שאיש לא אמר.
-      await db.execute(
-        "ALTER TABLE $table ADD COLUMN kind TEXT NOT NULL "
-        "DEFAULT '${MemorialKind.none.dbValue}'",
-      );
-    }
+    // אין עדיין גרסאות קודמות.
   }
 
   /// תופס את נעילת הסנכרון, או מדווח שהיא תפוסה.
@@ -121,8 +72,8 @@ class DatabaseHelper {
     // מיד. בלעדיה שני ה-isolates קוראים תחילה, שניהם רואים "פנוי", ורק אז
     // כותבים – והשני מקבל SQLITE_BUSY אחרי שכבר החליט שהנעילה שלו.
     return db.transaction<bool>(exclusive: true, (txn) async {
-      final rows = await txn.query(stateTable,
-          where: 'key = ?', whereArgs: [_syncLockKey]);
+      final rows = await txn
+          .query(stateTable, where: 'key = ?', whereArgs: [_syncLockKey]);
       final now = DateTime.now();
 
       if (rows.isNotEmpty) {
@@ -189,7 +140,7 @@ class DatabaseHelper {
   /// קורא הגדרה מטבלת app_state, או null אם אינה קיימת.
   ///
   /// אותה טבלה שמחזיקה את הנעילה ואת מצב העבודה ברקע – היא נוצרה בדיוק
-  /// בשביל ערכים שאין להם מקום בשורת אזכרה.
+  /// בשביל ערכים שאין להם מקום בשורת אירוע.
   Future<String?> readSetting(String key) async {
     final db = await database;
     final rows = await db
@@ -219,9 +170,12 @@ class DatabaseHelper {
       CREATE TABLE $table (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT NOT NULL,
-        hebrew_day INTEGER NOT NULL,
-        hebrew_month INTEGER NOT NULL,
+        kind TEXT NOT NULL DEFAULT '${EventKind.other.dbValue}',
+        calendar TEXT NOT NULL DEFAULT '${CalendarSystem.hebrew.dbValue}',
+        day INTEGER NOT NULL,
+        month INTEGER NOT NULL,
         adar_type TEXT NOT NULL DEFAULT 'none',
+        start_year INTEGER,
         notification_hour INTEGER NOT NULL,
         notification_minute INTEGER NOT NULL,
         enabled INTEGER NOT NULL DEFAULT 1,
@@ -229,35 +183,27 @@ class DatabaseHelper {
         created_at TEXT NOT NULL,
         last_notified_at TEXT,
         postponed_reminder_at TEXT,
-        grave_photo_path TEXT,
-        kind TEXT NOT NULL DEFAULT '${MemorialKind.none.dbValue}',
-        latitude REAL,
-        longitude REAL,
-        cemetery TEXT,
-        plot TEXT,
-        photo_path TEXT,
         reminder_mode TEXT NOT NULL DEFAULT '${ReminderMode.weekdayOfPreviousWeek.dbValue}',
-        death_hebrew_year INTEGER,
-        reminder_value INTEGER NOT NULL DEFAULT ${Memorial.defaultReminderWeekday}
+        reminder_value INTEGER NOT NULL DEFAULT ${Event.defaultReminderWeekday}
       )
     ''');
   }
 
   // ---- פעולות CRUD גולמיות (נקראות רק מה-Repository) ----
 
-  Future<int> insert(Memorial memorial) async {
+  Future<int> insert(Event event) async {
     final db = await database;
-    final map = memorial.toMap()..remove('id');
+    final map = event.toMap()..remove('id');
     return db.insert(table, map);
   }
 
-  Future<int> update(Memorial memorial) async {
+  Future<int> update(Event event) async {
     final db = await database;
     return db.update(
       table,
-      memorial.toMap(),
+      event.toMap(),
       where: 'id = ?',
-      whereArgs: [memorial.id],
+      whereArgs: [event.id],
     );
   }
 
@@ -266,51 +212,51 @@ class DatabaseHelper {
     return db.delete(table, where: 'id = ?', whereArgs: [id]);
   }
 
-  Future<List<Memorial>> getAll() async {
+  Future<List<Event>> getAll() async {
     final db = await database;
     final rows = await db.query(table, orderBy: 'created_at DESC');
-    return rows.map((r) => Memorial.fromMap(r)).toList();
+    return rows.map((r) => Event.fromMap(r)).toList();
   }
 
-  Future<Memorial?> getById(int id) async {
+  Future<Event?> getById(int id) async {
     final db = await database;
     final rows =
         await db.query(table, where: 'id = ?', whereArgs: [id], limit: 1);
     if (rows.isEmpty) return null;
-    return Memorial.fromMap(rows.first);
+    return Event.fromMap(rows.first);
   }
 
-  /// מוחק את כל הרשומות ומכניס רשימה חדשה (לשימוש בייבוא).
-  /// מוסיף רק אזכרות שאינן קיימות. מחזיר כמה נוספו וכמה דולגו.
+  /// מוסיף רק אירועים שאינם קיימים. מחזיר כמה נוספו וכמה דולגו.
   ///
-  /// ההשוואה על [Memorial.identityKey] ולא על המזהה: המזהה של קובץ גיבוי
+  /// ההשוואה על [Event.identityKey] ולא על המזהה: המזהה של קובץ גיבוי
   /// שייך למכשיר אחר ואינו אומר דבר כאן.
-  Future<({int added, int skipped})> mergeAll(List<Memorial> incoming) async {
+  Future<({int added, int skipped})> mergeAll(List<Event> incoming) async {
     final db = await database;
-    final existing = {for (final m in await getAll()) m.identityKey};
+    final existing = {for (final e in await getAll()) e.identityKey};
 
     var added = 0;
     var skipped = 0;
     await db.transaction((txn) async {
-      for (final m in incoming) {
+      for (final e in incoming) {
         // גם מול מה שנוסף באותה ריצה: קובץ יכול להכיל כפילות בתוכו.
-        if (!existing.add(m.identityKey)) {
+        if (!existing.add(e.identityKey)) {
           skipped++;
           continue;
         }
-        await txn.insert(table, m.toMap()..remove('id'));
+        await txn.insert(table, e.toMap()..remove('id'));
         added++;
       }
     });
     return (added: added, skipped: skipped);
   }
 
-  Future<void> replaceAll(List<Memorial> memorials) async {
+  /// מוחק את כל הרשומות ומכניס רשימה חדשה (לשימוש בייבוא).
+  Future<void> replaceAll(List<Event> events) async {
     final db = await database;
     await db.transaction((txn) async {
       await txn.delete(table);
-      for (final m in memorials) {
-        final map = m.toMap()..remove('id');
+      for (final e in events) {
+        final map = e.toMap()..remove('id');
         await txn.insert(table, map);
       }
     });

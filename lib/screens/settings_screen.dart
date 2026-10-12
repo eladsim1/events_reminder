@@ -9,12 +9,11 @@ import 'package:share_plus/share_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../models/memorial.dart';
+import '../models/event.dart';
 import '../models/merge_plan.dart';
 import '../models/theme_seed.dart';
-import '../providers/memorial_provider.dart';
+import '../providers/event_provider.dart';
 import '../widgets/import_selection_dialog.dart';
-import '../services/photo_store.dart';
 import '../services/notification_service.dart';
 
 /// מסך הגדרות.
@@ -40,35 +39,13 @@ class SettingsScreen extends ConsumerWidget {
   ///
   /// מופרד כדי ששני המסלולים יפיקו **בדיוק** את אותו קובץ; שתי בנייה נפרדות
   /// היו נפרדות זו מזו בשקט ברגע שאחת מהן משתנה.
-  Future<({String json, int count, int withPhoto})> _buildBackup(
-      WidgetRef ref) async {
-    final memorials = await ref.read(memorialRepositoryProvider).getAll();
-    final photos = ref.read(photoStoreProvider);
-
-    final jsonList = <Map<String, dynamic>>[];
-    var withPhoto = 0;
-    for (final m in memorials) {
-      final map = m.toJson();
-      // הנתיב המקומי חסר משמעות במכשיר אחר; התמונה עצמה נוסעת מוטמעת.
-      map.remove('photo_path');
-      map.remove('grave_photo_path');
-      final data = await photos.readAsBase64(m.photoPath);
-      final graveData = await photos.readAsBase64(m.gravePhotoPath);
-      if (data != null) {
-        map['photo_data'] = data;
-      }
-      if (graveData != null) {
-        map['grave_photo_data'] = graveData;
-      }
-      if (data != null) withPhoto++;
-      if (graveData != null) withPhoto++;
-      jsonList.add(map);
-    }
+  Future<({String json, int count})> _buildBackup(WidgetRef ref) async {
+    final events = await ref.read(eventRepositoryProvider).getAll();
+    final jsonList = [for (final e in events) e.toJson()];
 
     return (
       json: const JsonEncoder.withIndent('  ').convert(jsonList),
-      count: memorials.length,
-      withPhoto: withPhoto,
+      count: events.length,
     );
   }
 
@@ -76,7 +53,7 @@ class SettingsScreen extends ConsumerWidget {
   String _backupFileName() {
     final ts =
         DateTime.now().toIso8601String().replaceAll(':', '-').split('.').first;
-    return 'azkarot_backup_$ts.json';
+    return 'events_backup_$ts.json';
   }
 
   /// שולח את הגיבוי דרך בורר השיתוף של אנדרואיד.
@@ -96,9 +73,8 @@ class SettingsScreen extends ConsumerWidget {
       await SharePlus.instance.share(
         ShareParams(
           files: [XFile(file.path, mimeType: 'application/json')],
-          subject: 'גיבוי תזכורת אזכרות',
-          text: '${backup.count} אזכרות'
-              '${backup.withPhoto > 0 ? ' · ${backup.withPhoto} תמונות' : ''}',
+          subject: 'גיבוי תזכורת אירועים',
+          text: '${backup.count} אירועים',
         ),
       );
     } catch (e) {
@@ -133,9 +109,7 @@ class SettingsScreen extends ConsumerWidget {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            '${backup.count} אזכרות נשמרו לגיבוי'
-            '${backup.withPhoto > 0 ? ' (כולל ${backup.withPhoto} תמונות)' : ''}'
-            ' · $sizeKb KB',
+            '${backup.count} אירועים נשמרו לגיבוי · $sizeKb KB',
           ),
         ),
       );
@@ -172,26 +146,22 @@ class SettingsScreen extends ConsumerWidget {
         throw const FormatException('מבנה הקובץ אינו תקין');
       }
 
-      final photos = ref.read(photoStoreProvider);
-      final memorials = <Memorial>[];
-
-      for (final entry in decoded.cast<Map<String, dynamic>>()) {
-        var memorial = Memorial.fromJson(entry);
-        // התמונות מגיעות מוטמעות; נכתבות מחדש מקומית ומקבלות נתיב של
-        // המכשיר הזה. כל אחת בגודל שבו נשמרה.
-        final path =
-            await photos.restoreFromBase64(entry['photo_data'] as String?);
-        final gravePath = await photos.restoreFromBase64(
-          entry['grave_photo_data'] as String?,
-          maxSide: PhotoStore.graveMaxDimension,
-        );
-        if (path != null || gravePath != null) {
-          memorial = memorial.copyWith(
-            photoPath: path,
-            gravePhotoPath: gravePath,
-          );
-        }
-        memorials.add(memorial);
+      // עטוף בכוונה: קובץ שאינו גיבוי של האפליקציה הזו – למשל גיבוי של
+      // אפליקציית האזכרות שממנה זו הומרה, ששמרה hebrew_day/hebrew_month –
+      // מפיל את ההמרה על TypeError, והמשתמש היה רואה
+      // "type 'Null' is not a subtype of type 'int'". משפט אחד עדיף.
+      //
+      // ובכוונה גם לא מתקבל: מיזוג הסכימות היה מייבא ימי פטירה כאירועים
+      // משמחים, וזו החלפת משמעות ולא ייבוא.
+      final List<Event> events;
+      try {
+        events = [
+          for (final entry in decoded.cast<Map<String, dynamic>>())
+            Event.fromJson(entry),
+        ];
+      } catch (_) {
+        throw const FormatException(
+            'הקובץ אינו גיבוי של תזכורת אירועים');
       }
 
       // בחירת הקובץ וקריאתו הן פעולות אסינכרוניות – המסך עלול להיסגר
@@ -203,8 +173,8 @@ class SettingsScreen extends ConsumerWidget {
       final choice = await showDialog<ImportChoice>(
         context: context,
         builder: (ctx) => ImportSelectionDialog(
-          memorials: memorials,
-          calendar: ref.read(hebrewCalendarServiceProvider),
+          events: events,
+          calendar: ref.read(calendarServiceProvider),
         ),
       );
       if (choice == null || choice.selected.isEmpty) return;
@@ -212,28 +182,23 @@ class SettingsScreen extends ConsumerWidget {
       final mode = choice.mode;
       final selected = choice.selected;
 
-      final notifier = ref.read(memorialListProvider.notifier);
-      // נספרות רק התמונות של מה שנבחר. הקובץ שוחזר במלואו לדיסק לפני
-      // הבחירה, ומה שלא נבחר יתנקה כתמונה יתומה.
-      final photoCount =
-          selected.fold<int>(0, (sum, m) => sum + m.photoPaths.length);
-      final photoNote = photoCount > 0 ? ' ו-$photoCount תמונות' : '';
+      final notifier = ref.read(eventListProvider.notifier);
 
       final String message;
       if (mode == ImportMode.replace) {
-        await notifier.importMemorials(selected);
-        message = 'יובאו ${selected.length} אזכרות$photoNote';
+        await notifier.importEvents(selected);
+        message = 'יובאו ${selected.length} אירועים';
       } else {
         final plan = await notifier.planMerge(selected);
 
-        // מקרים דומים – אותו תאריך עברי בשם אחר – אינם ניתנים להכרעה
+        // מקרים דומים – אותו תאריך בשם אחר – אינם ניתנים להכרעה
         // אוטומטית, ולכן נשאלים לפני שנוגעים בנתונים.
         var sameAs = const <MergeCandidate>[];
         if (plan.needsDecision) {
           if (!context.mounted) return;
           final chosen = await showDialog<List<MergeCandidate>>(
             context: context,
-            builder: (ctx) => _SimilarMemorialsDialog(plan.candidates),
+            builder: (ctx) => _SimilarEventsDialog(plan.candidates),
           );
           if (chosen == null) return; // ביטול – לא נגענו בכלום
           sameAs = chosen;
@@ -252,13 +217,12 @@ class SettingsScreen extends ConsumerWidget {
         );
 
         message = result.added == 0 && result.merged == 0
-            ? 'כל האזכרות בקובץ כבר קיימות'
+            ? 'כל האירועים בקובץ כבר קיימים'
             : [
                   if (result.added > 0) 'נוספו ${result.added}',
                   if (result.merged > 0) 'מוזגו ${result.merged}',
-                  if (result.skipped > 0) '${result.skipped} כבר היו קיימות',
-                ].join(', ') +
-                photoNote;
+                  if (result.skipped > 0) '${result.skipped} כבר היו קיימים',
+                ].join(', ');
       }
 
       if (context.mounted) {
@@ -287,7 +251,7 @@ class SettingsScreen extends ConsumerWidget {
           ListTile(
             leading: const Icon(Icons.access_time),
             title: const Text('שעת ברירת מחדל להתראות'),
-            subtitle: const Text('משמשת עבור אזכרות חדשות'),
+            subtitle: const Text('משמשת עבור אירועים חדשות'),
             trailing:
                 Text(timeLabel, style: Theme.of(context).textTheme.titleMedium),
             onTap: () => _pickDefaultTime(context, ref),
@@ -392,28 +356,28 @@ class _ThemePicker extends ConsumerWidget {
   }
 }
 
-/// שואל אילו מהאזכרות הדומות הן אותו אדם.
+/// שואל אילו מהאירועים הדומים הם אותו אירוע.
 ///
-/// **ברירת המחדל היא "לא".** סימון שגוי כ"אותו אדם" מוותר על רשומה מהקובץ
+/// **ברירת המחדל היא "לא".** סימון שגוי כ"אותו אירוע" מוותר על רשומה מהקובץ
 /// ואינו הפיך; אי-סימון שגוי מוסיף כפילות שאפשר למחוק בלחיצה. בין שתי
 /// טעויות, בוחרים את זו שניתן לתקן.
-class _SimilarMemorialsDialog extends StatefulWidget {
-  const _SimilarMemorialsDialog(this.candidates);
+class _SimilarEventsDialog extends StatefulWidget {
+  const _SimilarEventsDialog(this.candidates);
 
   final List<MergeCandidate> candidates;
 
   @override
-  State<_SimilarMemorialsDialog> createState() =>
-      _SimilarMemorialsDialogState();
+  State<_SimilarEventsDialog> createState() =>
+      _SimilarEventsDialogState();
 }
 
-class _SimilarMemorialsDialogState extends State<_SimilarMemorialsDialog> {
+class _SimilarEventsDialogState extends State<_SimilarEventsDialog> {
   final Set<MergeCandidate> _same = {};
 
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: const Text('אזכרות דומות'),
+      title: const Text('אירועים דומות'),
       contentPadding: const EdgeInsets.fromLTRB(8, 12, 8, 0),
       content: SizedBox(
         width: double.maxFinite,
@@ -477,7 +441,7 @@ class _Feedback extends ConsumerWidget {
       subtitle: const Text('$name · $display'),
       trailing: const Icon(Icons.phone_outlined),
       onTap: () async {
-        final opened = await ref.read(navigationLauncherProvider).dial(phone);
+        final opened = await ref.read(phoneLauncherProvider).dial(phone);
         if (!opened && context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('לא נמצאה אפליקציית חיוג')),
@@ -548,7 +512,7 @@ class _BackgroundRefreshStatusState
   /// בשדה ולא בתוך build, מאותה סיבה כמו בדוח שמעל: future שנבנה בכל ציור
   /// שולח שאילתה חדשה בכל setState של המסך.
   late final Future<({DateTime? lastRun, String? lastError})> _status =
-      ref.read(memorialRepositoryProvider).backgroundStatus();
+      ref.read(eventRepositoryProvider).backgroundStatus();
 
   String _ago(DateTime at) {
     final days = DateTime.now().difference(at).inDays;
@@ -587,7 +551,7 @@ class _BackgroundRefreshStatusState
   }
 }
 
-/// מה מתוזמן בפועל, לכל אזכרה.
+/// מה מתוזמן בפועל, לכל אירוע.
 ///
 /// נראה למשתמש בכוונה: כשתזכורת מגיעה פעמיים אין שום דרך אחרת לדעת אם היא
 /// באמת מתוזמנת פעמיים או שהמערכת מציגה אותה שוב. בלי התצוגה הזו כל תיקון
@@ -618,8 +582,8 @@ class _ScheduledRemindersState extends ConsumerState<_ScheduledReminders> {
 
   void _load() {
     if (!mounted) return;
-    final memorials =
-        ref.read(memorialListProvider).valueOrNull ?? const <Memorial>[];
+    final events =
+        ref.read(eventListProvider).valueOrNull ?? const <Event>[];
     final battery = ref
             .read(notificationPermissionProvider)
             .valueOrNull
@@ -628,7 +592,7 @@ class _ScheduledRemindersState extends ConsumerState<_ScheduledReminders> {
     setState(() {
       _report = ref
           .read(notificationServiceProvider)
-          .pendingReport(memorials, batteryExempt: battery);
+          .pendingReport(events, batteryExempt: battery);
     });
   }
 
@@ -636,7 +600,7 @@ class _ScheduledRemindersState extends ConsumerState<_ScheduledReminders> {
   ///
   /// המועד ראשון בכוונה: השורות ממוינות לפיו, וכך אפשר לקרוא אותן כרשימה
   /// אחת ולראות מה ההקצאה בחרה לתזמן. **התאריך הוא מועד התזכורת, לא מועד
-  /// האזכרה** – ההפרש ביניהם נקבע בהגדרת מועד התזכורת של כל אזכרה.
+  /// האירוע** – ההפרש ביניהם נקבע בהגדרת מועד התזכורת של כל אירוע.
   String _row(PendingRow r) {
     final at = r.nextReminder;
     final when = at == null
@@ -655,8 +619,8 @@ class _ScheduledRemindersState extends ConsumerState<_ScheduledReminders> {
 
   Future<void> _refresh() async {
     setState(() => _refreshing = true);
-    // אותו סנכרון שרץ בפתיחה: הוא מתזמן מחדש כל אזכרה שהתור שלה אינו תואם.
-    await ref.read(memorialListProvider.notifier).syncNotifications();
+    // אותו סנכרון שרץ בפתיחה: הוא מתזמן מחדש כל אירוע שהתור שלה אינו תואם.
+    await ref.read(eventListProvider.notifier).syncNotifications();
     if (!mounted) return;
     setState(() => _refreshing = false);
     // הדוח נטען מחדש במפורש. כשהוא נבנה בתוך build הרענון "עבד" רק כתופעת
@@ -668,7 +632,7 @@ class _ScheduledRemindersState extends ConsumerState<_ScheduledReminders> {
   Widget build(BuildContext context) {
     // הרשימה משתנה -> הדוח נטען מחדש. listen ולא watch: הבנייה מחדש עצמה
     // אינה אמורה לייצר שליפה חדשה, רק שינוי אמיתי בנתונים.
-    ref.listen(memorialListProvider, (_, __) => _load());
+    ref.listen(eventListProvider, (_, __) => _load());
     ref.listen(notificationPermissionProvider, (_, __) => _load());
 
     final theme = Theme.of(context);
@@ -690,7 +654,7 @@ class _ScheduledRemindersState extends ConsumerState<_ScheduledReminders> {
                   children: [
                     Text('סה"כ ${report.total}', style: small),
                     if (report.orphans > 0)
-                      Text('ללא אזכרה: ${report.orphans}', style: bad),
+                      Text('ללא אירוע: ${report.orphans}', style: bad),
                     for (final r in report.rows)
                       Text(_row(r),
                           style: r.matchesPlan && r.stale == 0 ? small : bad),

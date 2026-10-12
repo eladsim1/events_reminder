@@ -5,7 +5,7 @@ import 'package:flutter/services.dart';
 /// הקבוצה הזו היא מה שנשאר אחרי שכל שאר הבדיקות באפליקציה בוחנות את הספרים
 /// של עצמה. כאן שואלים את **מערכת ההפעלה**.
 class DeliveryChecks {
-  static const MethodChannel _channel = MethodChannel('azkarot_app/checks');
+  static const MethodChannel _channel = MethodChannel('events_app/checks');
 
   const DeliveryChecks();
 

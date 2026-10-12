@@ -1,5 +1,5 @@
-import '../models/memorial.dart';
-import '../repository/memorial_repository.dart';
+import '../models/event.dart';
+import '../repository/event_repository.dart';
 import 'notification_service.dart';
 
 /// רצף הסנכרון של ההתראות: השלמת תזכורות שהוחמצו, ואז תזמון מחדש.
@@ -9,11 +9,11 @@ import 'notification_service.dart';
 /// Riverpod ובלי מצב מסך. כשהרצף היה כתוב רק בצד אחד, הרקע תיזמן מחדש אך
 /// לא הציג תזכורת שאבדה – ואת ההפרש הזה אי אפשר היה לראות משום מקום.
 ///
-/// **הסדר בין שני השלבים קובע.** התזמון מחדש רושם ב-[Memorial.lastNotifiedAt]
+/// **הסדר בין שני השלבים קובע.** התזמון מחדש רושם ב-[Event.lastNotifiedAt]
 /// את המועד הקרוב הבא; אילו רץ ראשון, הוא היה מסתיר תזכורת שהוחמצה והיא לא
 /// הייתה מוצגת לעולם.
 Future<void> syncReminders(
-  MemorialRepository repo,
+  EventRepository repo,
   NotificationService notifications, {
   String owner = 'app',
   Duration? waitForLock,
@@ -23,21 +23,21 @@ Future<void> syncReminders(
   // יכולות לרוץ יחד, לקרוא את אותו lastNotifiedAt ולהציג את אותה תזכורת
   // פעמיים, או לשזור ביטול ותזמון זה בזה.
   await withSyncLock(repo, owner, waitFor: waitForLock, () async {
-    final memorials = await repo.getAll();
+    final events = await repo.getAll();
 
     // גם ברשימה ריקה – ואולי דווקא בה. rescheduleAll סוחף התראות שאינן
-    // שייכות לאף אזכרה, וכשמחקו את האחרונה כל מה שנשאר בתור הוא כזה:
+    // שייכות לאף אירוע, וכשמחקו את האחרונה כל מה שנשאר בתור הוא כזה:
     // ביטול שרץ ברקע ולא הספיק משאיר אזעקה שתמשיך לירות לנצח, ויציאה
     // מוקדמת כאן פירושה שאיש לעולם לא יסחוף אותה.
     await _record(
       repo,
-      memorials,
-      await notifications.deliverMissedReminders(memorials),
+      events,
+      await notifications.deliverMissedReminders(events),
     );
     await _record(
       repo,
-      memorials,
-      await notifications.rescheduleAll(memorials),
+      events,
+      await notifications.rescheduleAll(events),
     );
   });
 }
@@ -52,7 +52,7 @@ Future<void> syncReminders(
 /// זה מה שהחמיץ התיקון הקודם: הוא הגן על שני מסלולי הסנכרון זה מפני זה,
 /// אבל הוספה, עריכה ומחיקה המשיכו לגעת במאגר בלי נעילה.
 Future<bool> withSyncLock(
-  MemorialRepository repo,
+  EventRepository repo,
   String owner,
   Future<void> Function() work, {
   Duration? waitFor,
@@ -70,9 +70,9 @@ Future<bool> withSyncLock(
 ///
 /// רוב הקוראים מוותרים בשמחה: הסנכרון רץ שוב בכל חזרה לחזית, ואין טעם
 /// לחכות. הייבוא הוא היוצא מן הכלל – הוא **חייב** לתזמן מחדש, ודילוג היה
-/// משאיר את המשתמש, אחרי הודעת "יובאו N אזכרות", בלי אף תזכורת מתוזמנת.
+/// משאיר את המשתמש, אחרי הודעת "יובאו N אירועים", בלי אף תזכורת מתוזמנת.
 Future<bool> _claim(
-  MemorialRepository repo,
+  EventRepository repo,
   String owner,
   Duration? wait,
 ) async {
@@ -87,7 +87,7 @@ Future<bool> _claim(
   }
 }
 
-Future<bool> _tryClaim(MemorialRepository repo, String owner) async {
+Future<bool> _tryClaim(EventRepository repo, String owner) async {
   try {
     return await repo.claimSyncLock(owner);
   } catch (_) {
@@ -96,17 +96,17 @@ Future<bool> _tryClaim(MemorialRepository repo, String owner) async {
   }
 }
 
-/// רושם לכל אזכרה את המועד שטופל.
+/// רושם לכל אירוע את המועד שטופל.
 ///
 /// הרישום הוא מה שמונע התראה כפולה: אחרי שהתראה מתוזמנת נורית אין דרך לדעת
 /// זאת מהפלאגין, ולכן בלעדיו כל פתיחה הייתה מזהה בה "החמצה".
 Future<void> _record(
-  MemorialRepository repo,
-  List<Memorial> memorials,
+  EventRepository repo,
+  List<Event> events,
   Map<int, DateTime> handled,
 ) async {
   if (handled.isEmpty) return;
-  for (final m in memorials) {
+  for (final m in events) {
     final at = handled[m.id];
     if (at == null || m.lastNotifiedAt == at) continue;
     await repo.update(m.copyWith(lastNotifiedAt: at));

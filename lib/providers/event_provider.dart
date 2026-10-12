@@ -2,19 +2,17 @@ import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../models/hebrew_date.dart';
-import '../models/memorial.dart';
-import '../models/memorial_filter.dart';
+import '../models/event_date.dart';
+import '../models/event.dart';
+import '../models/event_filter.dart';
 import '../models/theme_seed.dart';
 import '../models/merge_plan.dart';
-import '../repository/memorial_repository.dart';
+import '../repository/event_repository.dart';
 import '../services/delivery_checks.dart';
-import '../services/hebrew_calendar_service.dart';
-import '../services/location_service.dart';
-import '../services/navigation_launcher.dart';
+import '../services/event_calendar_service.dart';
+import '../services/phone_launcher.dart';
 import '../services/notification_service.dart';
 import '../services/reminder_sync.dart';
-import '../services/photo_store.dart';
 
 /// מה עושה ייבוא עם מה שכבר קיים.
 ///
@@ -22,54 +20,46 @@ import '../services/photo_store.dart';
 enum ImportMode { merge, replace }
 
 /// ספקי תשתית (Repository ושירותים).
-final memorialRepositoryProvider = Provider<MemorialRepository>((ref) {
-  return MemorialRepository();
+final eventRepositoryProvider = Provider<EventRepository>((ref) {
+  return EventRepository();
 });
 
-final navigationLauncherProvider = Provider<NavigationLauncher>((ref) {
-  return const NavigationLauncher();
-});
-
-final photoStoreProvider = Provider<PhotoStore>((ref) {
-  return const PhotoStore();
+final phoneLauncherProvider = Provider<PhoneLauncher>((ref) {
+  return const PhoneLauncher();
 });
 
 final deliveryChecksProvider = Provider<DeliveryChecks>((ref) {
   return const DeliveryChecks();
 });
 
-final locationServiceProvider = Provider<LocationService>((ref) {
-  return const LocationService();
-});
-
-final hebrewCalendarServiceProvider =
-    Provider<HebrewCalendarService>((ref) {
-  return HebrewCalendarService();
+final calendarServiceProvider =
+    Provider<EventCalendarService>((ref) {
+  return EventCalendarService();
 });
 
 final notificationServiceProvider = Provider<NotificationService>((ref) {
   return NotificationService(
-    calendar: ref.watch(hebrewCalendarServiceProvider),
+    calendar: ref.watch(calendarServiceProvider),
   );
 });
 
 /// הסינון הנבחר ברשימה.
 ///
 /// מכוון לאיפוס בכל הפעלה: פתיחת האפליקציה עם סינון פעיל מלפני שבוע נראית
-/// כאילו האזכרות נעלמו.
-final memorialFilterProvider = StateProvider<MemorialFilter>((ref) {
-  return MemorialFilter.all;
+/// כאילו האירועים נעלמו.
+final eventFilterProvider = StateProvider<EventFilter>((ref) {
+  return EventFilter.all;
 });
 
 /// הקטגוריה שמוצגת, או null לכולן.
 ///
-/// ממד נפרד מ-[memorialFilterProvider]: זה חלון זמן וזו קטגוריה, והם
+/// ממד נפרד מ-[eventFilterProvider]: זה חלון זמן וזו קטגוריה, והם
 /// נחתכים. מתאפס בכל הפעלה מאותה סיבה – פתיחה עם סינון ישן נראית כאילו
 /// חצי מהרשימה נעלמה.
-final memorialKindFilterProvider = StateProvider<MemorialKind?>((ref) => null);
+final eventKindFilterProvider = StateProvider<EventKind?>((ref) => null);
 
 /// שאילתת החיפוש הפעילה. ריק = ללא חיפוש.
-final memorialSearchProvider = StateProvider<String>((ref) => '');
+final eventSearchProvider = StateProvider<String>((ref) => '');
 
 /// מצב ההרשאות שבלעדיהן ההתראות פשוט לא יעבדו.
 ///
@@ -128,7 +118,7 @@ class ThemeSeedNotifier extends Notifier<ThemeSeed> {
   Future<void> _load() async {
     try {
       final saved =
-          await ref.read(memorialRepositoryProvider).readSetting(storageKey);
+          await ref.read(eventRepositoryProvider).readSetting(storageKey);
       final seed = ThemeSeed.fromDb(saved);
       if (seed != state) state = seed;
     } catch (_) {
@@ -140,7 +130,7 @@ class ThemeSeedNotifier extends Notifier<ThemeSeed> {
     state = seed; // קודם המסך, אחר כך הדיסק
     try {
       await ref
-          .read(memorialRepositoryProvider)
+          .read(eventRepositoryProvider)
           .writeSetting(storageKey, seed.dbValue);
     } catch (_) {}
   }
@@ -161,16 +151,16 @@ final defaultReminderTimeProvider =
   return const DefaultReminderTime(9, 0);
 });
 
-/// מצב רשימת האזכרות.
+/// מצב רשימת האירועים.
 ///
 /// כל המסכים קוראים מכאן ואינם ניגשים ישירות ל-Repository או ל-SQLite.
-class MemorialNotifier extends AsyncNotifier<List<Memorial>> {
-  MemorialRepository get _repo => ref.read(memorialRepositoryProvider);
+class EventNotifier extends AsyncNotifier<List<Event>> {
+  EventRepository get _repo => ref.read(eventRepositoryProvider);
   NotificationService get _notifications =>
       ref.read(notificationServiceProvider);
 
   @override
-  Future<List<Memorial>> build() async {
+  Future<List<Event>> build() async {
     return _repo.getAll();
   }
 
@@ -181,7 +171,7 @@ class MemorialNotifier extends AsyncNotifier<List<Memorial>> {
   /// טוען את הרשימה בלבד. מהיר – קריאת SQLite אחת.
   ///
   /// מופרד מ-[syncNotifications] במכוון: עבודת התזמון עולה עשרות קריאות
-  /// פלטפורמה לכל אזכרה, והפלאגין כותב מחדש את כל רשימת ההתראות בכל
+  /// פלטפורמה לכל אירוע, והפלאגין כותב מחדש את כל רשימת ההתראות בכל
   /// קריאה. כשהיא חסמה את מסך הפתיחה, האפליקציה נראתה תקועה בכל עלייה.
   Future<void> load() async {
     try {
@@ -223,7 +213,6 @@ class MemorialNotifier extends AsyncNotifier<List<Memorial>> {
       await syncReminders(_repo, _notifications);
       // הרשימה נטענת מחדש כי שני השלבים עדכנו את lastNotifiedAt.
       state = AsyncData(await _repo.getAll());
-      await _cleanUpPhotos();
     } catch (_) {
       // הרשימה כבר מוצגת; אין מה להחליף אותה במסך שגיאה.
     }
@@ -235,58 +224,41 @@ class MemorialNotifier extends AsyncNotifier<List<Memorial>> {
     await syncNotifications();
   }
 
-  Future<void> addMemorial(Memorial memorial) async {
-    final id = await _repo.insert(memorial);
-    // הרשימה מתרעננת לפני התזמון, כדי שהמסך ייסגר מיד. תזמון אזכרה עולה
+  Future<void> addEvent(Event event) async {
+    final id = await _repo.insert(event);
+    // הרשימה מתרעננת לפני התזמון, כדי שהמסך ייסגר מיד. תזמון אירוע עולה
     // עשרות קריאות פלטפורמה, והמתנה לו כאן הקפיאה את כפתור השמירה.
     await _refresh();
-    unawaited(_scheduleAndRecord(memorial.copyWith(id: id)));
+    unawaited(_scheduleAndRecord(event.copyWith(id: id)));
   }
 
-  Future<void> updateMemorial(Memorial memorial) async {
-    await _repo.update(memorial);
+  Future<void> updateEvent(Event event) async {
+    await _repo.update(event);
     await _refresh();
     // כל שינוי מחייב חישוב מחדש של ההתראה – ברקע, מאותה סיבה.
-    unawaited(_scheduleAndRecord(memorial));
+    unawaited(_scheduleAndRecord(event));
   }
 
-  /// מתזמן אזכרה בודדת ורושם את המועד הקרוב שטופל.
+  /// מתזמן אירוע בודד ורושם את המועד הקרוב שטופל.
   ///
   /// תחת הנעילה, כמו כל נגיעה במאגר ההתראות – ראה withSyncLock. **ממתין**
   /// ואינו מדלג: הוספה או עריכה שלא תוזמנה היא תזכורת שלא תגיע, וסנכרון
   /// שמחזיק את הנעילה משחרר אותה תוך שניות.
-  Future<void> _scheduleAndRecord(Memorial memorial) async {
+  Future<void> _scheduleAndRecord(Event event) async {
     try {
       await withSyncLock(_repo, 'edit', waitFor: _lockWait, () async {
         // הרשימה כולה נמסרת כדי שהמכסה תיגזר מולה: לאנדרואיד יש תקרת
         // אזעקות לכל אפליקציה, וחריגה ממנה מפילה את התזמון כולו.
-        final nearest = await _notifications.scheduleForMemorial(
-          memorial,
+        final nearest = await _notifications.scheduleForEvent(
+          event,
           among: state.valueOrNull ?? const [],
         );
-        if (nearest == null || memorial.lastNotifiedAt == nearest) return;
-        await _repo.update(memorial.copyWith(lastNotifiedAt: nearest));
+        if (nearest == null || event.lastNotifiedAt == nearest) return;
+        await _repo.update(event.copyWith(lastNotifiedAt: nearest));
         await _refresh();
       });
     } catch (_) {
       // רץ ברקע: הרשימה כבר מוצגת ואין מה להחליף אותה במסך שגיאה.
-    }
-  }
-
-  /// מוחק קובצי תמונה שאיש אינו מפנה אליהם.
-  ///
-  /// כאן ולא בשכבת ההתראות: הרשימה המלאה של מה שבשימוש נמצאת רק כאן.
-  /// כשל בניקוי אינו משנה דבר – הוא היגיינה ולא נכס.
-  Future<void> _cleanUpPhotos() async {
-    try {
-      final all = await _repo.getAll();
-      await ref.read(photoStoreProvider).deleteOrphans([
-        // photoPaths ולא photoPath: לאזכרה יש כמה תמונות, ורשימה חלקית
-        // כאן מוחקת קובץ שנמצא בשימוש.
-        for (final m in all) ...m.photoPaths,
-      ]);
-    } catch (_) {
-      // אחסון לא זמין, או תיקייה שאינה קיימת עדיין.
     }
   }
 
@@ -297,10 +269,10 @@ class MemorialNotifier extends AsyncNotifier<List<Memorial>> {
   ///
   /// lastNotifiedAt מתעדכן יחד איתה, כי המועד הזה הוא מעתה "התזכורת הקרובה
   /// שטופלה" – אחרת מנגנון ההשלמה היה רואה בה החמצה.
-  Future<void> recordPostponement(int memorialId, DateTime at) async {
+  Future<void> recordPostponement(int eventId, DateTime at) async {
     final list = state.valueOrNull ?? await _repo.getAll();
     for (final m in list) {
-      if (m.id != memorialId) continue;
+      if (m.id != eventId) continue;
       await _repo.update(
         m.copyWith(postponedReminderAt: at, lastNotifiedAt: at),
       );
@@ -309,53 +281,55 @@ class MemorialNotifier extends AsyncNotifier<List<Memorial>> {
     }
   }
 
-  /// משנה את הקטגוריה של אזכרה.
+  /// משנה את סוג האירוע.
   ///
-  /// **אינו מתזמן מחדש**, בשונה מ-[updateMemorial]: הקטגוריה אינה משפיעה
-  /// על מועד התזכורת, על מספר המופעים ולא על טקסט ההתראה, ולכן ביטול
-  /// ותזמון מחדש של האזעקות כאן היו עבודה מיותרת על מאגר ההתראות – תחת
-  /// נעילה, בשביל שדה שאינו נוגע להן.
-  Future<void> setKind(Memorial memorial, MemorialKind kind) async {
-    if (memorial.kind == kind) return;
-    await _repo.update(memorial.copyWith(kind: kind));
-    await _refresh();
+  /// **מתזמן מחדש, בשונה מגרסת האזכרות של המסך הזה.** שם הקטגוריה הייתה
+  /// תווית ויזואלית בלבד, וביטול ותזמון מחדש בגללה היו עבודה מיותרת על
+  /// מאגר ההתראות. כאן הסוג הוא חלק מהתוכן שנצרב בהתראה – הכותרת
+  /// ("🎂 יום הולדת") והפתיח ("יום ההולדת של דנה") נגזרים ממנו – ולכן שינוי
+  /// שלא יתזמן מחדש היה משאיר התראות שמכריזות על הסוג הקודם עד שהאירוע
+  /// ייערך מסיבה אחרת. rescheduleAll לבדו אינו מספיק כאן: הוא מדלג על
+  /// אירוע שהתור שלו מלא, וספירת המופעים אינה משתנה.
+  Future<void> setKind(Event event, EventKind kind) async {
+    if (event.kind == kind) return;
+    await updateEvent(event.copyWith(kind: kind));
   }
 
-  /// מכבה או מפעיל תזכורות לפי מזהה, ומחזיר את השם או null אם אין כזו.
+  /// מכבה או מפעיל תזכורות לפי מזהה, ומחזיר את השם או null אם אין כזה.
   ///
   /// נופל חזרה למסד כשהרשימה עדיין לא נטענה. זה קורה בדיוק בנתיב שבשבילו
   /// הפונקציה קיימת: פתיחה קרה מלחיצה על "דחיית תזכורת", שבה הדיאלוג עולה
   /// מיד אחרי הציור הראשון בעוד הטעינה עוד באוויר – ואז המסך היה מודיע
-  /// "האזכרה לא נמצאה" על אזכרה שקיימת.
-  Future<String?> setEnabledById(int memorialId, bool enabled) async {
+  /// "האירוע לא נמצא" על אירוע שקיים.
+  Future<String?> setEnabledById(int eventId, bool enabled) async {
     final list = state.valueOrNull ?? await _repo.getAll();
     for (final m in list) {
-      if (m.id != memorialId) continue;
-      await updateMemorial(m.copyWith(enabled: enabled));
+      if (m.id != eventId) continue;
+      await updateEvent(m.copyWith(enabled: enabled));
       return m.name;
     }
     return null;
   }
 
-  Future<void> deleteMemorial(Memorial memorial) async {
-    if (memorial.id == null) return;
-    await _repo.delete(memorial.id!);
+  Future<void> deleteEvent(Event event) async {
+    if (event.id == null) return;
+    await _repo.delete(event.id!);
     await _refresh();
     // ביטול עולה קריאה לכל התראה מתוזמנת – ברקע, כמו התזמון, ותחת אותה
     // נעילה: גם ביטול קורא-משנה-כותב את מאגר ההתראות כולו.
     unawaited(withSyncLock(_repo, 'delete', waitFor: _lockWait,
-        () => _notifications.cancelForMemorial(memorial.id!)));
+        () => _notifications.cancelForEvent(event.id!)));
   }
 
-  /// מפעיל/מכבה התראה של אזכרה קיימת.
-  Future<void> toggleEnabled(Memorial memorial, bool enabled) async {
-    final updated = memorial.copyWith(enabled: enabled);
-    await updateMemorial(updated);
+  /// מפעיל/מכבה התראה של אירוע קיים.
+  Future<void> toggleEnabled(Event event, bool enabled) async {
+    final updated = event.copyWith(enabled: enabled);
+    await updateEvent(updated);
   }
 
   /// מה ייבוא במצב הוספה יעשה, בלי לגעת בנתונים.
-  Future<MergePlan> planMerge(List<Memorial> memorials) =>
-      _repo.planMerge(memorials);
+  Future<MergePlan> planMerge(List<Event> events) =>
+      _repo.planMerge(events);
 
   /// מבצע את התוכנית, אחרי שהוכרעו המקרים הדומים.
   ///
@@ -364,7 +338,7 @@ class MemorialNotifier extends AsyncNotifier<List<Memorial>> {
   ///
   /// המסלול הבטוח מבין השניים: שום דבר קיים אינו נמחק.
   Future<({int added, int merged, int skipped})> applyMerge({
-    required List<Memorial> toAdd,
+    required List<Event> toAdd,
     required List<MergeCandidate> sameAs,
     int skipped = 0,
   }) async {
@@ -385,7 +359,6 @@ class MemorialNotifier extends AsyncNotifier<List<Memorial>> {
           owner: 'import', waitForLock: _lockWait);
     }
     state = AsyncData(await _repo.getAll());
-    await _cleanUpPhotos();
 
     return (
       added: result.added,
@@ -396,27 +369,24 @@ class MemorialNotifier extends AsyncNotifier<List<Memorial>> {
 
   /// מחליף את כל הנתונים (ייבוא מ-JSON) ומתזמן מחדש.
   ///
-  /// אותו רצף של הסנכרון הרגיל: אחרי ייבוא ייתכן שמועד של אזכרה כבר חלף,
+  /// אותו רצף של הסנכרון הרגיל: אחרי ייבוא ייתכן שמועד של אירוע כבר חלף,
   /// והשלמה היא בדיוק מה שנדרש שם.
-  Future<void> importMemorials(List<Memorial> memorials) async {
-    await _repo.replaceAll(memorials);
+  Future<void> importEvents(List<Event> events) async {
+    await _repo.replaceAll(events);
 
     // אין כאן cancelAll: replaceAll מוחק ומכניס מחדש, כך שהמזהים משתנים
     // וההתראות הישנות הופכות ליתומות – ו-rescheduleAll סוחף אותן ממילא.
     // ביטול מוקדם היה פותח חלון שבו הכול מבוטל ודבר עוד לא תוזמן.
     //
     // וממתינים לנעילה: זה הקורא היחיד שאסור לו לדלג, כי אחרי "יובאו N
-    // אזכרות" המשתמש מאמין שהעניין סגור.
+    // אירועים" המשתמש מאמין שהעניין סגור.
     await syncReminders(_repo, _notifications,
         owner: 'import', waitForLock: const Duration(seconds: 15));
     state = AsyncData(await _repo.getAll());
-    // ייבוא מחליף את הכול, ולכן הוא מייצר את המספר הגדול ביותר של תמונות
-    // יתומות בבת אחת.
-    await _cleanUpPhotos();
   }
 }
 
-final memorialListProvider =
-    AsyncNotifierProvider<MemorialNotifier, List<Memorial>>(
-  MemorialNotifier.new,
+final eventListProvider =
+    AsyncNotifierProvider<EventNotifier, List<Event>>(
+  EventNotifier.new,
 );

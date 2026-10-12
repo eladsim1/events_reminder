@@ -7,24 +7,26 @@ import 'package:flutter/material.dart';
 /// ערכה שנגזרת שומרת על ניגודיות תקינה בכל צירוף, ובחירה ידנית לכל רכיב
 /// מייצרת שילובים בלתי קריאים בלי שאיש ישים לב.
 ///
-/// הגוונים כאן עמומים בכוונה. זו אפליקציית אזכרות, וצבע רווי היה צועק.
+/// **הגוונים כאן רוויים בכוונה.** זו אפליקציה של ימי הולדת וימי נישואין,
+/// והיא אמורה להיראות כך ברגע שפותחים אותה. הגבול היחיד הוא קריאוּת: כל
+/// גוון נבחר כך שהערכה שנגזרת ממנו עומדת בניגודיות גם במצב כהה.
 enum ThemeSeed {
-  violet('סגול', Color(0xFF5B4B8A)),
-  indigo('כחול', Color(0xFF33518C)),
-  teal('טורקיז', Color(0xFF1F6F6B)),
-  green('ירוק', Color(0xFF3F6B4A)),
-  olive('זית', Color(0xFF6B6B33)),
-  brown('חום', Color(0xFF7A5230)),
-  burgundy('בורדו', Color(0xFF7B3B4A)),
-  slate('אפור־כחול', Color(0xFF4A5568));
+  rose('ורוד', Color(0xFFE23C77)),
+  coral('אלמוג', Color(0xFFF2542D)),
+  amber('ענבר', Color(0xFFEF9A00)),
+  lime('ליים', Color(0xFF63B222)),
+  turquoise('טורקיז', Color(0xFF00A6A6)),
+  sky('תכלת', Color(0xFF2E86DE)),
+  violet('סגול', Color(0xFF8A4FFF)),
+  fuchsia('פוקסיה', Color(0xFFC724B1));
 
   const ThemeSeed(this.label, this.color);
 
   final String label;
   final Color color;
 
-  /// ברירת המחדל של האפליקציה, ומה שהיה בה עד שהבחירה נוספה.
-  static const ThemeSeed fallback = ThemeSeed.violet;
+  /// ברירת המחדל של האפליקציה.
+  static const ThemeSeed fallback = ThemeSeed.rose;
 
   String get dbValue => name;
 

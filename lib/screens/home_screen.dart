@@ -1,18 +1,19 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../models/hebrew_date.dart';
-import '../models/memorial.dart';
-import '../models/memorial_filter.dart';
-import '../providers/memorial_provider.dart';
-import '../services/hebrew_calendar_service.dart';
+import '../models/event_date.dart';
+import '../models/event.dart';
+import '../models/event_filter.dart';
+import '../providers/event_provider.dart';
+import '../services/event_calendar_service.dart';
 import '../services/notification_service.dart';
-import '../widgets/memorial_card.dart';
-import 'add_memorial_screen.dart';
-import 'edit_memorial_screen.dart';
+import '../widgets/confetti.dart';
+import '../widgets/event_card.dart';
+import 'add_event_screen.dart';
+import 'edit_event_screen.dart';
 import 'settings_screen.dart';
 
-/// מסך הבית – מציג את רשימת כל האזכרות, ממוינת לפי קרבת ההתראה.
+/// מסך הבית – מציג את רשימת כל האירועים, ממוינת לפי קרבת ההתראה.
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
 
@@ -44,7 +45,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
   void _syncInBackground() {
     if (!mounted) return;
-    ref.read(memorialListProvider.notifier).syncNotifications();
+    ref.read(eventListProvider.notifier).syncNotifications();
     ref.invalidate(notificationPermissionProvider);
 
     // לחיצה על "דחיית תזכורת" בהתראה מגיעה לכאן בשני מסלולים: השירות
@@ -68,13 +69,33 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     }
   }
 
+  /// "3 ימים לפני ביום רביעי" – המרווח, ובאיזה יום הוא נופל.
+  ///
+  /// **משפט אחד, לא שני שדות עם מפריד.** המרווח כבר מזהה כל שורה באופן
+  /// חד-ערכי, ולכן שם היום הוא מידע נוסף ולא מזהה – ותאריך לצדו היה רעש.
+  ///
+  /// יום האירוע עצמו מקבל פסיק במקום המילה "ביום": התווית שלו כבר פותחת
+  /// ב"ביום", ו"ביום האירוע ביום שני" הוא גמגום. זו התווית היחידה שאינה
+  /// מהצורה "כך וכך לפני", ולכן היחידה שצריכה את החריג.
+  ///
+  /// בשורה אחת ולא ב-subtitle: ListTile דו-שורתי הוא 72 פיקסלים במקום 56,
+  /// כלומר כמעט 500 פיקסלים גלילה נוספים ושתי אפשרויות פחות על המסך –
+  /// בשביל מידע שהוא חלק מאותה מחשבה, לא פירוט מתחתיה.
+  String _choiceLabel(ReminderChoiceRequest request, int daysBefore) {
+    final at =
+        NotificationService.snoozeTargetFor(request.eventDate, daysBefore);
+    final label = NotificationService.snoozeChoiceLabel(daysBefore);
+    final weekday = hebrewWeekdayLabel(at);
+    return daysBefore == 0 ? '$label, $weekday' : '$label ב$weekday';
+  }
+
   /// מציג את הרשימה המלאה של המועדים האפשריים, ומתזמן מחדש לפי הבחירה.
   Future<void> _offerReminderChoice(ReminderChoiceRequest request) async {
     if (!mounted) return;
     // נבנית מחדש מול הרגע הזה ולא מול מועד ההתראה: ייתכן שעברו שעות מאז
     // שהיא נורתה, ואפשרות שחלפה בינתיים אסור שתוצע.
     final options =
-        NotificationService.choicesBefore(request.memorialDate, DateTime.now())
+        NotificationService.choicesBefore(request.eventDate, DateTime.now())
             .reversed
             .toList();
 
@@ -93,7 +114,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
           child: options.isEmpty
               ? const Padding(
                   padding: EdgeInsets.fromLTRB(24, 4, 24, 4),
-                  child: Text('לא נותרו מועדים לפני האזכרה'),
+                  child: Text('לא נותרו מועדים לפני האירוע'),
                 )
               // נבנית במלואה ולא ListView עצל: הרשימה קצרה מספיק, וכך
               // בחירה רחוקה נשארת ניתנת למציאה בגלילה אחת.
@@ -102,7 +123,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                     children: [
                       for (final d in options)
                         ListTile(
-                          title: Text(NotificationService.snoozeChoiceLabel(d)),
+                          title: Text(_choiceLabel(request, d)),
                           onTap: () => Navigator.pop(context, d),
                         ),
                     ],
@@ -137,27 +158,30 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       return;
     }
 
-    // נשמר באזכרה, ולא רק באזעקה: כך הדחייה נראית ברשימה ושורדת תזמון מחדש.
-    await ref.read(memorialListProvider.notifier).recordPostponement(
-          Memorial.memorialIdForNotification(request.notificationId),
+    // נשמר באירוע, ולא רק באזעקה: כך הדחייה נראית ברשימה ושורדת תזמון מחדש.
+    await ref.read(eventListProvider.notifier).recordPostponement(
+          Event.eventIdForNotification(request.notificationId),
           movedTo,
         );
     if (!mounted) return;
-    _tell('התזכורת נדחתה ל${NotificationService.snoozeChoiceLabel(chosen)}');
+    // נבנה מ-movedTo, המועד שהתזמון **החזיר**, ולא מתווית הבחירה. שני
+    // רווחים: תווית הבחירה ייצרה "התזכורת נדחתה לביום האירוע" – ל+ב כפולים
+    // – ולא יכלה לסתור את מה שנקבע בפועל, כי היא לא ידעה עליו.
+    _tell('התזכורת נדחתה ל${hebrewDayAndDate(movedTo)}');
   }
 
-  /// מכבה את התזכורות של האזכרה שההתראה שייכת לה.
+  /// מכבה את התזכורות של האירוע שההתראה שייכת אליו.
   ///
   /// הפעולה הפיכה – אותו מתג שברשימה – ולכן אין כאן אישור נוסף: הבחירה
   /// מתוך רשימה כבר מפורשת דיה, ואישור עליה היה רעש.
   Future<void> _stopReminding(ReminderChoiceRequest request) async {
-    final name = await ref.read(memorialListProvider.notifier).setEnabledById(
-          Memorial.memorialIdForNotification(request.notificationId),
+    final name = await ref.read(eventListProvider.notifier).setEnabledById(
+          Event.eventIdForNotification(request.notificationId),
           false,
         );
     if (!mounted) return;
     if (name == null) {
-      _tell('האזכרה לא נמצאה');
+      _tell('האירוע לא נמצא');
       return;
     }
     _tell('התזכורות עבור $name כובו. אפשר להחזיר מהרשימה.');
@@ -179,7 +203,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
   void _closeSearch() {
     _searchController.clear();
-    ref.read(memorialSearchProvider.notifier).state = '';
+    ref.read(eventSearchProvider.notifier).state = '';
     setState(() => _searching = false);
   }
 
@@ -189,40 +213,17 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     // גם מצב ההרשאות נבדק מחדש, כי המשתמש עשוי היה לשנות אותו בהגדרות.
     if (state == AppLifecycleState.resumed) {
       // load() בלבד נמתן; הסנכרון האיטי רץ ברקע.
-      ref.read(memorialListProvider.notifier).load();
+      ref.read(eventListProvider.notifier).load();
       _syncInBackground();
     }
   }
 
-  /// פותח ניווט אל מיקום הקבר, ומדווח אם לא נמצאה אפליקציית ניווט.
-  Future<void> _navigate(
-      BuildContext context, WidgetRef ref, Memorial memorial) async {
-    final launcher = ref.read(navigationLauncherProvider);
-
-    // נקודת ציון קודמת לחיפוש טקסטואלי כשיש שתיהן: הטקסט מביא לשער, הנקודה
-    // מביאה לקבר.
-    final at = memorial.coordinates;
-    final bool opened;
-    if (at != null) {
-      opened = await launcher.openCoordinates(at, label: memorial.name);
-    } else {
-      final query = memorial.burialSearchQuery;
-      if (query == null) return;
-      opened = await launcher.openBurialLocation(query);
-    }
-    if (opened || !context.mounted) return;
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('לא נמצאה אפליקציית ניווט במכשיר')),
-    );
-  }
-
-  /// בוחר קטגוריה לאזכרה, מתוך הרשימה עצמה.
+  /// בוחר את סוג האירוע, מתוך הרשימה עצמה.
   ///
-  /// גיליון תחתון ולא תפריט: שלוש שורות עם סימן וכיתוב נקראות טוב יותר
+  /// גיליון תחתון ולא תפריט: חמש שורות עם סימן וכיתוב נקראות טוב יותר
   /// מתפריט צף, והן גדולות מספיק להקשה בלי דיוק.
-  Future<void> _pickKind(BuildContext context, Memorial memorial) async {
-    final chosen = await showModalBottomSheet<MemorialKind>(
+  Future<void> _pickKind(BuildContext context, Event event) async {
+    final chosen = await showModalBottomSheet<EventKind>(
       context: context,
       builder: (ctx) => SafeArea(
         child: Column(
@@ -231,17 +232,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
               child: Text(
-                memorial.name,
+                event.name,
                 style: Theme.of(ctx).textTheme.titleMedium,
               ),
             ),
-            for (final k in MemorialKind.values)
+            for (final k in EventKind.values)
               ListTile(
-                leading: MemorialCard.kindMark(k,
-                    color: Theme.of(ctx).colorScheme.outline),
+                leading: EventCard.kindMark(k, size: 22),
                 title: Text(k.label),
                 // מה שנבחר כרגע מסומן, אחרת אי אפשר לדעת ממה משנים.
-                trailing: memorial.kind == k
+                trailing: event.kind == k
                     ? Icon(Icons.check,
                         color: Theme.of(ctx).colorScheme.primary)
                     : null,
@@ -251,39 +251,38 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
         ),
       ),
     );
-    if (chosen == null || !mounted || chosen == memorial.kind) return;
+    if (chosen == null || !mounted || chosen == event.kind) return;
 
-    await ref.read(memorialListProvider.notifier).setKind(memorial, chosen);
+    await ref.read(eventListProvider.notifier).setKind(event, chosen);
     if (!mounted) return;
-    // אומרים מה קרה: עם סינון קטגוריה פעיל האזכרה נעלמת מהרשימה ברגע
-    // שהיא משתנה, וזה נראה כמו מחיקה אם לא אומרים דבר.
-    _tell(chosen == MemorialKind.none
-        ? 'הסימון של ${memorial.name} הוסר'
-        : '${memorial.name} סומן/ה כ${chosen.label}');
+    // אומרים מה קרה: עם סינון סוג פעיל האירוע נעלם מהרשימה ברגע שהוא
+    // משתנה, וזה נראה כמו מחיקה אם לא אומרים דבר. וגם כשאין סינון – הסוג
+    // משנה את נוסח ההתראה עצמה, וזה שינוי שראוי לאשר בקול.
+    _tell('${event.name} — ${chosen.label}');
   }
 
-  /// ממיין את האזכרות לפי **תאריך האזכרה** הקרוב ביותר ואילך.
+  /// ממיין את האירועים לפי **תאריך האירוע** הקרוב ביותר ואילך.
   ///
-  /// לא לפי מועד התזכורת: זה מקדים את האזכרה ב-5 עד 11 יום תלוי ביום בשבוע,
-  /// ולכן היה הופך את הסדר בין אזכרות סמוכות. הוא גם שלילי בחלון שאחרי יום
-  /// השלישי, מה שהיה מקפיץ אזכרה שהתזכורת עליה כבר חלפה לראש הרשימה.
-  List<Memorial> _sorted(List<Memorial> list, HebrewCalendarService calendar) {
-    // התאריך מחושב פעם אחת לכל אזכרה ולא בתוך ההשוואה – חישוב התאריך העברי
+  /// לא לפי מועד התזכורת: זה מקדים את האירוע ב-5 עד 11 יום תלוי ביום בשבוע,
+  /// ולכן היה הופך את הסדר בין אירועים סמוכות. הוא גם שלילי בחלון שאחרי יום
+  /// השלישי, מה שהיה מקפיץ אירוע שהתזכורת עליו כבר חלפה לראש הרשימה.
+  List<Event> _sorted(List<Event> list, EventCalendarService calendar) {
+    // התאריך מחושב פעם אחת לכל אירוע ולא בתוך ההשוואה – חישוב התאריך העברי
     // יקר, והשוואה ישירה הייתה מריצה אותו מחדש בכל השוואה ובכל בנייה.
     final keyed = [
-      for (final m in list) (memorial: m, next: calendar.nextMemorialDate(m)),
+      for (final m in list) (event: m, next: calendar.nextOccurrenceDate(m)),
     ];
     keyed.sort((a, b) {
       final byDate = a.next.compareTo(b.next);
       if (byDate != 0) return byDate;
-      // מיון יציב לשתי אזכרות באותו תאריך.
-      return a.memorial.name.compareTo(b.memorial.name);
+      // מיון יציב לשתי אירועים באותו תאריך.
+      return a.event.name.compareTo(b.event.name);
     });
-    return [for (final e in keyed) e.memorial];
+    return [for (final e in keyed) e.event];
   }
 
   /// מסנן לפי קטגוריה. null אינו מסנן.
-  List<Memorial> _ofKind(List<Memorial> list, MemorialKind? kind) {
+  List<Event> _ofKind(List<Event> list, EventKind? kind) {
     if (kind == null) return list;
     return [
       for (final m in list)
@@ -291,24 +290,24 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     ];
   }
 
-  /// מסנן לפי חלון הימים של [filter]. [MemorialFilter.all] אינו מסנן.
-  List<Memorial> _filtered(
-    List<Memorial> list,
-    MemorialFilter filter,
-    HebrewCalendarService calendar,
+  /// מסנן לפי חלון הימים של [filter]. [EventFilter.all] אינו מסנן.
+  List<Event> _filtered(
+    List<Event> list,
+    EventFilter filter,
+    EventCalendarService calendar,
   ) {
     final days = filter.days;
     if (days == null) return list;
     return [
       for (final m in list)
-        if (calendar.isMemorialWithin(m, days)) m,
+        if (calendar.isEventWithin(m, days)) m,
     ];
   }
 
   @override
   Widget build(BuildContext context) {
-    final asyncMemorials = ref.watch(memorialListProvider);
-    final calendar = ref.watch(hebrewCalendarServiceProvider);
+    final asyncEvents = ref.watch(eventListProvider);
+    final calendar = ref.watch(calendarServiceProvider);
 
     return Scaffold(
       appBar: AppBar(
@@ -320,8 +319,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                 icon: const Icon(Icons.arrow_forward),
                 onPressed: _closeSearch,
               )
-            : const Center(
-                child: Text('🕯', style: TextStyle(fontSize: 26)),
+            : Center(
+                // אייקון ולא אמוג'י, כמו כל סימן אחר באפליקציה: אמוג'י
+                // מרונדר בגופן של המערכת, ובבדיקות ווידג'ט – שבהן נטען גופן
+                // אחד – הוא אינו מרונדר בכלל. ראה EventCard.kindMark.
+                child: Icon(
+                  Icons.celebration,
+                  size: 24,
+                  color: Theme.of(context).colorScheme.primary,
+                ),
               ),
         title: _searching
             ? TextField(
@@ -333,9 +339,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                   border: InputBorder.none,
                 ),
                 onChanged: (v) =>
-                    ref.read(memorialSearchProvider.notifier).state = v,
+                    ref.read(eventSearchProvider.notifier).state = v,
               )
-            : const Text('תזכורת אזכרות'),
+            : const Text('תזכורת אירועים'),
         actions: [
           if (_searching)
             IconButton(
@@ -343,7 +349,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
               icon: const Icon(Icons.close),
               onPressed: () {
                 _searchController.clear();
-                ref.read(memorialSearchProvider.notifier).state = '';
+                ref.read(eventSearchProvider.notifier).state = '';
               },
             )
           else ...[
@@ -379,7 +385,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () {
           Navigator.of(context).push(
-            MaterialPageRoute(builder: (_) => const AddMemorialScreen()),
+            MaterialPageRoute(builder: (_) => const AddEventScreen()),
           );
         },
         icon: const Icon(Icons.add),
@@ -405,27 +411,27 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
           children: [
             const _PermissionWarning(),
             // מוצג רק כשיש מה לסנן – שורת סינון על רשימה ריקה היא רעש.
-            if (asyncMemorials.valueOrNull?.isNotEmpty ?? false)
-              _FilterBar(memorials: asyncMemorials.value!, calendar: calendar),
+            if (asyncEvents.valueOrNull?.isNotEmpty ?? false)
+              _FilterBar(events: asyncEvents.value!, calendar: calendar),
             Expanded(
-              child: asyncMemorials.when(
+              child: asyncEvents.when(
                 loading: () => const Center(child: CircularProgressIndicator()),
                 error: (e, _) => _ErrorView(
-                  message: 'שגיאה בטעינת האזכרות: $e',
+                  message: 'שגיאה בטעינת האירועים: $e',
                   onRetry: () =>
-                      ref.read(memorialListProvider.notifier).loadAndReschedule(),
+                      ref.read(eventListProvider.notifier).loadAndReschedule(),
                 ),
-                data: (memorials) {
-                  if (memorials.isEmpty) {
-                    return const _EmptyView(filter: MemorialFilter.all);
+                data: (events) {
+                  if (events.isEmpty) {
+                    return const _EmptyView(filter: EventFilter.all);
                   }
 
-                  final filter = ref.watch(memorialFilterProvider);
-                  final kind = ref.watch(memorialKindFilterProvider);
-                  final query = ref.watch(memorialSearchProvider);
+                  final filter = ref.watch(eventFilterProvider);
+                  final kind = ref.watch(eventKindFilterProvider);
+                  final query = ref.watch(eventSearchProvider);
 
                   final matched = [
-                    for (final m in memorials)
+                    for (final m in events)
                       if (m.matchesQuery(query)) m
                   ];
                   final sorted = _sorted(
@@ -444,33 +450,28 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
                   return RefreshIndicator(
                     onRefresh: () => ref
-                        .read(memorialListProvider.notifier)
+                        .read(eventListProvider.notifier)
                         .loadAndReschedule(),
                     child: ListView.builder(
                       padding: const EdgeInsets.only(top: 8, bottom: 88),
                       itemCount: sorted.length,
                       itemBuilder: (context, index) {
                         final m = sorted[index];
-                        return MemorialCard(
-                          memorial: m,
+                        return EventCard(
+                          event: m,
                           calendar: calendar,
                           onTap: () {
                             Navigator.of(context).push(
                               MaterialPageRoute(
-                                builder: (_) => EditMemorialScreen(memorial: m),
+                                builder: (_) => EditEventScreen(event: m),
                               ),
                             );
                           },
                           onToggle: (enabled) {
                             ref
-                                .read(memorialListProvider.notifier)
+                                .read(eventListProvider.notifier)
                                 .toggleEnabled(m, enabled);
                           },
-                          // נקודת ציון לבדה מספיקה: הכפתור נועד להוביל למקום,
-                          // ותיאור טקסטואלי אינו תנאי לכך.
-                          onNavigate: m.hasBurialLocation
-                              ? () => _navigate(context, ref, m)
-                              : null,
                           onChangeKind: () => _pickKind(context, m),
                         );
                       },
@@ -486,43 +487,43 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   }
 }
 
-/// שורת סינון לפי קרבת האזכרה, עם מונה לכל אפשרות.
+/// שורת סינון לפי קרבת האירוע, עם מונה לכל אפשרות.
 ///
 /// המונה הוא העיקר: הוא עונה על "מה יש לי החודש" בלי ללחוץ בכלל.
 class _FilterBar extends ConsumerWidget {
-  final List<Memorial> memorials;
-  final HebrewCalendarService calendar;
+  final List<Event> events;
+  final EventCalendarService calendar;
 
-  const _FilterBar({required this.memorials, required this.calendar});
+  const _FilterBar({required this.events, required this.calendar});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final selected = ref.watch(memorialFilterProvider);
-    final query = ref.watch(memorialSearchProvider);
+    final selected = ref.watch(eventFilterProvider);
+    final query = ref.watch(eventSearchProvider);
 
     // המונים נספרים בתוך תוצאות החיפוש. אחרת "החודש (3)" לצד רשימה שמציגה
     // אחת בלבד היה נראה כמו באג.
     final visible = [
-      for (final m in memorials)
+      for (final m in events)
         if (m.matchesQuery(query)) m
     ];
 
     // מחושב פעם אחת לכל אפשרות ולא בתוך בניית ה-chip.
     final counts = {
-      for (final f in MemorialFilter.values)
+      for (final f in EventFilter.values)
         f: f.days == null
             ? visible.length
             : visible
-                .where((m) => calendar.isMemorialWithin(m, f.days!))
+                .where((m) => calendar.isEventWithin(m, f.days!))
                 .length,
     };
 
-    // שורת הקטגוריות מוצגת רק כשיש בכלל אזכרה מסומנת: למי שלא משתמש
-    // בקטגוריות היא רעש קבוע מעל הרשימה.
-    final anyMarked = memorials.any((m) => m.kind != MemorialKind.none);
-    final selectedKind = ref.watch(memorialKindFilterProvider);
+    // שורת הסוגים מוצגת **תמיד**, בשונה משורת הקטגוריות של גרסת האזכרות:
+    // שם רוב הרשומות לא היו מסומנות כלל והשורה הייתה רעש קבוע, וכאן לכל
+    // אירוע יש סוג – ולכן השורה היא סינון שמשמעותו ברורה בכל מצב.
+    final selectedKind = ref.watch(eventKindFilterProvider);
     final kindCounts = {
-      for (final k in MemorialKind.values)
+      for (final k in EventKind.values)
         k: visible.where((m) => m.kind == k).length,
     };
 
@@ -537,51 +538,66 @@ class _FilterBar extends ConsumerWidget {
             scrollDirection: Axis.horizontal,
             child: Row(
               children: [
-                for (final f in MemorialFilter.values)
+                for (final f in EventFilter.values)
                   Padding(
                     padding: const EdgeInsetsDirectional.only(end: 8),
                     child: FilterChip(
                       label: Text('${f.label} (${counts[f]})'),
                       selected: selected == f,
                       onSelected: (_) =>
-                          ref.read(memorialFilterProvider.notifier).state = f,
+                          ref.read(eventFilterProvider.notifier).state = f,
                     ),
                   ),
               ],
             ),
           ),
-          if (anyMarked) ...[
-            const SizedBox(height: 6),
-            SingleChildScrollView(
+          const SizedBox(height: 6),
+          SingleChildScrollView(
               scrollDirection: Axis.horizontal,
               child: Row(
                 children: [
                   Padding(
                     padding: const EdgeInsetsDirectional.only(end: 8),
                     child: FilterChip(
-                      label: Text('כל הקטגוריות (${visible.length})'),
+                      label: Text('כל הסוגים (${visible.length})'),
                       selected: selectedKind == null,
                       onSelected: (_) => ref
-                          .read(memorialKindFilterProvider.notifier)
+                          .read(eventKindFilterProvider.notifier)
                           .state = null,
                     ),
                   ),
-                  for (final k in MemorialKind.values)
+                  for (final k in EventKind.values)
                     Padding(
                       padding: const EdgeInsetsDirectional.only(end: 8),
                       child: FilterChip(
-                        avatar: MemorialCard.kindMark(k, size: 16),
+                        // כשהשבב נבחר, הרקע שלו הוא גוון הסוג – וסימן באותו
+                        // גוון על גביו נעלם. מיזוג לכיוון צבע הטקסט שומר על
+                        // הזיהוי ומחזיר ניגודיות, בשני מצבי התצוגה.
+                        avatar: EventCard.kindMark(
+                          k,
+                          size: 16,
+                          color: selectedKind == k
+                              ? Color.lerp(
+                                  EventCard.kindColor(k),
+                                  Theme.of(context).colorScheme.onSurface,
+                                  0.45,
+                                )
+                              : null,
+                        ),
                         label: Text('${k.label} (${kindCounts[k]})'),
                         selected: selectedKind == k,
+                        // אותו גוון שמסמן את הסוג על הכרטיס. שבב שנבחר
+                        // בצבע הערכה היה מנתק את הקשר בין השניים.
+                        selectedColor:
+                            EventCard.kindColor(k).withValues(alpha: 0.28),
                         onSelected: (_) => ref
-                            .read(memorialKindFilterProvider.notifier)
+                            .read(eventKindFilterProvider.notifier)
                             .state = selectedKind == k ? null : k,
                       ),
                     ),
                 ],
               ),
             ),
-          ],
         ],
       ),
     );
@@ -590,7 +606,7 @@ class _FilterBar extends ConsumerWidget {
 
 /// אזהרה מתמדת כשחסרה הרשאה שבלעדיה ההתראות לא יעבדו.
 ///
-/// בלי זה סירוב הרשאה הוא כשל שקט – הרשימה נראית תקינה, האזכרות נשמרות,
+/// בלי זה סירוב הרשאה הוא כשל שקט – הרשימה נראית תקינה, האירועים נשמרים,
 /// ופשוט לעולם לא מגיעה תזכורת.
 class _PermissionWarning extends ConsumerWidget {
   const _PermissionWarning();
@@ -617,7 +633,7 @@ class _PermissionWarning extends ConsumerWidget {
         final message = !s.notificationsEnabled
             ? 'ההתראות כבויות – לא תקבל תזכורות'
             : !s.channelEnabled
-                ? 'ערוץ "תזכורות אזכרה" חסום – לא תקבל תזכורות'
+                ? 'ערוץ "תזכורות אירועים" חסום – לא תקבל תזכורות'
                 : !s.hasNotificationIcon
                     ? 'תקלה בבנייה: אייקון ההתראה חסר, ההתראות ייכשלו'
                     : !s.exactAlarmsAllowed
@@ -669,17 +685,17 @@ class _PermissionWarning extends ConsumerWidget {
   }
 }
 
-/// מסך ריק. מבדיל בין שלושה מצבים שונים לגמרי – אין אזכרות בכלל, החיפוש
+/// מסך ריק. מבדיל בין שלושה מצבים שונים לגמרי – אין אירועים בכלל, החיפוש
 /// לא מצא, או שאין בחלון שנבחר – אחרת המשתמש לא יודע מה לשנות.
 class _EmptyView extends StatelessWidget {
-  final MemorialFilter filter;
+  final EventFilter filter;
 
-  /// כשאינו ריק, אף אזכרה לא התאימה לחיפוש הזה.
+  /// כשאינו ריק, אף אירוע לא התאים לחיפוש הזה.
   final String query;
 
-  /// הקטגוריה שסוננה, אם סוננה. מצב רביעי: יש אזכרות, יש בחלון, אבל אין
-  /// בקטגוריה – ובלי לומר זאת נראה כאילו הרשימה התרוקנה.
-  final MemorialKind? kind;
+  /// הסוג שסונן, אם סונן. מצב רביעי: יש אירועים, יש בחלון, אבל אין בסוג
+  /// הזה – ובלי לומר זאת נראה כאילו הרשימה התרוקנה.
+  final EventKind? kind;
 
   const _EmptyView({required this.filter, this.query = '', this.kind});
 
@@ -687,29 +703,37 @@ class _EmptyView extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final noSearchMatch = query.trim().isNotEmpty;
-    final isFiltered = filter != MemorialFilter.all;
+    final isFiltered = filter != EventFilter.all;
 
     final (title, hint) = switch ((noSearchMatch, isFiltered, kind)) {
-      (true, _, _) => ('לא נמצאה אזכרה בשם "${query.trim()}"', 'נסה שם אחר'),
+      (true, _, _) => ('לא נמצא אירוע בשם "${query.trim()}"', 'נסה שם אחר'),
       (false, _, final k?) => (
-          'אין אזכרות בקטגוריה "${k.label}"',
-          'בחר "כל הקטגוריות" כדי לראות הכל',
+          'אין אירועים מסוג "${k.label}"',
+          'בחר "כל הסוגים" כדי לראות הכל',
         ),
       (false, true, _) => (filter.emptyMessage, 'בחר "הכל" כדי לראות הכל'),
       (false, false, _) => (
           filter.emptyMessage,
-          'הוסף אזכרה כדי לקבל תזכורת בשבוע שלפני',
+          'הוסף יום הולדת או יום נישואין, ותקבל תזכורת בשבוע שלפני',
         ),
     };
 
-    return Center(
+    return Stack(
+      children: [
+        // קונפטי רק על הרשימה הריקה: זה המסך היחיד שאין בו מה לקרוא,
+        // והוא גם הראשון שרואים – ולכן המקום שבו הוא אומר במה מדובר.
+        if (!noSearchMatch) const Positioned.fill(child: Confetti(opacity: 0.5)),
+        Center(
       child: Padding(
         padding: const EdgeInsets.all(32),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text(noSearchMatch ? '🔍' : '🕯',
-                style: const TextStyle(fontSize: 64)),
+            Icon(
+              noSearchMatch ? Icons.search_off : Icons.celebration,
+              size: 64,
+              color: theme.colorScheme.primary,
+            ),
             const SizedBox(height: 16),
             Text(
               title,
@@ -726,7 +750,9 @@ class _EmptyView extends StatelessWidget {
             ),
           ],
         ),
-      ),
+          ),
+        ),
+      ],
     );
   }
 }

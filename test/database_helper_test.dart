@@ -7,15 +7,19 @@ library;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
-import 'package:azkarot_app/database/database_helper.dart';
-import 'package:azkarot_app/models/hebrew_date.dart';
-import 'package:azkarot_app/models/memorial.dart';
-import 'package:azkarot_app/repository/memorial_repository.dart';
+import 'package:events_app/database/database_helper.dart';
+import 'package:events_app/models/event_date.dart';
+import 'package:events_app/models/event.dart';
+import 'package:events_app/repository/event_repository.dart';
 
-Memorial _memorial({
+Event _event({
   required String name,
   int day = 14,
   HebrewMonth month = HebrewMonth.cheshvan,
+  CalendarSystem calendar = CalendarSystem.hebrew,
+  int gregorianMonth = 11,
+  EventKind kind = EventKind.birthday,
+  int? startYear,
   int hour = 9,
   int minute = 0,
   bool enabled = true,
@@ -23,11 +27,15 @@ Memorial _memorial({
   DateTime? createdAt,
 }) {
   final storage = month.toStorage();
-  return Memorial(
+  final hebrew = calendar == CalendarSystem.hebrew;
+  return Event(
     name: name,
-    hebrewDay: day,
-    hebrewMonth: storage.baseMonth,
-    adarType: storage.adarType,
+    kind: kind,
+    calendar: calendar,
+    day: day,
+    month: hebrew ? storage.baseMonth : gregorianMonth,
+    adarType: hebrew ? storage.adarType : AdarType.none,
+    startYear: startYear,
     notificationHour: hour,
     notificationMinute: minute,
     enabled: enabled,
@@ -51,24 +59,24 @@ void main() {
   });
 
   test('the schema really is created and accepts a row', () async {
-    final id = await db.insert(_memorial(name: 'סבא יעקב'));
+    final id = await db.insert(_event(name: 'דנה'));
     expect(id, greaterThan(0));
 
     final loaded = await db.getById(id);
     expect(loaded, isNotNull);
-    expect(loaded!.name, 'סבא יעקב');
+    expect(loaded!.name, 'דנה');
     expect(loaded.id, id);
   });
 
   test('every field survives a write/read round trip', () async {
-    final original = _memorial(
-      name: 'סבתא רחל',
+    final original = _event(
+      name: 'אנחנו',
       day: 3,
       month: HebrewMonth.nisan,
       hour: 7,
       minute: 45,
       enabled: false,
-      notes: 'בית עלמין ירקון, חלקה 12',
+      notes: 'להזמין מסעדה',
       createdAt: DateTime(2023, 5, 6, 7, 8, 9),
     );
 
@@ -76,19 +84,19 @@ void main() {
     final loaded = (await db.getById(id))!;
 
     expect(loaded.name, original.name);
-    expect(loaded.hebrewDay, original.hebrewDay);
-    expect(loaded.hebrewMonth, original.hebrewMonth);
+    expect(loaded.day, original.day);
+    expect(loaded.month, original.month);
     expect(loaded.adarType, original.adarType);
     expect(loaded.notificationHour, 7);
     expect(loaded.notificationMinute, 45);
     expect(loaded.enabled, isFalse);
-    expect(loaded.notes, 'בית עלמין ירקון, חלקה 12');
+    expect(loaded.notes, 'להזמין מסעדה');
     expect(loaded.createdAt, original.createdAt);
-    expect(loaded.selectedMonth, HebrewMonth.nisan);
+    expect(loaded.hebrewMonth, HebrewMonth.nisan);
   });
 
   test('null notes stay null rather than becoming an empty string', () async {
-    final id = await db.insert(_memorial(name: 'ללא הערות'));
+    final id = await db.insert(_event(name: 'ללא הערות'));
     expect((await db.getById(id))!.notes, isNull);
   });
 
@@ -98,31 +106,31 @@ void main() {
       HebrewMonth.adarA,
       HebrewMonth.adarB,
     ]) {
-      final id = await db.insert(_memorial(name: 'x', day: 10, month: month));
+      final id = await db.insert(_event(name: 'x', day: 10, month: month));
       final loaded = (await db.getById(id))!;
-      expect(loaded.selectedMonth, month, reason: 'failed for $month');
-      expect(loaded.hebrewMonth, HebrewMonth.adar.index);
+      expect(loaded.hebrewMonth, month, reason: 'failed for $month');
+      expect(loaded.month, HebrewMonth.adar.index);
     }
   });
 
   test('insert ignores any id on the model and lets sqlite assign one',
       () async {
-    final first = await db.insert(_memorial(name: 'a'));
-    final second = await db.insert(_memorial(name: 'b'));
+    final first = await db.insert(_event(name: 'a'));
+    final second = await db.insert(_event(name: 'b'));
     expect(second, isNot(equals(first)));
   });
 
   test('getAll returns newest-created first', () async {
-    await db.insert(_memorial(name: 'ישן', createdAt: DateTime(2020, 1, 1)));
-    await db.insert(_memorial(name: 'חדש', createdAt: DateTime(2026, 1, 1)));
-    await db.insert(_memorial(name: 'אמצע', createdAt: DateTime(2023, 1, 1)));
+    await db.insert(_event(name: 'ישן', createdAt: DateTime(2020, 1, 1)));
+    await db.insert(_event(name: 'חדש', createdAt: DateTime(2026, 1, 1)));
+    await db.insert(_event(name: 'אמצע', createdAt: DateTime(2023, 1, 1)));
 
     final all = await db.getAll();
     expect(all.map((m) => m.name).toList(), ['חדש', 'אמצע', 'ישן']);
   });
 
   test('update writes the change back', () async {
-    final id = await db.insert(_memorial(name: 'לפני', enabled: true));
+    final id = await db.insert(_event(name: 'לפני', enabled: true));
     final loaded = (await db.getById(id))!;
 
     final rows = await db.update(
@@ -137,7 +145,7 @@ void main() {
   });
 
   test('copyWith(clearNotes: true) actually nulls the column', () async {
-    final id = await db.insert(_memorial(name: 'x', notes: 'להסיר'));
+    final id = await db.insert(_event(name: 'x', notes: 'להסיר'));
     final loaded = (await db.getById(id))!;
 
     await db.update(loaded.copyWith(clearNotes: true));
@@ -145,8 +153,8 @@ void main() {
   });
 
   test('delete removes only the requested row', () async {
-    final keep = await db.insert(_memorial(name: 'נשאר'));
-    final drop = await db.insert(_memorial(name: 'נמחק'));
+    final keep = await db.insert(_event(name: 'נשאר'));
+    final drop = await db.insert(_event(name: 'נמחק'));
 
     expect(await db.delete(drop), 1);
     expect(await db.getById(drop), isNull);
@@ -159,12 +167,12 @@ void main() {
   });
 
   test('replaceAll swaps the whole table inside one transaction', () async {
-    await db.insert(_memorial(name: 'ישן א'));
-    await db.insert(_memorial(name: 'ישן ב'));
+    await db.insert(_event(name: 'ישן א'));
+    await db.insert(_event(name: 'ישן ב'));
 
     await db.replaceAll([
-      _memorial(name: 'חדש א', createdAt: DateTime(2025, 1, 1)),
-      _memorial(name: 'חדש ב', createdAt: DateTime(2024, 1, 1)),
+      _event(name: 'חדש א', createdAt: DateTime(2025, 1, 1)),
+      _event(name: 'חדש ב', createdAt: DateTime(2024, 1, 1)),
     ]);
 
     final all = await db.getAll();
@@ -174,89 +182,106 @@ void main() {
   });
 
   test('replaceAll with an empty list empties the table', () async {
-    await db.insert(_memorial(name: 'x'));
+    await db.insert(_event(name: 'x'));
     await db.replaceAll(const []);
     expect(await db.getAll(), isEmpty);
   });
 
-  group('schema v3: burial place, photo, reminder rule', () {
-    test('defaults preserve the existing behaviour', () async {
-      final id = await db.insert(_memorial(name: 'ברירות מחדל'));
+  group('the reminder rule', () {
+    test('defaults preserve the intended behaviour', () async {
+      final id = await db.insert(_event(name: 'ברירות מחדל'));
       final loaded = (await db.getById(id))!;
 
-      expect(loaded.cemetery, isNull);
-      expect(loaded.plot, isNull);
-      expect(loaded.photoPath, isNull);
       expect(loaded.reminderMode, ReminderMode.weekdayOfPreviousWeek);
       expect(loaded.reminderValue, DateTime.tuesday,
           reason: 'the default must remain Tuesday of the week before');
+      expect(loaded.calendar, CalendarSystem.hebrew,
+          reason: 'Hebrew is the default calendar, by design');
+      expect(loaded.startYear, isNull,
+          reason: '"unknown" has to stay a legitimate value');
     });
 
-    test('all new fields round-trip', () async {
-      final id = await db.insert(_memorial(name: 'מלא'));
+    test('a fixed interval round-trips', () async {
+      final id = await db.insert(_event(name: 'מלא'));
       final original = (await db.getById(id))!;
 
       await db.update(original.copyWith(
-        cemetery: 'ירקון',
-        plot: "גוש ה', חלקה 12, שורה 4",
-        photoPath: '/data/user/0/app/photos/x.jpg',
         reminderMode: ReminderMode.fixedDaysBefore,
         reminderValue: 14,
       ));
 
       final loaded = (await db.getById(id))!;
-      expect(loaded.cemetery, 'ירקון');
-      expect(loaded.plot, "גוש ה', חלקה 12, שורה 4");
-      expect(loaded.photoPath, '/data/user/0/app/photos/x.jpg');
       expect(loaded.reminderMode, ReminderMode.fixedDaysBefore);
       expect(loaded.reminderValue, 14);
-      expect(loaded.burialSearchQuery, "ירקון, גוש ה', חלקה 12, שורה 4");
     });
 
-    test('clearPhoto nulls the column', () async {
-      final id = await db.insert(_memorial(name: 'x'));
-      await db.update((await db.getById(id))!.copyWith(photoPath: '/a/b.jpg'));
-      expect((await db.getById(id))!.photoPath, '/a/b.jpg');
-
-      await db.update((await db.getById(id))!.copyWith(clearPhoto: true));
-      expect((await db.getById(id))!.photoPath, isNull);
-    });
-
-    test('a row written before v3 reads back with safe defaults', () async {
-      final database = await db.database;
-      await database.rawInsert(
-        'INSERT INTO ${DatabaseHelper.table} '
-        '(name, hebrew_day, hebrew_month, adar_type, notification_hour, '
-        'notification_minute, enabled, created_at) VALUES (?,?,?,?,?,?,?,?)',
-        ['לפני v3', 14, HebrewMonth.cheshvan.index, 'none', 9, 0, 1,
-          DateTime(2024).toIso8601String()],
-      );
-
-      final loaded = (await db.getAll()).firstWhere((m) => m.name == 'לפני v3');
-      expect(loaded.cemetery, isNull);
-      expect(loaded.photoPath, isNull);
-      // The column defaults are what keep upgraded installs behaving the same.
-      expect(loaded.reminderMode, ReminderMode.weekdayOfPreviousWeek);
-      expect(loaded.reminderValue, DateTime.tuesday);
-    });
-
-    test('importing a pre-v3 backup parses with defaults', () {
-      final m = Memorial.fromJson({
+    test('a backup without the reminder keys parses with defaults', () {
+      // The keys are what an older or hand-edited file may be missing, and a
+      // missing reminder rule must not take the import down with it.
+      final e = Event.fromJson({
         'id': 1,
-        'name': 'גיבוי ישן',
-        'hebrew_day': 14,
-        'hebrew_month': HebrewMonth.cheshvan.index,
+        'name': 'גיבוי חסר',
+        'day': 14,
+        'month': HebrewMonth.cheshvan.index,
         'adar_type': 'none',
         'notification_hour': 9,
         'notification_minute': 0,
         'enabled': 1,
         'notes': null,
         'created_at': DateTime(2024).toIso8601String(),
-        // no cemetery / plot / photo_path / reminder_* keys at all
+        // no reminder_* keys, no kind, no calendar
       });
-      expect(m.reminderMode, ReminderMode.weekdayOfPreviousWeek);
-      expect(m.reminderValue, DateTime.tuesday);
-      expect(m.burialSearchQuery, isNull);
+      expect(e.reminderMode, ReminderMode.weekdayOfPreviousWeek);
+      expect(e.reminderValue, DateTime.tuesday);
+      expect(e.calendar, CalendarSystem.hebrew);
+      expect(e.kind, EventKind.other);
+    });
+  });
+
+  group('a Gregorian event is stored beside a Hebrew one', () {
+    test('both round-trip, and the calendar comes back with them', () async {
+      final hebrewId = await db.insert(_event(
+        name: 'אנחנו',
+        day: 14,
+        month: HebrewMonth.cheshvan,
+      ));
+      final gregorianId = await db.insert(_event(
+        name: 'דנה',
+        calendar: CalendarSystem.gregorian,
+        day: 29,
+        gregorianMonth: 2,
+        startYear: 1996,
+      ));
+
+      final hebrew = (await db.getById(hebrewId))!;
+      final gregorian = (await db.getById(gregorianId))!;
+
+      expect(hebrew.calendar, CalendarSystem.hebrew);
+      expect(hebrew.hebrewMonth, HebrewMonth.cheshvan);
+      expect(gregorian.calendar, CalendarSystem.gregorian);
+      expect(gregorian.isHebrew, isFalse);
+      // The same column holds a Hebrew month index and a Gregorian month
+      // number, and only the calendar says which reading is right.
+      expect(gregorian.month, 2);
+      expect(gregorian.day, 29);
+      expect(gregorian.startYear, 1996);
+    });
+
+    test('the calendar is part of what identifies an event', () async {
+      // 14 בחשוון ו-14 בנובמבר הם שני תאריכים שונים לגמרי, ולכן שתי שורות
+      // באותו שם ובאותם מספרים אינן אותו אירוע.
+      final hebrew = _event(name: 'דנה', day: 14, month: HebrewMonth.cheshvan);
+      final gregorian = _event(
+        name: 'דנה',
+        calendar: CalendarSystem.gregorian,
+        day: 14,
+        gregorianMonth: HebrewMonth.cheshvan.index,
+      );
+      expect(hebrew.identityKey, isNot(gregorian.identityKey));
+
+      final result = await db.mergeAll([hebrew, gregorian]);
+      expect(result.added, 2);
+      expect(result.skipped, 0);
     });
   });
 
@@ -265,11 +290,11 @@ void main() {
       // parse, not tryParse, used to sit here - while the sibling field one
       // line above used tryParse. One corrupt value in one row took the whole
       // file down, for a marker the next sync recomputes anyway.
-      final m = Memorial.fromJson({
+      final m = Event.fromJson({
         'id': 1,
         'name': 'גיבוי פגום',
-        'hebrew_day': 14,
-        'hebrew_month': HebrewMonth.cheshvan.index,
+        'day': 14,
+        'month': HebrewMonth.cheshvan.index,
         'adar_type': 'none',
         'notification_hour': 9,
         'notification_minute': 0,
@@ -284,190 +309,133 @@ void main() {
     });
   });
 
-  group('schema v9: who gets Kaddish', () {
-    test('an existing row upgrades to "not asked", not to a guess', () async {
+  group('the kind of event', () {
+    test('a row written without one reads back as the generic kind',
+        () async {
       final database = await db.database;
       await database.rawInsert(
         'INSERT INTO ${DatabaseHelper.table} '
-        '(name, hebrew_day, hebrew_month, adar_type, notification_hour, '
+        '(name, day, month, adar_type, notification_hour, '
         'notification_minute, enabled, created_at) VALUES (?,?,?,?,?,?,?,?)',
-        ['לפני v9', 14, HebrewMonth.cheshvan.index, 'none', 9, 0, 1,
-          DateTime(2024).toIso8601String()],
+        [
+          'ללא סוג',
+          14,
+          HebrewMonth.cheshvan.index,
+          'none',
+          9,
+          0,
+          1,
+          DateTime(2024).toIso8601String(),
+        ],
       );
 
-      final loaded = (await db.getAll()).firstWhere((m) => m.name == 'לפני v9');
-      // The SQL default is what keeps an upgraded install behaving the same.
-      expect(loaded.kind, MemorialKind.none);
+      // The column carries a SQL default, so a row inserted without it is
+      // still readable - and lands on the generic kind rather than claiming
+      // to be a birthday.
+      final loaded = (await db.getAll()).firstWhere((e) => e.name == 'ללא סוג');
+      expect(loaded.kind, EventKind.other);
     });
 
-    test('both markings round-trip through real sqlite', () async {
-      final id = await db.insert(_memorial(name: 'סבא'));
-      expect((await db.getById(id))!.kind, MemorialKind.none);
-
-      for (final k in MemorialKind.values) {
-        await db.update((await db.getById(id))!.copyWith(kind: k));
-        expect((await db.getById(id))!.kind, k, reason: k.name);
+    test('every kind round-trips through real sqlite', () async {
+      for (final kind in EventKind.values) {
+        final id = await db.insert(_event(name: 'x-${kind.name}', kind: kind));
+        expect((await db.getById(id))!.kind, kind, reason: 'failed for $kind');
       }
     });
   });
 
-  group('schema v7-v8: grave coordinates and a second photo', () {
-    test('a row written before them reads back with nulls', () async {
-      final id = await db.insert(_memorial(name: 'ברירות מחדל'));
-      final loaded = (await db.getById(id))!;
-
-      expect(loaded.latitude, isNull);
-      expect(loaded.longitude, isNull);
-      expect(loaded.gravePhotoPath, isNull);
-      expect(loaded.coordinates, isNull);
-    });
-
-    test('both round-trip, and are independent of the portrait', () async {
-      final id = await db.insert(_memorial(name: 'מלא'));
-      await db.update((await db.getById(id))!.copyWith(
-        latitude: 31.7683,
-        longitude: 35.2137,
-        photoPath: '/photos/face.jpg',
-        gravePhotoPath: '/photos/grave.jpg',
-      ));
-
-      final loaded = (await db.getById(id))!;
-      expect(loaded.coordinates?.latitude, closeTo(31.7683, 1e-9));
-      expect(loaded.coordinates?.longitude, closeTo(35.2137, 1e-9));
-      expect(loaded.photoPath, '/photos/face.jpg');
-      expect(loaded.gravePhotoPath, '/photos/grave.jpg');
-      // Both files are referenced, so neither may be swept as an orphan.
-      expect(loaded.photoPaths,
-          containsAll(<String>['/photos/face.jpg', '/photos/grave.jpg']));
-    });
-
-    test('clearing one picture leaves the other alone', () async {
-      final id = await db.insert(_memorial(name: 'x'));
-      await db.update((await db.getById(id))!.copyWith(
-        photoPath: '/photos/face.jpg',
-        gravePhotoPath: '/photos/grave.jpg',
-      ));
-
-      await db.update((await db.getById(id))!.copyWith(clearPhoto: true));
-      var loaded = (await db.getById(id))!;
-      expect(loaded.photoPath, isNull);
-      expect(loaded.gravePhotoPath, '/photos/grave.jpg');
-
-      await db.update(loaded.copyWith(clearGravePhoto: true));
-      loaded = (await db.getById(id))!;
-      expect(loaded.gravePhotoPath, isNull);
-    });
-
-    test('a pre-v8 row survives the upgrade path', () async {
-      final database = await db.database;
-      await database.rawInsert(
-        'INSERT INTO ${DatabaseHelper.table} '
-        '(name, hebrew_day, hebrew_month, adar_type, notification_hour, '
-        'notification_minute, enabled, created_at) VALUES (?,?,?,?,?,?,?,?)',
-        ['לפני v8', 14, HebrewMonth.cheshvan.index, 'none', 9, 0, 1,
-          DateTime(2024).toIso8601String()],
-      );
-
-      final loaded = (await db.getAll()).firstWhere((m) => m.name == 'לפני v8');
-      expect(loaded.gravePhotoPath, isNull);
-      expect(loaded.photoPaths, isEmpty);
-    });
-  });
-
-  group('schema v4: death_hebrew_year', () {
+  group('the year it all started', () {
     test('defaults to null and round-trips', () async {
-      final id = await db.insert(_memorial(name: 'ללא שנה'));
-      expect((await db.getById(id))!.deathHebrewYear, isNull);
+      final id = await db.insert(_event(name: 'ללא שנה'));
+      expect((await db.getById(id))!.startYear, isNull);
 
-      await db.update((await db.getById(id))!.copyWith(deathHebrewYear: 5784));
-      expect((await db.getById(id))!.deathHebrewYear, 5784);
+      await db.update((await db.getById(id))!.copyWith(startYear: 5784));
+      expect((await db.getById(id))!.startYear, 5784);
     });
 
-    test('clearDeathYear nulls the column', () async {
-      final id = await db.insert(_memorial(name: 'x'));
-      await db.update((await db.getById(id))!.copyWith(deathHebrewYear: 5780));
-      expect((await db.getById(id))!.deathHebrewYear, 5780);
+    test('clearStartYear nulls the column', () async {
+      final id = await db.insert(_event(name: 'x'));
+      await db.update((await db.getById(id))!.copyWith(startYear: 5780));
+      expect((await db.getById(id))!.startYear, 5780);
 
-      await db.update((await db.getById(id))!.copyWith(clearDeathYear: true));
-      expect((await db.getById(id))!.deathHebrewYear, isNull);
+      await db.update((await db.getById(id))!.copyWith(clearStartYear: true));
+      expect((await db.getById(id))!.startYear, isNull);
     });
 
-    test('a row written before v4 reads back with null', () async {
-      final database = await db.database;
-      await database.rawInsert(
-        'INSERT INTO ${DatabaseHelper.table} '
-        '(name, hebrew_day, hebrew_month, adar_type, notification_hour, '
-        'notification_minute, enabled, created_at) VALUES (?,?,?,?,?,?,?,?)',
-        ['לפני v4', 14, HebrewMonth.cheshvan.index, 'none', 9, 0, 1,
-          DateTime(2024).toIso8601String()],
-      );
-
-      final loaded = (await db.getAll()).firstWhere((m) => m.name == 'לפני v4');
-      expect(loaded.deathHebrewYear, isNull);
-      // And the v3 defaults are still intact alongside it.
-      expect(loaded.reminderValue, DateTime.tuesday);
+    test('a Gregorian year is stored as written, not converted', () async {
+      // The year is kept in the event's own calendar, which is what makes it
+      // subtractable from the occurrence year. Converting it on the way in
+      // would make "the 25th anniversary" arithmetic across two calendars.
+      final id = await db.insert(_event(
+        name: 'אנחנו',
+        calendar: CalendarSystem.gregorian,
+        day: 14,
+        gregorianMonth: 11,
+        startYear: 2001,
+      ));
+      expect((await db.getById(id))!.startYear, 2001);
     });
 
-    test('a pre-v4 backup imports with no year', () {
-      final m = Memorial.fromJson({
+    test('a backup without the year imports with none', () {
+      final e = Event.fromJson({
         'id': 1,
         'name': 'גיבוי',
-        'hebrew_day': 14,
-        'hebrew_month': HebrewMonth.cheshvan.index,
+        'day': 14,
+        'month': HebrewMonth.cheshvan.index,
         'adar_type': 'none',
         'notification_hour': 9,
         'notification_minute': 0,
         'enabled': 1,
         'created_at': DateTime(2024).toIso8601String(),
       });
-      expect(m.deathHebrewYear, isNull);
+      expect(e.startYear, isNull);
     });
   });
 
   // Everything above drives DatabaseHelper directly. The app never does —
-  // it always goes through MemorialRepository, so exercise that seam too,
+  // it always goes through EventRepository, so exercise that seam too,
   // against the same real database.
   group('merge adds only what is missing', () {
     // Against the real database, because the whole point is the SQL: the
     // in-memory fake would only be testing itself.
-    test('an identical memorial is skipped, a new one is added', () async {
-      await db.insert(_memorial(name: 'סבא יעקב'));
+    test('an identical event is skipped, a new one is added', () async {
+      await db.insert(_event(name: 'דנה'));
 
       final result = await db.mergeAll([
-        _memorial(name: 'סבא יעקב'),
-        _memorial(name: 'סבתא רחל'),
+        _event(name: 'דנה'),
+        _event(name: 'אנחנו'),
       ]);
 
       expect(result.added, 1);
       expect(result.skipped, 1);
       expect((await db.getAll()).map((m) => m.name),
-          containsAll(['סבא יעקב', 'סבתא רחל']));
+          containsAll(['דנה', 'אנחנו']));
       expect(await db.getAll(), hasLength(2));
     });
 
     test('the same name on another date is a different person', () async {
-      await db.insert(_memorial(name: 'סבא יעקב', day: 27));
+      await db.insert(_event(name: 'דנה', day: 27));
 
-      final result = await db.mergeAll([_memorial(name: 'סבא יעקב', day: 3)]);
+      final result = await db.mergeAll([_event(name: 'דנה', day: 3)]);
 
       expect(result.added, 1);
       expect(await db.getAll(), hasLength(2));
     });
 
     test('spacing in the name does not create a duplicate', () async {
-      await db.insert(_memorial(name: 'סבא יעקב'));
+      await db.insert(_event(name: 'דנה'));
 
-      final result = await db.mergeAll([_memorial(name: '  סבא   יעקב ')]);
+      final result = await db.mergeAll([_event(name: '  דנה  ')]);
 
       expect(result.skipped, 1, reason: 'typing differences are not identity');
       expect(await db.getAll(), hasLength(1));
     });
 
-    test('a file that repeats a memorial inside itself adds it once',
+    test('a file that repeats an event inside itself adds it once',
         () async {
       final result = await db.mergeAll([
-        _memorial(name: 'סבא יעקב'),
-        _memorial(name: 'סבא יעקב'),
+        _event(name: 'דנה'),
+        _event(name: 'דנה'),
       ]);
 
       expect(result.added, 1);
@@ -475,29 +443,29 @@ void main() {
     });
 
     test('nothing existing is touched', () async {
-      final id = await db.insert(_memorial(name: 'סבא יעקב'));
-      await db.mergeAll([_memorial(name: 'סבתא רחל')]);
+      final id = await db.insert(_event(name: 'דנה'));
+      await db.mergeAll([_event(name: 'אנחנו')]);
 
       final kept = await db.getById(id);
       expect(kept, isNotNull, reason: 'merge never deletes');
-      expect(kept!.name, 'סבא יעקב');
+      expect(kept!.name, 'דנה');
     });
   });
 
   group('the merge plan separates the obvious from the doubtful', () {
-    final repo = MemorialRepository();
+    final repo = EventRepository();
 
     test('same name and date is identical; a new date is simply added',
         () async {
-      await db.insert(_memorial(name: 'סבא יעקב', day: 27));
+      await db.insert(_event(name: 'דנה', day: 27));
 
       final plan = await repo.planMerge([
-        _memorial(name: 'סבא יעקב', day: 27),
-        _memorial(name: 'סבתא רחל', day: 3),
+        _event(name: 'דנה', day: 27),
+        _event(name: 'אנחנו', day: 3),
       ]);
 
       expect(plan.identical, 1);
-      expect(plan.toAdd.map((m) => m.name), ['סבתא רחל']);
+      expect(plan.toAdd.map((m) => m.name), ['אנחנו']);
       expect(plan.candidates, isEmpty);
     });
 
@@ -505,29 +473,29 @@ void main() {
         () async {
       // The Hebrew date is precise and rarely collides, so this is almost
       // always one person written two ways - but almost is not always.
-      await db.insert(_memorial(name: 'סבא יעקב', day: 27));
+      await db.insert(_event(name: 'דנה', day: 27));
 
-      final plan = await repo.planMerge([_memorial(name: 'יעקב כהן', day: 27)]);
+      final plan = await repo.planMerge([_event(name: 'יעקב כהן', day: 27)]);
 
       expect(plan.needsDecision, isTrue);
       expect(plan.candidates.single.incoming.name, 'יעקב כהן');
-      expect(plan.candidates.single.existing.name, 'סבא יעקב');
+      expect(plan.candidates.single.existing.name, 'דנה');
       expect(plan.toAdd, isEmpty, reason: 'nothing is added behind the ask');
     });
 
     test('the same name on another date is not a candidate', () async {
       // Two people can share a name; guessing on names would be noise.
-      await db.insert(_memorial(name: 'סבא יעקב', day: 27));
+      await db.insert(_event(name: 'דנה', day: 27));
 
-      final plan = await repo.planMerge([_memorial(name: 'סבא יעקב', day: 3)]);
+      final plan = await repo.planMerge([_event(name: 'דנה', day: 3)]);
 
       expect(plan.candidates, isEmpty);
       expect(plan.toAdd, hasLength(1));
     });
 
     test('planning changes nothing on its own', () async {
-      await db.insert(_memorial(name: 'סבא יעקב', day: 27));
-      await repo.planMerge([_memorial(name: 'יעקב כהן', day: 27)]);
+      await db.insert(_event(name: 'דנה', day: 27));
+      await repo.planMerge([_event(name: 'יעקב כהן', day: 27)]);
 
       expect(await db.getAll(), hasLength(1),
           reason: 'the ask comes before the data is touched');
@@ -536,27 +504,30 @@ void main() {
 
   group('filling from a merged twin never overwrites', () {
     test('only the empty fields are taken', () async {
-      final existing = _memorial(name: 'סבא יעקב', notes: 'הערה קיימת')
-          .copyWith(cemetery: 'הר המנוחות');
-      final incoming = _memorial(name: 'יעקב כהן', notes: 'הערה מהקובץ')
-          .copyWith(plot: 'חלקה ז', deathHebrewYear: 5784);
+      final existing = _event(name: 'דנה', notes: 'הערה קיימת');
+      final incoming = _event(
+        name: 'דנה כהן',
+        notes: 'הערה מהקובץ',
+        startYear: 5784,
+        kind: EventKind.anniversary,
+      );
 
       final filled = existing.filledFrom(incoming);
 
       expect(filled.notes, 'הערה קיימת', reason: 'what is here stays');
-      expect(filled.cemetery, 'הר המנוחות');
-      expect(filled.plot, 'חלקה ז', reason: 'what was missing is taken');
-      expect(filled.deathHebrewYear, 5784);
-      expect(filled.name, 'סבא יעקב',
+      expect(filled.startYear, 5784, reason: 'what was missing is taken');
+      expect(filled.name, 'דנה',
           reason: 'the kept record keeps its own name and date');
+      expect(filled.kind, existing.kind,
+          reason: 'a merge may not reclassify an event');
     });
   });
 
-  group('MemorialRepository over real sqlite', () {
-    final repo = MemorialRepository();
+  group('EventRepository over real sqlite', () {
+    final repo = EventRepository();
 
     test('delegates the full CRUD cycle', () async {
-      final id = await repo.insert(_memorial(name: 'דרך ה-repository'));
+      final id = await repo.insert(_event(name: 'דרך ה-repository'));
       expect(id, greaterThan(0));
 
       final loaded = await repo.getById(id);
@@ -577,8 +548,8 @@ void main() {
     });
 
     test('replaceAll goes through to the database', () async {
-      await repo.insert(_memorial(name: 'ישן'));
-      await repo.replaceAll([_memorial(name: 'חדש')]);
+      await repo.insert(_event(name: 'ישן'));
+      await repo.replaceAll([_event(name: 'חדש')]);
 
       final all = await repo.getAll();
       expect(all, hasLength(1));
@@ -590,7 +561,7 @@ void main() {
 
   group('schema v2: last_notified_at', () {
     test('defaults to null and round-trips a value', () async {
-      final id = await db.insert(_memorial(name: 'טרם הוצג'));
+      final id = await db.insert(_event(name: 'טרם הוצג'));
       expect((await db.getById(id))!.lastNotifiedAt, isNull);
 
       final stamp = DateTime(2026, 8, 4, 9);
@@ -603,7 +574,7 @@ void main() {
       final database = await db.database;
       await database.rawInsert(
         'INSERT INTO ${DatabaseHelper.table} '
-        '(name, hebrew_day, hebrew_month, adar_type, notification_hour, '
+        '(name, day, month, adar_type, notification_hour, '
         'notification_minute, enabled, notes, created_at) '
         'VALUES (?,?,?,?,?,?,?,?,?)',
         ['ישן', 14, HebrewMonth.cheshvan.index, 'none', 9, 0, 1, null,
@@ -619,8 +590,8 @@ void main() {
       final json = {
         'id': 1,
         'name': 'מגיבוי ישן',
-        'hebrew_day': 14,
-        'hebrew_month': HebrewMonth.cheshvan.index,
+        'day': 14,
+        'month': HebrewMonth.cheshvan.index,
         'adar_type': 'none',
         'notification_hour': 9,
         'notification_minute': 0,
@@ -629,7 +600,7 @@ void main() {
         'created_at': DateTime(2024).toIso8601String(),
         // no last_notified_at at all
       };
-      final m = Memorial.fromJson(json);
+      final m = Event.fromJson(json);
       expect(m.lastNotifiedAt, isNull);
       expect(m.name, 'מגיבוי ישן');
     });
@@ -637,7 +608,7 @@ void main() {
 
   test('the JSON export/import shape survives a trip through sqlite',
       () async {
-    final id = await db.insert(_memorial(
+    final id = await db.insert(_event(
       name: 'דוד משה',
       day: 10,
       month: HebrewMonth.adarB,
@@ -646,11 +617,34 @@ void main() {
     final fromDb = (await db.getById(id))!;
 
     // What settings_screen writes out and reads back in.
-    final restored = Memorial.fromJson(fromDb.toJson());
+    final restored = Event.fromJson(fromDb.toJson());
     expect(restored.name, fromDb.name);
     expect(restored.adarType, AdarType.adarB);
-    expect(restored.selectedMonth, HebrewMonth.adarB);
+    expect(restored.hebrewMonth, HebrewMonth.adarB);
     expect(restored.enabled, fromDb.enabled);
     expect(restored.createdAt, fromDb.createdAt);
+    expect(restored.calendar, fromDb.calendar);
+    expect(restored.kind, fromDb.kind);
+  });
+
+  test('a backup from the memorial app is refused, not half-imported', () {
+    // Its columns were hebrew_day / hebrew_month, so nothing here can read
+    // it. The settings screen turns this throw into one sentence instead of
+    // a TypeError - and it is a refusal on purpose: importing yahrzeits as
+    // happy events would be a change of meaning, not an import.
+    expect(
+      () => Event.fromJson({
+        'id': 1,
+        'name': 'סבא יעקב',
+        'hebrew_day': 14,
+        'hebrew_month': 1,
+        'adar_type': 'none',
+        'notification_hour': 9,
+        'notification_minute': 0,
+        'enabled': 1,
+        'created_at': DateTime(2024).toIso8601String(),
+      }),
+      throwsA(isA<TypeError>()),
+    );
   });
 }

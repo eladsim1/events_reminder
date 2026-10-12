@@ -1,26 +1,26 @@
 import '../database/database_helper.dart';
-import '../models/memorial.dart';
+import '../models/event.dart';
 import '../models/merge_plan.dart';
 
 /// שכבת גישה לנתונים.
 ///
 /// **חשוב:** כל לוגיקת הגישה לנתונים עוברת דרך Repository זה.
 /// שכבת ה-UI וה-Providers אינם ניגשים ישירות ל-SQLite.
-class MemorialRepository {
+class EventRepository {
   final DatabaseHelper _db;
 
-  MemorialRepository({DatabaseHelper? db})
+  EventRepository({DatabaseHelper? db})
       : _db = db ?? DatabaseHelper.instance;
 
-  Future<int> insert(Memorial memorial) => _db.insert(memorial);
+  Future<int> insert(Event event) => _db.insert(event);
 
-  Future<int> update(Memorial memorial) => _db.update(memorial);
+  Future<int> update(Event event) => _db.update(event);
 
   Future<int> delete(int id) => _db.delete(id);
 
-  Future<List<Memorial>> getAll() => _db.getAll();
+  Future<List<Event>> getAll() => _db.getAll();
 
-  Future<Memorial?> getById(int id) => _db.getById(id);
+  Future<Event?> getById(int id) => _db.getById(id);
 
   /// נעילת הסנכרון, המשותפת לאפליקציה ולעבודה שרצה ברקע.
   ///
@@ -46,21 +46,21 @@ class MemorialRepository {
       _db.backgroundStatus();
 
   /// מוסיף רק את מה שאינו קיים (ייבוא במצב הוספה).
-  Future<({int added, int skipped})> mergeAll(List<Memorial> memorials) =>
-      _db.mergeAll(memorials);
+  Future<({int added, int skipped})> mergeAll(List<Event> events) =>
+      _db.mergeAll(events);
 
   /// מחשב מה ייבוא במצב הוספה יעשה, בלי לגעת בנתונים.
   ///
   /// מופרד מהביצוע כדי שאפשר יהיה לשאול על המקרים הדומים לפני שמשנים משהו.
-  Future<MergePlan> planMerge(List<Memorial> incoming) async {
+  Future<MergePlan> planMerge(List<Event> incoming) async {
     final existing = await getAll();
     final byIdentity = {for (final m in existing) m.identityKey: m};
-    final byDate = <String, Memorial>{};
+    final byDate = <String, Event>{};
     for (final m in existing) {
       byDate.putIfAbsent(m.dateKey, () => m);
     }
 
-    final toAdd = <Memorial>[];
+    final toAdd = <Event>[];
     final candidates = <MergeCandidate>[];
     var identical = 0;
     // גם מול מה שכבר נבחר באותה ריצה: קובץ יכול להכיל כפילות בתוכו.
@@ -84,6 +84,6 @@ class MemorialRepository {
   }
 
   /// מחליף את כל הנתונים (ייבוא מ-JSON).
-  Future<void> replaceAll(List<Memorial> memorials) =>
-      _db.replaceAll(memorials);
+  Future<void> replaceAll(List<Event> events) =>
+      _db.replaceAll(events);
 }

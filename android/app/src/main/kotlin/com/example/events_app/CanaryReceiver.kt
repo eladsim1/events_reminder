@@ -1,4 +1,4 @@
-package com.example.azkarot_app
+package com.example.events_app
 
 import android.app.AlarmManager
 import android.app.PendingIntent
@@ -25,7 +25,7 @@ import android.os.Build
  */
 class CanaryReceiver : BroadcastReceiver() {
     companion object {
-        const val PREFS = "azkarot_canary"
+        const val PREFS = "events_canary"
         const val KEY_LAST_FIRED = "last_fired"
 
         private const val REQUEST_CODE = 730_001

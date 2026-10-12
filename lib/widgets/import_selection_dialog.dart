@@ -1,42 +1,42 @@
 import 'package:flutter/material.dart';
 
-import '../models/memorial.dart';
-import '../providers/memorial_provider.dart' show ImportMode;
-import '../services/hebrew_calendar_service.dart';
+import '../models/event.dart';
+import '../providers/event_provider.dart' show ImportMode;
+import '../services/event_calendar_service.dart';
 
 /// מה שנבחר לייבא, ומה לעשות איתו.
 class ImportChoice {
   final ImportMode mode;
-  final List<Memorial> selected;
+  final List<Event> selected;
 
   const ImportChoice(this.mode, this.selected);
 }
 
-/// בוחר אילו אזכרות מהקובץ לייבא, ובאיזה מצב.
+/// בוחר אילו אירועים מהקובץ לייבא, ובאיזה מצב.
 ///
 /// **הכול מסומן בהתחלה.** המקרה הרגיל הוא לייבא את כל הקובץ, ורשימה שמתחילה
 /// ריקה הייתה מחייבת עבודה כדי להגיע להתנהגות הצפויה.
 ///
 /// הבדיקה מה קיים ומה חסר רצה **אחרי** הבחירה ורק על מה שנבחר: אין טעם
-/// לשאול על התנגשות עם אזכרה שהוחלט לא לייבא.
+/// לשאול על התנגשות עם אירוע שהוחלט לא לייבא.
 class ImportSelectionDialog extends StatefulWidget {
   const ImportSelectionDialog({
     super.key,
-    required this.memorials,
+    required this.events,
     required this.calendar,
   });
 
-  final List<Memorial> memorials;
-  final HebrewCalendarService calendar;
+  final List<Event> events;
+  final EventCalendarService calendar;
 
   @override
   State<ImportSelectionDialog> createState() => ImportSelectionDialogState();
 }
 
 class ImportSelectionDialogState extends State<ImportSelectionDialog> {
-  late final Set<Memorial> _selected = widget.memorials.toSet();
+  late final Set<Event> _selected = widget.events.toSet();
 
-  bool get _all => _selected.length == widget.memorials.length;
+  bool get _all => _selected.length == widget.events.length;
 
   @override
   Widget build(BuildContext context) {
@@ -52,7 +52,7 @@ class ImportSelectionDialogState extends State<ImportSelectionDialog> {
             children: [
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
-                child: Text('בקובץ ${widget.memorials.length} אזכרות. '
+                child: Text('בקובץ ${widget.events.length} אירועים. '
                     'בטל סימון של מה שאין לייבא.'),
               ),
               CheckboxListTile(
@@ -63,16 +63,16 @@ class ImportSelectionDialogState extends State<ImportSelectionDialog> {
                   if (_all) {
                     _selected.clear();
                   } else {
-                    _selected.addAll(widget.memorials);
+                    _selected.addAll(widget.events);
                   }
                 }),
               ),
               const Divider(height: 1),
-              for (final m in widget.memorials)
+              for (final m in widget.events)
                 CheckboxListTile(
                   value: _selected.contains(m),
                   title: Text(m.name),
-                  subtitle: Text(widget.calendar.formatHebrewDate(m)),
+                  subtitle: Text(widget.calendar.formatEventDate(m)),
                   onChanged: (on) => setState(() {
                     if (on == true) {
                       _selected.add(m);

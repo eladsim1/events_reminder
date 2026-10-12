@@ -2,18 +2,18 @@ import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import 'providers/memorial_provider.dart';
+import 'providers/event_provider.dart';
 import 'screens/splash_screen.dart';
 
 /// שורש האפליקציה. מגדיר Material 3, RTL מלא, עברית, ותמיכה במצב כהה.
-class AzkarotApp extends ConsumerWidget {
-  const AzkarotApp({super.key});
+class EventsApp extends ConsumerWidget {
+  const EventsApp({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final seedColor = ref.watch(themeSeedProvider).color;
     return MaterialApp(
-      title: 'תזכורת אזכרות',
+      title: 'תזכורת אירועים',
       debugShowCheckedModeBanner: false,
 
       // עברית ו-RTL מלא.
