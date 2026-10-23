@@ -116,6 +116,7 @@ class EventCard extends StatelessWidget {
     final adjusted = calendar.adjustedDayNote(event);
     final daysUntil = calendar.daysUntilReminder(event);
     final postponed = calendar.activePostponement(event);
+    final skipped = calendar.isYearSkipped(event);
 
     final dim = !event.enabled;
     // חוגגים רק כשההתראה פעילה: קונפטי על אירוע שכיבו הוא הבטחה שלא תקוים.
@@ -276,12 +277,21 @@ class EventCard extends StatelessWidget {
                     _InfoRow(
                       icon: Icons.notifications_active_outlined,
                       label: 'מועד התזכורת',
+                      // דילוג לפני דחייה: הוא מבטל אותה, ושורה
+                      // שמבטיחה תזכורת שלא תגיע גרועה משורה שאינה
+                      // אומרת דבר.
                       value: !event.enabled
                           ? 'ההתראה כבויה'
-                          : postponed != null
-                              ? _postponedLabel(daysUntil)
-                              : _daysLabel(daysUntil),
-                      highlight: event.enabled && daysUntil <= 1,
+                          : skipped
+                              ? 'לא תוזכר השנה'
+                              : postponed != null
+                                  ? _postponedLabel(daysUntil)
+                                  : _daysLabel(daysUntil),
+                      // daysUntilReminder סופר אל המופע הקרוב, שאינו
+                      // זה שיגיע כשיש דילוג – בלי !skipped השורה
+                      // "לא תוזכר השנה" הייתה מודגשת באדום.
+                      highlight:
+                          event.enabled && !skipped && daysUntil <= 1,
                     ),
                     // ההערות הן בדיוק המידע שרוצים ביד לפני אירוע
                     // (מה קנינו בשנה שעברה, מי מגיע), ולכן הן מוצגות

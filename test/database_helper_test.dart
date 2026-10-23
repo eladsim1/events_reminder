@@ -4,6 +4,8 @@
 /// device and no in-memory stand-in.
 library;
 
+import 'dart:io';
+import 'package:path/path.dart' as p;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
@@ -646,5 +648,102 @@ void main() {
       }),
       throwsA(isA<TypeError>()),
     );
+  });
+
+  group('the v1 -> v2 migration', () {
+    // The first migration this app has ever had, and the one path a real
+    // install will take. It cannot be reached through DatabaseHelper.instance
+    // — that connection is opened once and cached, so by the time a test runs
+    // the schema has already been built from scratch by _onCreate.
+    //
+    // So the v1 table is built here by hand, exactly as it shipped, and the
+    // real migration is run against it.
+    const v1Table = '''
+      CREATE TABLE events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        kind TEXT NOT NULL DEFAULT 'other',
+        calendar TEXT NOT NULL DEFAULT 'hebrew',
+        day INTEGER NOT NULL,
+        month INTEGER NOT NULL,
+        adar_type TEXT NOT NULL DEFAULT 'none',
+        start_year INTEGER,
+        notification_hour INTEGER NOT NULL,
+        notification_minute INTEGER NOT NULL,
+        enabled INTEGER NOT NULL DEFAULT 1,
+        notes TEXT,
+        created_at TEXT NOT NULL,
+        last_notified_at TEXT,
+        postponed_reminder_at TEXT,
+        reminder_mode TEXT NOT NULL DEFAULT 'weekdayOfPreviousWeek',
+        reminder_value INTEGER NOT NULL DEFAULT 2
+      )''';
+
+    Future<Database> openV1Then2() async {
+      final dir = await Directory.systemTemp.createTemp('events_migration');
+      addTearDown(() => dir.delete(recursive: true));
+      final path = p.join(dir.path, 'v1.db');
+
+      final v1 = await databaseFactory.openDatabase(
+        path,
+        options: OpenDatabaseOptions(
+          version: 1,
+          onCreate: (db, _) async {
+            await db.execute(v1Table);
+            await db.insert('events', {
+              'name': 'דנה',
+              'kind': 'birthday',
+              'calendar': 'hebrew',
+              'day': 14,
+              'month': 2,
+              'adar_type': 'none',
+              'notification_hour': 9,
+              'notification_minute': 0,
+              'enabled': 1,
+              'created_at': DateTime(2026, 1, 1).toIso8601String(),
+              'reminder_mode': 'weekdayOfPreviousWeek',
+              'reminder_value': 2,
+            });
+          },
+        ),
+      );
+      await v1.close();
+
+      return databaseFactory.openDatabase(
+        path,
+        options: OpenDatabaseOptions(
+          version: 2,
+          onUpgrade: (db, old, _) => DatabaseHelper.migrate(db, old),
+        ),
+      );
+    }
+
+    test('adds the column and keeps the row that was already there', () async {
+      final db = await openV1Then2();
+      addTearDown(db.close);
+
+      final columns = (await db.rawQuery('PRAGMA table_info(events)'))
+          .map((r) => r['name'] as String)
+          .toList();
+      expect(columns, contains('skipped_event_at'),
+          reason: 'an install upgrading from v1 would crash on every read');
+
+      final rows = await db.query('events');
+      expect(rows, hasLength(1), reason: 'the migration dropped existing data');
+      expect(rows.single['name'], 'דנה');
+      expect(rows.single['skipped_event_at'], isNull,
+          reason: 'no DEFAULT — an existing event has skipped nothing');
+    });
+
+    test('a row read back through the model carries no skip', () async {
+      // The column being present is not the same as Event.fromMap coping with
+      // it: a v1 backup has no such key at all, which is the other half.
+      final db = await openV1Then2();
+      addTearDown(db.close);
+
+      final event = Event.fromMap((await db.query('events')).single);
+      expect(event.skippedEventAt, isNull);
+      expect(event.name, 'דנה');
+    });
   });
 }

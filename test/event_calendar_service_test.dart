@@ -234,4 +234,84 @@ void main() {
       expect(HebrewNumerals.dayToHebrew(30), "ל'");
     });
   });
+
+  group('דילוג על שנה אחת', () {
+    // המבחנים האלה הם העיקר: הממשק יכול להציג "לא תוזכר השנה" בעוד
+    // התזמון ממשיך לירות, והמשתמש יגלה את זה רק כשההתראה תגיע.
+    final now = DateTime(2026, 1, 1);
+    final m = _hebrewEvent(day: 10, month: HebrewMonth.tishrei);
+
+    test('המופע שדולג יורד, והבא אחריו נשאר', () {
+      final before = calendar.futureReminderDates(m, from: now);
+      expect(before, isNotEmpty);
+      final skippedEvent = calendar.nextOccurrenceDate(m, from: now);
+
+      final after = calendar.futureReminderDates(
+        m.copyWith(skippedEventAt: skippedEvent),
+        from: now,
+      );
+
+      expect(after.length, before.length - 1,
+          reason: 'בדיוק מופע אחד יורד, לא יותר ולא פחות');
+      expect(after, isNotEmpty,
+          reason: 'השנה הבאה חייבת להישאר – אחרת זה כיבוי ולא דילוג');
+      expect(after.first.isAfter(skippedEvent), isTrue);
+      // ומה שנשאר הוא בדיוק הזנב של הרשימה המקורית.
+      expect(after, before.sublist(1));
+    });
+
+    test('ההשלמה בפתיחה לא מגישה מופע שדולג', () {
+      // בלי זה הבחירה הייתה מתבטלת מיד: התזכורת חלפה, האירוע עוד לפנינו,
+      // וההשלמה הייתה מציגה אותה בפתיחה הבאה.
+      final eventDate = calendar.nextOccurrenceDate(m, from: now);
+      final reminder = calendar.reminderDate(m, from: now);
+      // רגע שבו התזכורת כבר חלפה והאירוע עוד לא.
+      final justAfter =
+          DateTime(reminder.year, reminder.month, reminder.day + 1);
+
+      expect(calendar.missedReminderDate(m, from: justAfter), isNotNull,
+          reason: 'בלי דילוג זהו בדיוק המצב שההשלמה קיימת בשבילו');
+      expect(
+        calendar.missedReminderDate(
+          m.copyWith(skippedEventAt: eventDate),
+          from: justAfter,
+        ),
+        isNull,
+      );
+    });
+
+    test('הדילוג מפסיק לחול אחרי שהתאריך חלף', () {
+      final skipped = DateTime(2026, 3, 10);
+      final withSkip = m.copyWith(skippedEventAt: skipped);
+
+      expect(calendar.isYearSkipped(withSkip, from: DateTime(2026, 3, 9)),
+          isTrue);
+      expect(calendar.isYearSkipped(withSkip, from: DateTime(2026, 3, 10)),
+          isTrue, reason: 'ביום האירוע עצמו הדילוג עוד תקף');
+      expect(calendar.isYearSkipped(withSkip, from: DateTime(2026, 3, 11)),
+          isFalse, reason: 'אין מנגנון ניקוי – הוא חייב לפוג מעצמו');
+    });
+
+    test('דילוג גובר על דחייה של אותו מופע', () {
+      // שניהם לא אמורים להתקיים יחד (הספק מוחק את הדחייה), אבל הסדר
+      // בתוך futureReminderDates הוא מה שמונע מ-insert(0) להחזיר לחיים
+      // בדיוק את המופע שהתבקש לדלג עליו.
+      final eventDate = calendar.nextOccurrenceDate(m, from: now);
+      final both = m.copyWith(
+        // דחייה ליום האירוע עצמו – 09:00, מאוחר מחצות של אותו תאריך.
+        postponedReminderAt:
+            DateTime(eventDate.year, eventDate.month, eventDate.day, 9),
+        skippedEventAt: eventDate,
+      );
+
+      final dates = calendar.futureReminderDates(both, from: now);
+      // הטענה על הערך עצמו ולא על "מאוחר מ-": הדחייה נוחתת ב-09:00 על
+      // תאריך האירוע, שהוא אחרי חצות של אותו יום – ולכן isAfter עבר גם
+      // כשהסינון היה מושבת. המוטציה היא שחשפה את זה.
+      expect(dates, isNot(contains(both.postponedReminderAt)),
+          reason: 'הדחייה שרדה את הדילוג');
+      expect(dates, isNotEmpty,
+          reason: 'השנה הבאה ירדה יחד איתה – זה כבר כיבוי');
+    });
+  });
 }

@@ -55,7 +55,7 @@ first commit that is this app's own.
 
 ## Nothing here has run on hardware
 
-**Not one line of this app has been on a device.** The suite is green (313
+**Not one line of this app has been on a device.** The suite is green (329
 tests) and `flutter analyze` is clean, and neither of those can see what only a
 phone can.
 
@@ -184,7 +184,7 @@ widget/golden rendering all work with the Flutter SDK alone.
 | `database_helper_test.dart` | the **real** SQLite schema + CRUD, and `EventRepository` on top of it, via `sqflite_common_ffi` |
 | `ui_test.dart` | every screen rendered, plus add / edit / delete / toggle driven through the provider layer |
 
-313 tests, ~14 seconds on this machine. The deliberate holes:
+329 tests, ~19 seconds on this machine. The deliberate holes:
 
 - `notification_service.dart` — the plugin is a private field with no public
   constructor to subclass, so `ui_test.dart` replaces the whole service with a
@@ -339,9 +339,16 @@ is done in Dart instead.
   instead of the 5–11 day spread. The default sounds odd for a birthday and is
   not: a present, a restaurant booking or a surprise all need a few days.
 
-Schema is **v1** and `_onUpgrade` is empty — see the conversion note at the top.
-Every future change has to be incremental and in ascending order, because by
-then there will be installs with data.
+Schema was **v1** with an empty `_onUpgrade` — see the conversion note at the
+top. It is **v2** since 2026-10-23, when `skipped_event_at` arrived; that is
+the first and so far only migration, and from here every change has to be
+incremental and in ascending order, because there are installs with data.
+
+`DatabaseHelper.migrate` is `@visibleForTesting` for one reason worth keeping:
+the cached static connection means a test always meets a schema built from
+scratch by `_onCreate`, so **the one path a real install takes was the one
+path nothing exercised**. The test builds the v1 table by hand and runs the
+real migration against it; removing the migration fails it.
 
 ### The kind is baked into the notification, so changing it must reschedule
 
@@ -520,11 +527,20 @@ the event is — so a postponed reminder gets the generic
 wording, is reused as it was.
 
 
-## Ported from the memorial app, 2026-10-06
+## Ported from the memorial app — 2026-10-06, and again 2026-10-23
 
 The two apps share every mechanism, so a fix made in `azkarot_app` after the
-2026-09-18 split is usually a fix owed here too. Seven commits landed there in
-between; what came across, and what deliberately did not:
+2026-09-18 split is usually a fix owed here too.
+
+**Find the delta from inside this clone:** `azkarot` is a fetch-only remote
+here, so it is `git fetch azkarot && git log <last ported>..azkarot/main`. One
+caveat that cost a sweep on 2026-10-23: **the remote only sees what was
+pushed.** That day `azkarot/main` was still on `3d38885` while the local
+`c:\projects\azkarot_app` clone was five commits ahead, unpushed. When the
+remote says "no delta", check the working clone before concluding there is
+none.
+
+### 2026-10-06 — seven commits, ported through `3d38885`
 
 | there | here |
 |---|---|
@@ -535,6 +551,23 @@ between; what came across, and what deliberately did not:
 | Ship one APK that installs on every phone | the ABI half ported; the `uses-feature` half does not apply |
 | "problem parsing the package" — the phone was out of space | ported as a diagnosis note |
 | Bump to 1.1.1+3001 | not copied; this app has its own versionCode floor |
+
+### 2026-10-23 — five commits, ported through `3f597de`
+
+| there | here |
+|---|---|
+| Put a comma on every postponement option, not just one | ported |
+| Skip one year from the notification, instead of switching it off | ported, as **schema v2** (there it is v10) |
+| Clear a skip when the date moves, and stop a skipped row shouting | ported, **and widened** — see below |
+| Correct the stale scheduling claim where it sits | ported, and the same stale claim fixed in the Dart doc comment, which upstream still carries |
+| Bump to 1.2.0+3002 | not copied; this app's own floor again |
+
+**The one place this app needed more than a rename.** `sameHebrewDate` compares
+day, month and adar type, which is the whole of a date there. Here an event
+also carries a **calendar**, and "14 בחשוון" and "14 בנובמבר" are different
+days — so `Event.sameEventDate` compares the calendar as well, and a calendar
+switch clears a stale skip exactly as a date change does. There is a test for
+that case which has no upstream counterpart.
 
 **The `uses-feature` half has no counterpart here.** There, a location
 permission implied `android.hardware.location` as *required*, and the app was
@@ -562,14 +595,24 @@ next change, expect that rename at the boundary.
 
 ## The postponement list names the day each option lands on
 
-A row reads **"3 ימים לפני ביום רביעי"**. One sentence, not two fields with a
+A row reads **"3 ימים לפני, יום רביעי"**. One sentence, not two fields with a
 separator: the interval already identifies every row uniquely, so the weekday is
 extra information rather than the identifier, and a date beside it was noise.
 
-The event day itself takes a comma — **"ביום האירוע, יום שני"** — because its
-label already opens with ביום and "ביום האירוע ביום שני" stutters. It is the
-only label that is not of the form "<n> before", so it is the only row that
-needs the exception.
+**A comma on every row, with no exception.** It used to be the word ביום on
+thirty rows and a comma on the one remaining — the event day itself, whose
+label already opens with ביום, because "ביום האירוע ביום שני" stutters. The
+comma everywhere is also the better reading: "יום לפני ביום שבת" runs the two
+halves into one broken sentence, while the comma separates the interval — what
+you choose by — from the day it happens to land on.
+
+So `_choiceLabel` has no branch left: one line builds all 31 rows, and there is
+nowhere for them to diverge. The width did not move either, since `", "`
+replaces `" ב"` character for character.
+
+A test asserts that **no** row contains `" ביום "`, not merely that three
+sampled rows look right — otherwise a revert could pass by moving the exception
+to a row the test does not sample.
 
 On the title line and not in a subtitle: a two-line `ListTile` is 72px against
 56px, which over the 31-row ladder is about 500px of extra scrolling and two
@@ -1008,13 +1051,20 @@ an off-by-one there silently cancels a *different* event's notifications.
 
 `reminderDate` is 5–11 days before the event, so every year there is a
 window where the reminder Tuesday has passed but the event has not.
-`NotificationService` must therefore schedule from `nextFutureReminderDate`,
-which rolls on to the next Hebrew year; the old code called `reminderDate`,
-saw a past date, and returned without scheduling anything — commented as a
-"rare edge case" when it actually happens annually for every event. A
-event added inside that window got no notification at all, that year or the
-next. `EventCard` also renders the negative day count as
-"התזכורת לשנה זו כבר עברה" rather than "בעוד ‎-3 ימים".
+Scheduling must therefore roll on to the next year rather than stop there; the
+old code called `reminderDate`, saw a past date, and returned without
+scheduling anything — commented as a "rare edge case" when it actually happens
+annually for every event. An event added inside that window got no
+notification at all, that year or the next. `EventCard` also renders the
+negative day count as "התזכורת לשנה זו כבר עברה" rather than "בעוד ‎-3 ימים".
+
+**`nextFutureReminderDate` was the first fix for this and is no longer the
+one.** Every scheduling path now goes through `futureReminderDates`, which
+enumerates the whole window and therefore handles the same case; checked
+2026-10-23, the method has **no callers in `lib/`** and survives only in the
+tests that document the window. Do not reintroduce it as "the source for
+scheduling" — and note that it does **not** honour a skipped year, where
+`futureReminderDates` does.
 
 ## Network
 
@@ -1462,23 +1512,143 @@ stored has to stay inside the list: `DropdownButtonFormField` throws when its
 `initialValue` is not among its items, so narrowing the range would crash the
 edit screen for an existing event.
 
-## "Do not remind again" belongs in that list too
+## "לא להזכיר יותר" became "לא להזכיר השנה" (schema v2)
 
-The postponement dialog ends with `לא להזכיר יותר`, which switches the event
-off — the same state as the toggle in the list, so it is reversible, and the
-snackbar says so. No extra confirmation: choosing it from a list is already
-explicit, and a second prompt would be noise.
+The postponement dialog ends with that option, in the dialog's **actions** row
+rather than at the end of the option list. The intervals scroll, and an entry
+at the bottom of them was off screen — a widget test caught that by failing to
+tap it. For a related reason the list is a `ListBody` in a
+`SingleChildScrollView` rather than a lazy `ListView`: a lazy one builds only
+what is visible, so a test counting the offered options sees eight of
+thirty-one.
 
-It sits in the dialog's **actions** row rather than at the end of the option
-list. The intervals scroll, and an entry at the bottom of them was off screen —
-a widget test caught that by failing to tap it. For a related reason the list is
-a `ListBody` in a `SingleChildScrollView` rather than a lazy `ListView`: a lazy
-one builds only what is visible, so a test counting the offered options sees
-eight of thirty-one.
+The dialog opens even when no interval is left, since skipping the year is
+still meaningful then — otherwise the button would open the app only to report
+there was nothing to do.
 
-The dialog opens even when no interval is left, since switching the reminders
-off is still meaningful then — otherwise the button would open the app only to
-report there was nothing to do.
+**It used to call `setEnabledById(id, false)`** — it switched the event
+**off**, permanently, and only the toggle in the list brought it back. That
+answered a different question than the one being asked: the notification
+belongs to one year, and not wanting it this year is not a request to forget
+the event.
+
+It now skips **that occurrence only**. `skipped_event_at` holds the event date
+of the skipped occurrence, and `enabled` is untouched. The button also lost its
+error colour: the action is no longer destructive, and a red button on a safe
+action teaches the wrong fear.
+
+**The event date, not the reminder date.** It identifies the occurrence stably
+even if the reminder rule changes afterwards, and it is what the notification
+already carries in its payload — so the skip names the occurrence the
+notification belonged to, not whatever is "next" at the moment of the tap.
+Those differ inside the 5–11 day window between a reminder and its event.
+
+**Three places had to agree, and each is a silent bug on its own:**
+
+- `futureReminderDates` drops every date on or before the skipped day, so the
+  alarm is never scheduled. Placed **after** the postponement block, not
+  before: that block does `insert(0, postponed)`, which would otherwise
+  resurrect exactly the occurrence being skipped. Day-level comparison, because
+  a postponement to "ביום האירוע" lands at 09:00 on the event date and
+  `isBefore` would leave it standing.
+- `missedReminderDate` returns null while the skip holds. Without it the
+  catch-up hands the reminder straight back on the next launch — the choice
+  would undo itself within minutes.
+- the card reads `לא תוזכר השנה`, checked **before** the postponement branch.
+  A card still counting down to a reminder nobody will get is a quiet lie.
+
+The provider also clears `postponedReminderAt` (`copyWith(clearPostponement:)`,
+new — `null` means "unchanged" in a `copyWith`). A skip and a postponement of
+the same occurrence contradict each other.
+
+Like `postponedReminderAt`, the marker **expires on its own**: once the event
+date has passed every remaining reminder is later than it, so there is nothing
+to filter and no cleanup to run.
+
+**This is the first migration this app has had.** The schema was born at v1 with
+an empty `_onUpgrade`; it is now v2, and `ALTER TABLE ... ADD COLUMN
+skipped_event_at TEXT` is the first block in it. No `DEFAULT`: `NULL` means "no
+occurrence skipped", which is the right state for every existing event. APKs
+have been handed out, so from here every change has to be incremental and in
+ascending order.
+
+### Two bugs the skip brought with it, both measured before being fixed
+
+**A stale skip ate a reminder for a date it had nothing to do with.** A skip
+recorded for the 21/09/2026 occurrence survived an edit of the date and went on
+filtering — swallowing a reminder due 20/01/2026, nineteen days out. A reminder
+that vanishes with nobody told is the one failure this app exists to prevent.
+
+`EventNotifier.updateEvent` now clears **both** the skip and the postponement
+when `Event.sameEventDate` says the date moved. They each name one occurrence,
+and changing the date moves every occurrence.
+
+**`sameEventDate` compares the calendar too, and that half is this app's own.**
+The memorial app cannot have this case: here "14 בחשוון" and "14 בנובמבר" are
+two different days, so flipping an event's calendar moves every occurrence
+exactly as changing the day or the month would. A comparison on day/month/adar
+alone would leave a stale skip behind on every calendar switch.
+
+**The first attempt at that fix was wrong, and the tests said so.** It made
+`activeSkip` verify that the stored value still matches one of the event's
+occurrence dates — self-validating, no caller to forget. But the stored value
+arrives from the notification payload as **milliseconds** and the occurrence
+list is built from **local midnights**: a DST boundary between the two moves one
+side by a day, and the skip would be silently rejected right after the user
+asked for it. Clearing at the edit compares nothing across sources.
+
+**A skipped row was flagged as urgent.** `daysUntilReminder` counts to the
+coming occurrence, which is not the one that will arrive when a skip is in
+force, so a card could read `לא תוזכר השנה` in bold red. `EventCard` is its
+only production caller, so the `highlight:` term got `&& !skipped` rather than
+the calendar changing meaning for everyone.
+
+Both have a control test beside them: an edit that leaves the date alone keeps
+the markers, and an un-skipped row in the same dead window still bolds. Without
+those, the first pair passes on code that clears the markers always, and the
+second on a card that highlights nothing.
+
+### A mutation found a vacuous test upstream — keep its lesson
+
+Disabling the filter (`if (false && skipped != null)`) was expected to fail two
+of the four calendar tests there. It failed one. The survivor asserted
+`dates.every((d) => d.isAfter(eventDate))` on a case whose postponement sits at
+**09:00 on the event date** — which is after midnight of that same date, so it
+passed with the feature switched off.
+
+The assertion that replaced it is the one carried across here:
+`expect(dates, isNot(contains(both.postponedReminderAt)))` — the value itself,
+not a relation that happened to hold.
+
+**Run the mutation on any date-comparison test.** Midnight-versus-hour is
+exactly the shape that makes `isAfter` true for the wrong reason.
+
+## The date picker takes half the width, on the left
+
+The wheels swallow any vertical drag that starts on them, so a picker spanning
+the full width left nowhere to scroll: reaching the fields below it meant
+changing the date on the way. It is now `Align(centerLeft)` +
+`FractionallySizedBox(widthFactor: 0.5)`, which frees the right half — the side
+a thumb lands on.
+
+`Alignment.centerLeft`, not `AlignmentDirectional.centerStart`: the physical
+left was asked for, and `start` under RTL is the right.
+
+Three tests, and the third is what makes the first two mean anything:
+
+```
+it sits entirely in the left half          box.right <= 206, width > 120
+a drag beside it scrolls the form          position.pixels > 0, date unchanged
+and a drag on the wheels still moves them  the control
+```
+
+Without the control, a picker that had simply stopped responding to drags would
+pass the first two — and before this change the wheels covered the full width,
+so the "beside it" gesture *was* the "on it" gesture.
+
+The width floor matters: halving it is only right while the month names still
+fit. They do — `חשוון`, `כסלו`, `אדר א'` all render at ~180dp — and the golden
+`04_add_picker.png` was regenerated to show it.
 
 ## The reminder offers a choice of how long before the event
 

@@ -69,14 +69,19 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     }
   }
 
-  /// "3 ימים לפני ביום רביעי" – המרווח, ובאיזה יום הוא נופל.
+  /// "3 ימים לפני, יום רביעי" – המרווח, ובאיזה יום הוא נופל.
   ///
-  /// **משפט אחד, לא שני שדות עם מפריד.** המרווח כבר מזהה כל שורה באופן
-  /// חד-ערכי, ולכן שם היום הוא מידע נוסף ולא מזהה – ותאריך לצדו היה רעש.
+  /// **פסיק בכל השורות, בלי יוצא דופן.** קודם רק יום האירוע קיבל פסיק
+  /// ושאר השלושים קיבלו את המילה "ביום", כי "ביום האירוע ביום שני" גימגם.
+  /// המשתמש ביקש פסיק בכולן, וזה גם הניסוח הנכון יותר: "יום לפני ביום
+  /// שבת" נקרא כמשפט אחד שבור, בעוד הפסיק מפריד בין המרווח – שהוא מה
+  /// שבוחרים לפיו – לבין היום שאליו הוא נופל, שהוא מידע נוסף.
   ///
-  /// יום האירוע עצמו מקבל פסיק במקום המילה "ביום": התווית שלו כבר פותחת
-  /// ב"ביום", ו"ביום האירוע ביום שני" הוא גמגום. זו התווית היחידה שאינה
-  /// מהצורה "כך וכך לפני", ולכן היחידה שצריכה את החריג.
+  /// מכאן גם שאין יותר מקרה פרטי: שורה אחת בונה את כל 31 השורות, ולכן
+  /// אין איפה שתיווצר אי-אחידות.
+  ///
+  /// התאריך עצמו לא מופיע: המרווח כבר מזהה כל שורה באופן חד-ערכי, ולכן
+  /// שם היום הוא מידע נוסף ולא מזהה – ותאריך לצדו היה רעש.
   ///
   /// בשורה אחת ולא ב-subtitle: ListTile דו-שורתי הוא 72 פיקסלים במקום 56,
   /// כלומר כמעט 500 פיקסלים גלילה נוספים ושתי אפשרויות פחות על המסך –
@@ -85,8 +90,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     final at =
         NotificationService.snoozeTargetFor(request.eventDate, daysBefore);
     final label = NotificationService.snoozeChoiceLabel(daysBefore);
-    final weekday = hebrewWeekdayLabel(at);
-    return daysBefore == 0 ? '$label, $weekday' : '$label ב$weekday';
+    return '$label, ${hebrewWeekdayLabel(at)}';
   }
 
   /// מציג את הרשימה המלאה של המועדים האפשריים, ומתזמן מחדש לפי הבחירה.
@@ -133,19 +137,20 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
         actions: [
           TextButton(
             onPressed: () =>
-                Navigator.pop(context, NotificationService.stopReminding),
-            child: Text(
-              NotificationService.stopRemindingLabel,
-              style: TextStyle(color: Theme.of(context).colorScheme.error),
-            ),
+                Navigator.pop(context, NotificationService.skipThisYear),
+            // בלי צבע שגיאה: הפעולה כבר אינה הרסנית – היא מדלגת על מופע
+            // אחד ולא מכבה את האירוע. כפתור אדום על פעולה שכזו מלמד
+            // לפחד ממשהו בטוח. הוא גם ממילא הפעולה היחידה בשורה, ולכן
+            // אינו זקוק לצבע כדי להיבדל מהאפשרויות שמעליו.
+            child: const Text(NotificationService.skipThisYearLabel),
           ),
         ],
       ),
     );
     if (chosen == null || !mounted) return;
 
-    if (chosen == NotificationService.stopReminding) {
-      await _stopReminding(request);
+    if (chosen == NotificationService.skipThisYear) {
+      await _skipThisYear(request);
       return;
     }
 
@@ -170,21 +175,28 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     _tell('התזכורת נדחתה ל${hebrewDayAndDate(movedTo)}');
   }
 
-  /// מכבה את התזכורות של האירוע שההתראה שייכת אליו.
+  /// מדלג על המופע שההתראה שייכת לו, ומשאיר את האירוע פעיל.
   ///
-  /// הפעולה הפיכה – אותו מתג שברשימה – ולכן אין כאן אישור נוסף: הבחירה
-  /// מתוך רשימה כבר מפורשת דיה, ואישור עליה היה רעש.
-  Future<void> _stopReminding(ReminderChoiceRequest request) async {
-    final name = await ref.read(eventListProvider.notifier).setEnabledById(
+  /// **שנה אחת, לא לתמיד.** קודם זה כיבה את האירוע כולו, וזה ענה על
+  /// בקשה אחרת: מי שלוחץ על כך מתוך התראה של שנה מסוימת מבקש לא לקבל
+  /// אותה השנה, לא למחוק את האירוע מהתודעה. לכיבוי לתמיד יש את המתג
+  /// ברשימה, והוא מפורש בהרבה.
+  ///
+  /// אין כאן אישור נוסף: הפעולה מתהפכת מעצמה בשנה הבאה, והבחירה מתוך
+  /// רשימה כבר מפורשת דיה.
+  Future<void> _skipThisYear(ReminderChoiceRequest request) async {
+    final name = await ref.read(eventListProvider.notifier).skipThisYear(
           Event.eventIdForNotification(request.notificationId),
-          false,
+          request.eventDate,
         );
     if (!mounted) return;
     if (name == null) {
       _tell('האירוע לא נמצא');
       return;
     }
-    _tell('התזכורות עבור $name כובו. אפשר להחזיר מהרשימה.');
+    // אומר במפורש שהשנה הבאה לא נפגעה. בלי זה המשתמש לא יכול לדעת אם
+    // הוא זה שכיבה את האירוע לתמיד.
+    _tell('לא תהיה תזכורת עבור $name השנה. בשנה הבאה כרגיל.');
   }
 
   void _tell(String message) {

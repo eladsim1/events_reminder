@@ -3287,9 +3287,7 @@ void main() {
     String rowLabel(ReminderChoiceRequest request, int d) {
       final at = NotificationService.snoozeTargetFor(request.eventDate, d);
       final label = NotificationService.snoozeChoiceLabel(d);
-      return d == 0
-          ? '$label, ${hebrewWeekdayLabel(at)}'
-          : '$label ב${hebrewWeekdayLabel(at)}';
+      return '$label, ${hebrewWeekdayLabel(at)}';
     }
 
     testWidgets('every remaining option is offered, not just three',
@@ -3316,22 +3314,56 @@ void main() {
       expect(find.text(rowLabel(request, 0)), findsOneWidget);
     });
 
-    testWidgets('turning reminders off from the notification', (tester) async {
+    testWidgets('skipping this year leaves the event switched on',
+        (tester) async {
+      // It used to switch the event off outright, which answered a
+      // different request: the notification belongs to one year, and not
+      // wanting it this year is not asking to forget the event.
+      final request = farOffRequest();
       final (repo, notif) = await _pumpApp(tester, seeded: [
         _seed(id: 1, name: 'סבא יעקב', day: 27, month: HebrewMonth.av),
       ]);
 
-      notif.onChooseReminder!(farOffRequest());
+      notif.onChooseReminder!(request);
       await _pumpUntilFound(
           tester, find.text('מתי להזכיר?'), 'the choice dialog');
-      await tester.tap(find.text(NotificationService.stopRemindingLabel));
+      await tester.tap(find.text(NotificationService.skipThisYearLabel));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 400));
 
-      expect(repo.items.single.enabled, isFalse,
-          reason: 'the event the notification belongs to is switched off');
-      expect(find.textContaining('כובו'), findsOneWidget,
-          reason: 'a silent switch-off would look like the app losing data');
+      expect(repo.items.single.enabled, isTrue,
+          reason: 'one skipped year must not switch the event off');
+      expect(repo.items.single.skippedEventAt, request.eventDate,
+          reason: 'the skip names the occurrence the notification belongs to');
+      // The snackbar says the next year is untouched — without that, the
+      // user cannot tell this from having switched the event off.
+      expect(find.textContaining('בשנה הבאה כרגיל'), findsOneWidget);
+      // And the card says so too, which is the only lasting trace: a card
+      // that still counted down to a reminder nobody will get would be a
+      // quiet lie.
+      expect(find.textContaining('לא תוזכר השנה'), findsOneWidget);
+    });
+
+    testWidgets('a skip cancels a postponement of the same occurrence',
+        (tester) async {
+      // The two contradict each other, and a stale postponement would have
+      // the card promising a reminder that the scheduler no longer holds.
+      final request = farOffRequest();
+      final (repo, notif) = await _pumpApp(tester, seeded: [
+        _seed(id: 1, name: 'סבא יעקב', day: 27, month: HebrewMonth.av),
+      ]);
+      await repo.update(repo.items.single.copyWith(
+        postponedReminderAt: DateTime.now().add(const Duration(days: 30)),
+      ));
+
+      notif.onChooseReminder!(request);
+      await _pumpUntilFound(
+          tester, find.text('מתי להזכיר?'), 'the choice dialog');
+      await tester.tap(find.text(NotificationService.skipThisYearLabel));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+
+      expect(repo.items.single.postponedReminderAt, isNull);
     });
 
     testWidgets('the option stands even when no date is left', (tester) async {
@@ -3350,11 +3382,12 @@ void main() {
           tester, find.text('מתי להזכיר?'), 'the choice dialog');
 
       expect(find.text('לא נותרו מועדים לפני האירוע'), findsOneWidget);
-      await tester.tap(find.text(NotificationService.stopRemindingLabel));
+      await tester.tap(find.text(NotificationService.skipThisYearLabel));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 400));
 
-      expect(repo.items.single.enabled, isFalse);
+      expect(repo.items.single.skippedEventAt, isNotNull);
+      expect(repo.items.single.enabled, isTrue);
     });
 
     testWidgets('the chosen option is what gets rescheduled', (tester) async {
@@ -3408,18 +3441,21 @@ void main() {
       await _pumpUntilFound(
           tester, find.text('מתי להזכיר?'), 'the choice dialog');
 
-      expect(find.text('30 ימים לפני ביום שבת'), findsOneWidget);
-      expect(find.text('יום לפני ביום ראשון'), findsOneWidget);
-      // The event day itself takes a comma: its label already opens with
-      // 'ביום', and 'ביום האירוע ביום שני' stutters.
+      // A comma on every row, with no exception — the three sampled here
+      // are the two ends of the ladder and the event day, which used to be
+      // the one row spelled differently.
+      expect(find.text('30 ימים לפני, יום שבת'), findsOneWidget);
+      expect(find.text('יום לפני, יום ראשון'), findsOneWidget);
       expect(find.text('ביום האירוע, יום שני'), findsOneWidget);
+      expect(find.textContaining(' ביום '), findsNothing,
+          reason: 'a row still joins the weekday with the word instead');
 
       // And it fits: the longest row must not wrap or overflow at phone width.
       expect(tester.takeException(), isNull);
-      final row = tester.widget<Text>(find.text('30 ימים לפני ביום שבת'));
+      final row = tester.widget<Text>(find.text('30 ימים לפני, יום שבת'));
       expect(row.maxLines, isNull,
           reason: 'ListTile does not cap the title — growth would be silent');
-      final size = tester.getSize(find.text('30 ימים לפני ביום שבת'));
+      final size = tester.getSize(find.text('30 ימים לפני, יום שבת'));
       expect(size.height, lessThan(40),
           reason: 'one line at 412dp; two lines would mean it wrapped');
     });
@@ -5357,6 +5393,219 @@ void main() {
       expect(notif.log.any((e) => e.startsWith('cancel:')), isTrue);
       expect(notif.log.any((e) => e.startsWith('schedule:')), isFalse,
           reason: 'a disabled event must not be rescheduled');
+    });
+  });
+
+  group('a skip and a postponement name one occurrence only', () {
+    ProviderContainer containerFor(
+        _InMemoryRepo repo, _FakeNotifications notif) {
+      final c = ProviderContainer(overrides: [
+        eventRepositoryProvider.overrideWithValue(repo),
+        notificationServiceProvider.overrideWithValue(notif),
+      ]);
+      addTearDown(c.dispose);
+      return c;
+    }
+
+    test('changing the date drops a skip that no longer means anything',
+        () async {
+      // Measured before the fix: a skip recorded for 21/09/2026 survived an
+      // edit to a different date and went on filtering, swallowing a
+      // reminder due on 20/01/2026. A reminder that vanishes with nobody
+      // told is the one failure this app exists to prevent.
+      final repo = _InMemoryRepo();
+      final notif = _FakeNotifications();
+      final notifier =
+          containerFor(repo, notif).read(eventListProvider.notifier);
+      final cal = EventCalendarService(now: () => DateTime(2026, 1, 1));
+
+      await repo.insert(
+          _seed(id: 1, name: 'סבתא', day: 10, month: HebrewMonth.tishrei));
+      await notifier.load();
+      final tishrei = repo.items.single;
+
+      // Skip this year, exactly as the notification does.
+      await notifier.skipThisYear(
+          1, cal.nextOccurrenceDate(tishrei, from: DateTime(2026, 1, 1)));
+      expect(repo.items.single.skippedEventAt, isNotNull);
+
+      // Now move the event to a different Hebrew date.
+      await notifier.updateEvent(repo.items.single.copyWith(
+        month: HebrewMonth.shevat.toStorage().baseMonth,
+      ));
+
+      expect(repo.items.single.skippedEventAt, isNull,
+          reason: 'the skip still names an occurrence that no longer exists');
+      // The point of the above: the new date keeps all of its reminders.
+      expect(
+        cal.futureReminderDates(repo.items.single, from: DateTime(2026, 1, 1)),
+        hasLength(cal
+            .futureReminderDates(
+                _seed(id: 1, name: 'סבתא', day: 10, month: HebrewMonth.shevat),
+                from: DateTime(2026, 1, 1))
+            .length),
+        reason: 'a stale skip is still eating an occurrence',
+      );
+    });
+
+    test('switching the calendar drops it too', () async {
+      // This app's own case, which the memorial app cannot have: the 14th of
+      // Cheshvan and the 14th of November are different days, so flipping the
+      // calendar moves every occurrence exactly as changing the day would.
+      final repo = _InMemoryRepo();
+      final notifier = containerFor(repo, _FakeNotifications())
+          .read(eventListProvider.notifier);
+
+      await repo.insert(
+          _seed(id: 1, name: 'סבתא', day: 10, month: HebrewMonth.tishrei));
+      await notifier.load();
+      await notifier.skipThisYear(1, DateTime(2026, 9, 21));
+
+      await notifier.updateEvent(repo.items.single.copyWith(
+        calendar: CalendarSystem.gregorian,
+      ));
+
+      expect(repo.items.single.skippedEventAt, isNull);
+    });
+
+    test('changing the date drops a postponement too', () async {
+      // Same reasoning: a postponement names one occurrence as well.
+      final repo = _InMemoryRepo();
+      final notifier = containerFor(repo, _FakeNotifications())
+          .read(eventListProvider.notifier);
+
+      await repo.insert(
+          _seed(id: 1, name: 'סבתא', day: 10, month: HebrewMonth.tishrei));
+      await notifier.load();
+      await notifier.recordPostponement(1, DateTime(2026, 9, 20, 9));
+      expect(repo.items.single.postponedReminderAt, isNotNull);
+
+      await notifier.updateEvent(repo.items.single.copyWith(day: 11));
+
+      expect(repo.items.single.postponedReminderAt, isNull);
+    });
+
+    test('an edit that leaves the date alone keeps both markers', () async {
+      // The other half of the rule, and the half that makes it falsifiable:
+      // renaming or re-timing must not quietly undo a skip.
+      final repo = _InMemoryRepo();
+      final notifier = containerFor(repo, _FakeNotifications())
+          .read(eventListProvider.notifier);
+
+      await repo.insert(
+          _seed(id: 1, name: 'סבתא', day: 10, month: HebrewMonth.tishrei));
+      await notifier.load();
+      await notifier.skipThisYear(1, DateTime(2026, 9, 21));
+
+      await notifier.updateEvent(
+          repo.items.single.copyWith(name: 'שם אחר', notificationHour: 7));
+
+      expect(repo.items.single.skippedEventAt, DateTime(2026, 9, 21));
+    });
+  });
+
+  group('a skipped year on the card', () {
+    // Inside the dead window for the 27th of Av: its reminder Tuesday (4/8)
+    // has gone by and the event (10/8) has not, so daysUntilReminder is
+    // negative — which is <= 1, the threshold the highlight fires on.
+    final now = DateTime(2026, 8, 6, 12);
+    Event inWindow() =>
+        _seed(id: 1, name: 'חלון', day: 27, month: HebrewMonth.av);
+
+    testWidgets('does not shout', (tester) async {
+      _phoneViewport(tester);
+      await _pumpApp(tester, now: now, seeded: [
+        inWindow().copyWith(skippedEventAt: DateTime(2026, 8, 10)),
+      ]);
+
+      final value = tester.widget<Text>(find.text('לא תוזכר השנה'));
+      expect(value.style?.fontWeight, isNot(FontWeight.bold),
+          reason: 'a row saying it will not remind was emphasised as urgent');
+    });
+
+    testWidgets('while the same row without a skip does', (tester) async {
+      // The control. Without it the test above passes on a card that never
+      // highlights anything.
+      _phoneViewport(tester);
+      await _pumpApp(tester, now: now, seeded: [inWindow()]);
+
+      final value =
+          tester.widget<Text>(find.textContaining('התזכורת לשנה זו כבר עברה'));
+      expect(value.style?.fontWeight, FontWeight.bold);
+    });
+  });
+
+  group('the date picker leaves room to scroll past it', () {
+    // The wheels swallow any vertical drag that starts on them, so a picker
+    // spanning the full width left nowhere to scroll: reaching the fields
+    // below it meant changing the date on the way. Half the width, on the
+    // left, leaves the right side free — and that is the side a thumb lands
+    // on.
+    const screenWidth = 412.0;
+
+    Future<Rect> openForm(WidgetTester tester) async {
+      _phoneViewport(tester);
+      await _pumpApp(tester);
+      await tester.tap(find.text('הוספה'));
+      await _pumpUntilFound(
+          tester, find.byType(EventDatePicker), 'the add screen');
+      await _settleRoute(tester);
+      return tester.getRect(find.byType(EventDatePicker));
+    }
+
+    testWidgets('it sits entirely in the left half', (tester) async {
+      final box = await openForm(tester);
+
+      expect(box.right, lessThanOrEqualTo(screenWidth / 2),
+          reason: 'it reaches into the right half, which must stay free');
+      expect(box.left, lessThan(screenWidth / 4),
+          reason: 'it is not against the left edge');
+      // A floor as well as a ceiling: halving it is only right while the
+      // month names still fit.
+      expect(box.width, greaterThan(120.0), reason: 'too narrow to use');
+    });
+
+    testWidgets('a drag beside it scrolls the form and leaves the date alone',
+        (tester) async {
+      final box = await openForm(tester);
+      // The default the wheels open on.
+      const shown = "א' בתשרי";
+
+      final scrollable = find
+          .descendant(
+            of: find.descendant(
+              of: find.byType(EventForm),
+              matching: find.byType(ListView),
+            ),
+            matching: find.byType(Scrollable),
+          )
+          .first;
+      final position = tester.state<ScrollableState>(scrollable).position;
+      expect(position.pixels, 0.0);
+
+      // Beside the picker, level with it — the exact gesture that used to
+      // land on a wheel.
+      await tester.dragFrom(
+          Offset(screenWidth - 24, box.center.dy), const Offset(0, -150));
+      await tester.pumpAndSettle();
+
+      expect(position.pixels, greaterThan(0.0),
+          reason: 'the drag did not scroll the form');
+      expect(find.text(shown), findsOneWidget,
+          reason: 'the date changed from a drag that was not on the picker');
+    });
+
+    testWidgets('and a drag on the wheels still moves them', (tester) async {
+      // The control. Without it the test above would also pass on a picker
+      // that had simply stopped responding — and before this change, the
+      // wheels covered the whole width, so the gesture above was this one.
+      final box = await openForm(tester);
+
+      await tester.dragFrom(box.center, const Offset(0, -80));
+      await tester.pumpAndSettle();
+
+      expect(find.text("א' בתשרי"), findsNothing,
+          reason: 'the wheels ignored a drag that started on them');
     });
   });
 }

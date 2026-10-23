@@ -477,29 +477,42 @@ class _EventFormState extends State<EventForm> {
 
       Text('תאריך האירוע *', style: theme.textTheme.titleMedium),
       const SizedBox(height: 8),
-      Card(
-        elevation: 0,
-        color: theme.colorScheme.surfaceContainerHighest,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
-        ),
-        child: Padding(
-          padding: const EdgeInsets.all(12),
-          // המפתח כולל את הלוח: החלפת לוח בונה בורר חדש עם התאריך
-          // שהומר, במקום לסנכרן גלגלים קיימים אל ערכים שהשתנו מבחוץ.
-          child: EventDatePicker(
-            key: ValueKey(_system),
-            calendar: _system,
-            initialDay: _day,
-            initialMonth: _month,
-            initialAdarType: _adarType,
-            onChanged: (day, month, adarType) {
-              setState(() {
-                _day = day;
-                _month = month;
-                _adarType = adarType;
-              });
-            },
+      // חצי רוחב, צמוד לשמאל. גלגלי הבחירה בולעים כל גרירה אנכית
+      // שמתחילה עליהם, ולכן בורר שתופס את מלוא הרוחב לא משאיר שום מקום
+      // לגלול בו: כל ניסיון לדפדף מעל התאריך שינה אותו. החצי הימני פנוי
+      // עכשיו, וזה גם הצד שהאגודל נוחת בו.
+      //
+      // Alignment.centerLeft ולא AlignmentDirectional.centerStart:
+      // התבקש הצד השמאלי הפיזי, ו-start ב-RTL הוא דווקא הימני.
+      Align(
+        alignment: Alignment.centerLeft,
+        child: FractionallySizedBox(
+          widthFactor: 0.5,
+          child: Card(
+            elevation: 0,
+            color: theme.colorScheme.surfaceContainerHighest,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              // המפתח כולל את הלוח: החלפת לוח בונה בורר חדש עם התאריך
+              // שהומר, במקום לסנכרן גלגלים קיימים אל ערכים שהשתנו מבחוץ.
+              child: EventDatePicker(
+                key: ValueKey(_system),
+                calendar: _system,
+                initialDay: _day,
+                initialMonth: _month,
+                initialAdarType: _adarType,
+                onChanged: (day, month, adarType) {
+                  setState(() {
+                    _day = day;
+                    _month = month;
+                    _adarType = adarType;
+                  });
+                },
+              ),
+            ),
           ),
         ),
       ),

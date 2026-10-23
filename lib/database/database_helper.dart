@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite/sqflite.dart';
 
@@ -20,7 +21,9 @@ class DatabaseHelper {
   ///
   /// [_onUpgrade] נשאר כאן בשביל מה שיבוא: כל שינוי סכימה עתידי חייב
   /// להיות אינקרמנטלי ובסדר עולה, כי אז כבר יהיו התקנות עם נתונים.
-  static const _databaseVersion = 1;
+  ///
+  /// 1 -> 2: skipped_event_at – "לא להזכיר השנה" למופע אחד בלבד.
+  static const _databaseVersion = 2;
 
   static const table = 'events';
 
@@ -53,7 +56,11 @@ class DatabaseHelper {
   /// נתונים, ובלוק שרץ בסדר יורד מזמין מיגרציה עתידית שתסתמך על קודמתה
   /// ותרוץ לפניה.
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
-    // אין עדיין גרסאות קודמות.
+    if (oldVersion < 2) {
+      // ללא DEFAULT: NULL פירושו "לא דולג על שום מופע", וזה המצב הנכון
+      // לכל אירוע קיים.
+      await db.execute('ALTER TABLE $table ADD COLUMN skipped_event_at TEXT');
+    }
   }
 
   /// תופס את נעילת הסנכרון, או מדווח שהיא תפוסה.
@@ -157,6 +164,15 @@ class DatabaseHelper {
     );
   }
 
+  /// נחשפת לבדיקה בלבד.
+  ///
+  /// אי אפשר להגיע למיגרציה דרך [instance]: החיבור נפתח פעם אחת ונשמר
+  /// בשדה סטטי, ולכן עד שבדיקה רצה הסכימה כבר נוצרה מאפס דרך _onCreate
+  /// – כלומר הנתיב היחיד שהתקנה קיימת תעבור בו הוא היחיד שלא נבדק.
+  @visibleForTesting
+  static Future<void> migrate(Database db, int oldVersion) =>
+      instance._onUpgrade(db, oldVersion, _databaseVersion);
+
   Future<void> _createStateTable(Database db) async {
     await db.execute(
       'CREATE TABLE IF NOT EXISTS $stateTable ('
@@ -183,6 +199,7 @@ class DatabaseHelper {
         created_at TEXT NOT NULL,
         last_notified_at TEXT,
         postponed_reminder_at TEXT,
+        skipped_event_at TEXT,
         reminder_mode TEXT NOT NULL DEFAULT '${ReminderMode.weekdayOfPreviousWeek.dbValue}',
         reminder_value INTEGER NOT NULL DEFAULT ${Event.defaultReminderWeekday}
       )

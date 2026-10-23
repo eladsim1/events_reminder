@@ -376,7 +376,9 @@ class EventCalendarService {
   ///
   /// **שים לב:** התוצאה עשויה להיות בעבר. מועד ההתראה מקדים את האירוע
   /// ב-5 עד 11 יום, ולכן בכל שנה יש חלון שבו יום השלישי כבר חלף אך האירוע
-  /// עצמו עוד לפנינו. לתזמון התראות יש להשתמש ב-[nextFutureReminderDate].
+  /// עצמו עוד לפנינו. התזמון עצמו עובר דרך [futureReminderDates], שמונה
+  /// את כל החלון – ולא דרך [nextFutureReminderDate], שאין לו יותר קוראים
+  /// ב-lib ושאינו מכבד דילוג על שנה.
   DateTime reminderDate(Event event, {DateTime? from}) {
     return _reminderForEventDate(
       event,
@@ -485,8 +487,49 @@ class EventCalendarService {
       reminders.removeWhere((d) => d.isBefore(eventDate));
       reminders.insert(0, postponed);
     }
+
+    // דילוג מסיר את המופע ואינו מוסיף דבר במקומו – זה כל ההבדל בינו
+    // לבין דחייה. **אחרי** הדחייה ולא לפניה, כדי שדילוג יבטל גם דחייה
+    // שנרשמה קודם לכן; אחרת insert(0) היה מחזיר לחיים בדיוק את המופע
+    // שהתבקש לדלג עליו.
+    //
+    // ההשוואה ברמת היום ולא הרגע: דחייה "ביום האירוע" נוחתת ב-09:00 על
+    // תאריך האירוע עצמו, ו-isBefore היה משאיר אותה עומדת.
+    final skipped = activeSkip(event, from: now);
+    if (skipped != null) {
+      final skipDay = DateTime(skipped.year, skipped.month, skipped.day);
+      reminders.removeWhere(
+          (d) => !DateTime(d.year, d.month, d.day).isAfter(skipDay));
+    }
     return reminders;
   }
+
+  /// הדילוג שהמשתמש ביקש, אם הוא עדיין תקף – כלומר התאריך טרם חלף.
+  ///
+  /// **אין כאן בדיקה שהתאריך עדיין תואם מופע של האירוע**, אף שעריכת
+  /// התאריך הופכת אותו לחסר משמעות. ניסיתי זאת ונסוגתי: הערך מגיע
+  /// מה-payload של ההתראה כמילישניות, וההשוואה היא מול חצות מקומית –
+  /// מעבר שעון קיץ בין הרגעים מזיז את אחד הצדדים ביום, והדילוג היה
+  /// נדחה בשקט דווקא אחרי שהמשתמש ביקש אותו. ניקוי בעריכה (ראה
+  /// EventNotifier.updateEvent) פותר את אותה בעיה בלי להשוות תאריכים
+  /// משני מקורות.
+  ///
+  /// אין מנגנון ניקוי לפקיעה עצמה: סימון שחלף פשוט מפסיק לחול.
+  DateTime? activeSkip(Event event, {DateTime? from}) {
+    final at = event.skippedEventAt;
+    if (at == null) return null;
+
+    final now = from ?? _now();
+    // רכיבי תאריך ולא Duration – ראה הכלל בראש הקובץ.
+    return DateTime(at.year, at.month, at.day)
+            .isBefore(DateTime(now.year, now.month, now.day))
+        ? null
+        : at;
+  }
+
+  /// האם המשתמש ביקש לדלג על המופע הקרוב. ראה [activeSkip].
+  bool isYearSkipped(Event event, {DateTime? from}) =>
+      activeSkip(event, from: from) != null;
 
   /// מועד תזכורת שחלף אך טרם נמסר, או null אם אין כזה.
   ///
@@ -498,6 +541,10 @@ class EventCalendarService {
   /// שחלף, אין מה להשלים.
   DateTime? missedReminderDate(Event event, {DateTime? from}) {
     final now = from ?? _now();
+
+    // מופע שדולג עליו אינו החמצה. בלי השורה הזו ההשלמה הייתה מגישה
+    // אותו מיד בפתיחה הבאה – כלומר מבטלת את הבחירה שזה עתה נעשתה.
+    if (activeSkip(event, from: now) != null) return null;
 
     final occurrence = nextOccurrence(event, from: now);
     if (occurrence == null) return null;

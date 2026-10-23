@@ -70,6 +70,19 @@ class Event {
   /// אותו, הוא מפסיק לחול מעצמו.
   final DateTime? postponedReminderAt;
 
+  /// תאריך האירוע של המופע שהמשתמש ביקש **לדלג** עליו.
+  ///
+  /// "לא להזכיר השנה" מתוך ההתראה: המופע הזה לא יתוזמן, וכל השאר
+  /// נשארים כפי שהם. זה הבדל מהותי מכיבוי האירוע ([enabled]), שמשתיק
+  /// אותו לתמיד ודורש פעולה ידנית כדי לחזור.
+  ///
+  /// נשמר כתאריך האירוע ולא כמועד התזכורת, כי זה מה שמזהה את המופע
+  /// באופן יציב גם אם כלל התזכורת משתנה אחר כך.
+  ///
+  /// מפסיק לחול מעצמו, כמו [postponedReminderAt]: ברגע שהתאריך חלף, כל
+  /// מועד עתידי ממילא מאוחר ממנו ואין מה לסנן.
+  final DateTime? skippedEventAt;
+
   /// כיצד נגזר מועד ההתראה.
   final ReminderMode reminderMode;
 
@@ -97,6 +110,7 @@ class Event {
     required this.createdAt,
     this.lastNotifiedAt,
     this.postponedReminderAt,
+    this.skippedEventAt,
     this.reminderMode = ReminderMode.weekdayOfPreviousWeek,
     this.reminderValue = defaultReminderWeekday,
   });
@@ -209,6 +223,9 @@ class Event {
     DateTime? createdAt,
     DateTime? lastNotifiedAt,
     DateTime? postponedReminderAt,
+    bool clearPostponement = false,
+    DateTime? skippedEventAt,
+    bool clearSkip = false,
     ReminderMode? reminderMode,
     int? reminderValue,
   }) {
@@ -228,11 +245,29 @@ class Event {
       notes: clearNotes ? null : (notes ?? this.notes),
       createdAt: createdAt ?? this.createdAt,
       lastNotifiedAt: lastNotifiedAt ?? this.lastNotifiedAt,
-      postponedReminderAt: postponedReminderAt ?? this.postponedReminderAt,
+      postponedReminderAt: clearPostponement
+          ? null
+          : (postponedReminderAt ?? this.postponedReminderAt),
+      skippedEventAt:
+          clearSkip ? null : (skippedEventAt ?? this.skippedEventAt),
       reminderMode: reminderMode ?? this.reminderMode,
       reminderValue: reminderValue ?? this.reminderValue,
     );
   }
+
+  /// האם [other] נופל על אותו תאריך, באותו לוח.
+  ///
+  /// קיימת בשביל הניקוי בעריכה: דחייה ודילוג מצביעים על מופע מסוים,
+  /// ושינוי התאריך הופך אותם לדברים שאינם מצביעים על כלום.
+  ///
+  /// הלוח הוא חלק מההשוואה ולא פרט טכני: "14 בחשוון" ו-"14 בנובמבר"
+  /// הם שני ימים שונים, ולכן החלפת לוח מזיזה את כל המופעים בדיוק כמו
+  /// שינוי היום או החודש.
+  bool sameEventDate(Event other) =>
+      day == other.day &&
+      month == other.month &&
+      adarType == other.adarType &&
+      calendar == other.calendar;
 
   Map<String, dynamic> toMap() {
     return {
@@ -251,6 +286,7 @@ class Event {
       'created_at': createdAt.toIso8601String(),
       'last_notified_at': lastNotifiedAt?.toIso8601String(),
       'postponed_reminder_at': postponedReminderAt?.toIso8601String(),
+      'skipped_event_at': skippedEventAt?.toIso8601String(),
       'reminder_mode': reminderMode.dbValue,
       'reminder_value': reminderValue,
     };
@@ -274,6 +310,11 @@ class Event {
       // tryParse ולא parse: אלה סימונים פנימיים שהסנכרון הבא מחשב מחדש,
       // וערך פגום בגיבוי אינו סיבה להפיל את הייבוא כולו.
       postponedReminderAt: switch (map['postponed_reminder_at']) {
+        final String s when s.isNotEmpty => DateTime.tryParse(s),
+        _ => null,
+      },
+      // חסר בגיבויים שנוצרו לפני גרסה 2 של הסכימה.
+      skippedEventAt: switch (map['skipped_event_at']) {
         final String s when s.isNotEmpty => DateTime.tryParse(s),
         _ => null,
       },

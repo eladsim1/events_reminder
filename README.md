@@ -133,7 +133,7 @@ test/
 
 ```bash
 flutter pub get
-flutter test          # 313 בדיקות
+flutter test          # 329 בדיקות
 flutter run           # על מכשיר/אמולטור אנדרואיד מחובר
 ```
 

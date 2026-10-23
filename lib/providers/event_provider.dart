@@ -233,10 +233,31 @@ class EventNotifier extends AsyncNotifier<List<Event>> {
   }
 
   Future<void> updateEvent(Event event) async {
-    await _repo.update(event);
+    await _repo.update(_withoutStaleMarkers(event));
     await _refresh();
     // כל שינוי מחייב חישוב מחדש של ההתראה – ברקע, מאותה סיבה.
     unawaited(_scheduleAndRecord(event));
+  }
+
+  /// מנקה דחייה ודילוג כששינוי התאריך הפך אותם לחסרי משמעות.
+  ///
+  /// שניהם מצביעים על **מופע** מסוים, ושינוי התאריך מזיז את המופעים
+  /// כולם. נמדד לפני התיקון: דילוג על 21/09/2026 שרד שינוי תאריך והמשיך
+  /// לסנן, ובלע תזכורת שהייתה אמורה להגיע ב-20/01/2026 – תזכורת שנעלמת
+  /// בלי שאיש יידע, וזה בדיוק מה שהאפליקציה קיימת כדי למנוע.
+  ///
+  /// כאן ולא בתוך הלוח: הלוח היה צריך להשוות את הערך השמור מול רשימת
+  /// המופעים, וזו השוואה בין מילישניות מה-payload לבין חצות מקומית –
+  /// מעבר שעון קיץ ביניהן מזיז צד אחד ביום ודוחה דילוג תקף.
+  ///
+  /// [updateEvent] הוא נתיב העריכה היחיד, ולכן די בו.
+  Event _withoutStaleMarkers(Event event) {
+    for (final before in state.valueOrNull ?? const <Event>[]) {
+      if (before.id != event.id) continue;
+      if (before.sameEventDate(event)) return event;
+      return event.copyWith(clearSkip: true, clearPostponement: true);
+    }
+    return event;
   }
 
   /// מתזמן אירוע בודד ורושם את המועד הקרוב שטופל.
@@ -306,6 +327,31 @@ class EventNotifier extends AsyncNotifier<List<Event>> {
     for (final m in list) {
       if (m.id != eventId) continue;
       await updateEvent(m.copyWith(enabled: enabled));
+      return m.name;
+    }
+    return null;
+  }
+
+  /// מדלג על מופע אחד ומשאיר את האירוע פעיל.
+  ///
+  /// [eventDate] מגיע מההתראה עצמה, ולכן הוא בדיוק המופע שההתראה
+  /// שייכת לו ולא מה שיתברר כ"הקרוב" ברגע הלחיצה – הבדל שקיים בחלון
+  /// שבין מועד התזכורת לאירוע.
+  ///
+  /// דחייה קודמת נמחקת: דחייה ודילוג על אותו מופע סותרים זה את זה,
+  /// ובלי המחיקה הכרטיס היה ממשיך להבטיח תזכורת שלא תגיע.
+  ///
+  /// lastNotifiedAt מסומן על אותו תאריך כדי שמנגנון ההשלמה לא יראה
+  /// בדילוג החמצה ויגיש אותו מיד בפתיחה הבאה.
+  Future<String?> skipThisYear(int eventId, DateTime eventDate) async {
+    final list = state.valueOrNull ?? await _repo.getAll();
+    for (final m in list) {
+      if (m.id != eventId) continue;
+      await updateEvent(m.copyWith(
+        skippedEventAt: eventDate,
+        lastNotifiedAt: eventDate,
+        clearPostponement: true,
+      ));
       return m.name;
     }
     return null;

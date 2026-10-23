@@ -144,12 +144,16 @@ class NotificationService {
   static const String snoozeActionId = 'reschedule:more';
   static const String snoozeActionLabel = 'דחיית תזכורת';
 
-  /// בחירה מיוחדת ברשימת הדחייה: לכבות את התזכורות לאירוע הזה.
+  /// הסנטינל שהדיאלוג מחזיר עבור "לא להזכיר השנה".
   ///
   /// ערך שלילי, ולכן לעולם אינו מתנגש במספר ימים אמיתי ואינו עובר את
   /// [daysBeforeFromActionId].
-  static const int stopReminding = -1;
-  static const String stopRemindingLabel = 'לא להזכיר יותר';
+  ///
+  /// **מדלג על המופע הקרוב בלבד ואינו מכבה את האירוע.** קודם זה כיבה
+  /// אותו לגמרי, וזה הרבה יותר ממה שמבקשים: ההתראה שייכת לשנה מסוימת,
+  /// והבקשה לא לקבל אותה השנה אינה בקשה לשכוח את האירוע.
+  static const int skipThisYear = -1;
+  static const String skipThisYearLabel = 'לא להזכיר השנה';
 
   /// קידומת מזהה הפעולה; אחריה מספר הימים שלפני האירוע.
   static const String rescheduleActionPrefix = 'reschedule:';
